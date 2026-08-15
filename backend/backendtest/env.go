@@ -157,6 +157,32 @@ func (e *Env) screenContains(target, want string, budget time.Duration) (string,
 	}
 }
 
+// Quiesce waits until the screen stops changing, and returns the settled text.
+//
+// A live session is a moving target: a shell redrawing its prompt, output still
+// arriving, a clock in a status line. Any case that compares two captures has
+// to settle first, or it is asserting that nothing happened between them —
+// which is not what it means to test, and fails intermittently for a reason
+// unrelated to the rule.
+func (e *Env) Quiesce(target string) string {
+	e.T.Helper()
+	deadline := time.Now().Add(e.budgets.Screen)
+	previous := ""
+	for {
+		capture, err := e.Backend.Screen(e.ctx, target, backend.ScreenOpts{})
+		if err == nil {
+			if capture.Text == previous && capture.Text != "" {
+				return capture.Text
+			}
+			previous = capture.Text
+		}
+		if time.Now().After(deadline) {
+			e.T.Fatalf("the screen of %s never settled", target)
+		}
+		time.Sleep(e.budgets.Poll)
+	}
+}
+
 // Screen captures a target or fails the case.
 func (e *Env) Screen(target string) backend.Capture {
 	e.T.Helper()

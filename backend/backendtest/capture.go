@@ -41,7 +41,11 @@ func captureCases() []Case {
 				}
 				e.WaitFor(target, "ln-200")
 
-				visible := e.Screen(target).Text
+				// Settle first. Comparing two captures of a live session
+				// otherwise asserts that the shell did not repaint between
+				// them, which fails intermittently and has nothing to do with
+				// the rule under test.
+				visible := e.Quiesce(target)
 				withHistory, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{HistoryLines: 500})
 				if err != nil {
 					e.T.Fatalf("capturing with history: %v", err)
