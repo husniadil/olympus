@@ -37,7 +37,8 @@ func TestDrivingAPythonREPL(t *testing.T) {
 	python := requirePython(t)
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
-			s := session(t, l.open(t))
+			ol := l.open(t)
+			s := session(t, ol)
 			ctx := context.Background()
 
 			if err := s.Send(ctx, python+" -q"); err != nil {
@@ -51,7 +52,13 @@ func TestDrivingAPythonREPL(t *testing.T) {
 			// pattern that requires it works on one and silently never matches
 			// on the other.
 			if _, err := s.WaitFor(ctx, `^>>>\s*$`, olympus.WaitTimeout(20*time.Second)); err != nil {
-				t.Fatalf("the REPL prompt never appeared: %v", err)
+				// The screen AND the pane rows are the evidence. A timeout that
+				// only says a pattern did not appear cannot distinguish a
+				// program that never started, a prompt spelled differently, and
+				// a pane that died — three different problems with one message.
+				panes, panesErr := ol.Panes(ctx, s.Name())
+				t.Fatalf("the REPL prompt never appeared: %v\nScreen was:\n%q\nPanes: %+v (err=%v)",
+					err, mustScreen(t, s).Text, panes, panesErr)
 			}
 
 			if err := s.Send(ctx, "print(6*7)"); err != nil {
@@ -89,14 +96,21 @@ func TestRunningACommandInAREPLTimesOutRatherThanLying(t *testing.T) {
 	python := requirePython(t)
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
-			s := session(t, l.open(t))
+			ol := l.open(t)
+			s := session(t, ol)
 			ctx := context.Background()
 
 			if err := s.Send(ctx, python+" -q"); err != nil {
 				t.Fatalf("starting the REPL: %v", err)
 			}
 			if _, err := s.WaitFor(ctx, `^>>>\s*$`, olympus.WaitTimeout(20*time.Second)); err != nil {
-				t.Fatalf("the REPL prompt never appeared: %v", err)
+				// The screen AND the pane rows are the evidence. A timeout that
+				// only says a pattern did not appear cannot distinguish a
+				// program that never started, a prompt spelled differently, and
+				// a pane that died — three different problems with one message.
+				panes, panesErr := ol.Panes(ctx, s.Name())
+				t.Fatalf("the REPL prompt never appeared: %v\nScreen was:\n%q\nPanes: %+v (err=%v)",
+					err, mustScreen(t, s).Text, panes, panesErr)
 			}
 
 			_, err := s.Exec(ctx, "print(1)", olympus.RunTimeout(3*time.Second))

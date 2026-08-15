@@ -1088,18 +1088,31 @@ observed there, resending once before failing.
 
 UI-tolerant, absorbing terminal rendering noise: lowercase, strip every rune that
 is not a Unicode letter or digit (punctuation, whitespace, box-drawing and prompt
-glyphs all drop), then truncate to the first 24 resulting characters.
+glyphs all drop).
+
+**The 24-character truncation applies to the NEEDLE only.** It answers how much
+of the typed text must be seen again for the echo to count as observed; it is not
+a statement about how much of a line is worth reading. A line being SEARCHED MUST
+be normalized whole.
+
+Truncating both is a defect, and a common one rather than exotic: bash's default
+prompt puts `user@host:/dir$ ` on the same line as the command and normalizes to
+more characters than the whole cap, so a truncated line ends before the typed
+text begins. A verified send then fails after its resend with its own echo
+plainly on screen. It survives review easily because a multi-line prompt — which
+many developers have — puts the command on a clean second line and hides it.
 
 ### 7.2 Match per line, NOT across the whole screen
 
 Normalization MUST be applied per line, never to the full multi-line capture as
 one blob.
 
-A real terminal's status or prompt banner routinely burns through 24 alphanumeric
-characters *before* the pane even reaches the line containing the just-echoed
-text. Normalizing the whole screen as one string truncates at the banner and
-discards the line the marker is actually on, producing a false timeout even
-though the text is right there one line down.
+A real terminal's status or prompt banner routinely fills a line *before* the
+pane even reaches the line containing the just-echoed text. Normalizing the whole
+screen as one string risks matching a needle assembled from two unrelated lines,
+and per-line matching is what keeps a match a real one.
+
+The rule is about which text is compared, not about truncating it — see §7.1.
 
 ### 7.3 Also match adjacent line pairs, for wrap tolerance
 

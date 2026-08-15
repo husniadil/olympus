@@ -210,7 +210,7 @@ func (t *Tmux) Sessions(ctx context.Context) ([]backend.Session, error) {
 
 	var sessions []backend.Session
 	for _, line := range splitLines(out) {
-		f := strings.Split(line, "\x1f")
+		f := SplitFields(line)
 		if len(f) < 5 {
 			continue
 		}
@@ -255,7 +255,7 @@ func (t *Tmux) Panes(ctx context.Context, target string) ([]backend.Pane, error)
 
 	var panes []backend.Pane
 	for _, line := range splitLines(out) {
-		f := strings.Split(line, "\x1f")
+		f := SplitFields(line)
 		if len(f) < 8 {
 			continue
 		}
@@ -444,7 +444,7 @@ func (t *Tmux) screenMeta(ctx context.Context, target string) (backend.ScreenMet
 	if len(lines) == 0 {
 		return backend.ScreenMeta{}, nil
 	}
-	f := strings.Split(lines[0], "\x1f")
+	f := SplitFields(lines[0])
 	meta := backend.ScreenMeta{AltScreen: f[0] == "1"}
 	if len(f) > 1 {
 		// #{scroll_position} expands to the empty string outside copy mode,

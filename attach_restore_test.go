@@ -64,6 +64,12 @@ func TestAttachHandsTheTerminalBack(t *testing.T) {
 
 	client := exec.Command(binary, append(where, "attach", "restore")...)
 	client.Stdin, client.Stdout, client.Stderr = tty, tty, tty
+	// The test owns this terminal, so it has to say what kind it is. tmux
+	// refuses to attach to a terminal it cannot identify — "open terminal
+	// failed: terminal does not support..." — and an environment with no TERM
+	// at all, which is what a bare container has, is not a terminal a human
+	// would ever be sitting at.
+	client.Env = append(os.Environ(), "TERM=xterm-256color")
 	// Deliberately NOT Setsid/Setctty. Making the client the session leader
 	// means its death revokes this terminal, and every read afterwards fails
 	// with ENOTTY — which reads exactly like "the terminal was destroyed"

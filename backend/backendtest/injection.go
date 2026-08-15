@@ -39,15 +39,23 @@ func injectionCases() []Case {
 				target := e.StartShell()
 				e.Warm(target)
 
-				// The embedded newline ends the first line, so a shell runs
-				// it. The final line has no terminator, so it must sit on the
-				// prompt unexecuted — that is the rule under test.
+				// Only the FINAL line is asserted, because only the final line
+				// is guaranteed. §4.6 says in as many words that intermediate
+				// line execution is consumer-dependent: a bracketed-paste-aware
+				// line editor — zsh's ZLE, bash 5.1's readline — inserts an
+				// embedded newline literally instead of running it, which is
+				// the whole point of the framing Olympus pastes with.
+				//
+				// This case used to require the first line to have RUN, and
+				// passed only against a shell that happens not to hold it. A
+				// default bash held it, the case failed, and what it had found
+				// was its own assumption rather than a defect.
 				text := "printf 'pasted-%d\\n' 1\nprintf 'pending-%d\\n' 2"
 				if err := e.Backend.Paste(e.Ctx(), target, text); err != nil {
 					e.T.Fatalf("pasting: %v", err)
 				}
 
-				e.WaitFor(target, "pasted-1")
+				// The final line has no terminator, so nothing can have run it.
 				e.Never(target, "pending-2")
 
 				if err := e.Backend.Submit(e.Ctx(), target); err != nil {

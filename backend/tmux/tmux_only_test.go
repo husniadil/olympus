@@ -1067,3 +1067,39 @@ func TestTheAttachArgvIsOneTmuxAccepts(t *testing.T) {
 		}
 	}
 }
+
+// §0.5: the floor is tmux 3.3, so every version from there up must parse.
+//
+// It did not. tmux SANITIZES non-printable characters in format output, and
+// which ones survive differs by version: measured, 3.7b passes a 0x1f
+// separator through as the byte, while 3.5a renders it as the four-character
+// text `\037` (and turns a tab into `_`). Splitting only on the byte finds no
+// separators there, so every row is one field long, every row is skipped, and
+// a listing comes back EMPTY on a server that plainly has sessions.
+//
+// That is the worst shape a failure can take here: `start` reports success,
+// tmux itself lists the session, and Olympus reports nothing — so presence
+// checks say absent, ensure creates a duplicate, and the error a caller
+// finally sees is about something else entirely.
+func TestListingsParseBothSpellingsOfTheSeparator(t *testing.T) {
+	raw := "build\x1f$0\x1f0\x1f0\x1f/repo"
+	escaped := `build\037$0\0370\0370\037/repo`
+
+	for _, c := range []struct {
+		name string
+		line string
+	}{
+		{"the byte itself, as tmux 3.7 emits it", raw},
+		{"the octal escape, as tmux 3.5 emits it", escaped},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fields := tmux.SplitFields(c.line)
+			if len(fields) != 5 {
+				t.Fatalf("split into %d fields, want 5: %q", len(fields), fields)
+			}
+			if fields[0] != "build" || fields[1] != "$0" || fields[4] != "/repo" {
+				t.Errorf("fields came apart wrong: %q", fields)
+			}
+		})
+	}
+}

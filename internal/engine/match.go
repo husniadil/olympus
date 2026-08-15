@@ -5,8 +5,14 @@ import (
 	"unicode"
 )
 
-// normalizedLimit caps a normalized string. It is meant to bound a single
-// echoed LINE, never a whole pane (behavior §7.1).
+// normalizedLimit caps a NEEDLE: how much of the typed text has to be seen
+// again for the echo to count as observed (behavior §7.1).
+//
+// It bounds the needle and nothing else. Capping the line being SEARCHED is what
+// makes the answer disappear: bash's default prompt puts `user@host:/dir$ ` on
+// the same line as the command and normalizes to more characters than this whole
+// cap, so a capped line ends before the typed text begins and a verified send
+// fails with its own echo on screen in front of it.
 const normalizedLimit = 24
 
 // Normalize makes text comparable across terminal rendering noise: lowercase,
@@ -16,9 +22,28 @@ const normalizedLimit = 24
 // that redraws its prompt or a TUI that paints a border cannot make identical
 // text compare unequal.
 func Normalize(s string) string {
-	out := make([]rune, 0, normalizedLimit)
+	return normalize(s, normalizedLimit)
+}
+
+// normalizeLine is Normalize with no cap, for the text being SEARCHED.
+//
+// The haystack must not be truncated. What the cap is for — keeping a needle
+// short enough to stay a needle — has nothing to do with how much of a line is
+// worth looking at, and applying it to both is what let a prompt hide the very
+// echo the search was for.
+func normalizeLine(s string) string {
+	return normalize(s, -1)
+}
+
+// normalize lowercases and keeps only letters and digits, optionally capped.
+func normalize(s string, limit int) string {
+	capacity := limit
+	if capacity < 0 {
+		capacity = len(s)
+	}
+	out := make([]rune, 0, capacity)
 	for _, r := range s {
-		if len(out) >= normalizedLimit {
+		if limit >= 0 && len(out) >= limit {
 			break
 		}
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
@@ -52,12 +77,12 @@ func ScreenContains(screen, needle string) bool {
 	}
 	lines := strings.Split(screen, "\n")
 	for _, line := range lines {
-		if strings.Contains(Normalize(line), needle) {
+		if strings.Contains(normalizeLine(line), needle) {
 			return true
 		}
 	}
 	for i := 0; i+1 < len(lines); i++ {
-		if strings.Contains(Normalize(lines[i]+lines[i+1]), needle) {
+		if strings.Contains(normalizeLine(lines[i]+lines[i+1]), needle) {
 			return true
 		}
 	}

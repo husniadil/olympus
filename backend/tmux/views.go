@@ -56,7 +56,7 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 	if err != nil {
 		return backend.View{}, named(base, err)
 	}
-	fields := strings.Split(strings.TrimSpace(out), "\x1f")
+	fields := SplitFields(strings.TrimSpace(out))
 	if len(fields) != 3 || fields[0] == "" {
 		return backend.View{}, backend.Errorf(backend.CodeUnexpected,
 			"tmux described session %s as %q, which is not a session id, window and pane", base, strings.TrimSpace(out))
@@ -176,7 +176,7 @@ func (t *Tmux) Views(ctx context.Context, base string) ([]backend.View, error) {
 
 	var views []backend.View
 	for _, line := range splitLines(out) {
-		f := strings.Split(line, "\x1f")
+		f := SplitFields(line)
 		if len(f) < 4 {
 			continue
 		}
