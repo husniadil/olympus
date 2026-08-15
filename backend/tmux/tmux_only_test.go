@@ -440,3 +440,65 @@ func itoa(n int) string {
 }
 
 var _ = tmux.DefaultSocket
+
+// §2.1: a session whose command finishes before the create call returns is not
+// an infrastructure failure.
+//
+// Without a corpse flag, a session takes itself down when its command exits, so
+// a fast command is routinely gone before the confirming listing runs.
+// Reporting that as UNEXPECTED would make an ordinary short command look like
+// Olympus broke — while still leaving the caller no idea what happened. The row
+// is synthesized instead: created, and gone.
+func TestAnInstantlyFinishedSessionIsCreatedAndGoneNotAnError(t *testing.T) {
+	b := newBackend(t)
+	create(t, b, backend.CreateSpec{Name: "oly-anchor3"})
+
+	row, err := b.Create(context.Background(), backend.CreateSpec{
+		Name:    "oly-instant",
+		Dir:     t.TempDir(),
+		Cols:    80,
+		Rows:    24,
+		Command: []string{"sh", "-c", "exit 0"},
+	})
+	if err != nil {
+		t.Fatalf("creating a session whose command exits immediately: %v", err)
+	}
+	if row.Name != "oly-instant" {
+		t.Errorf("the row names %q, want %q", row.Name, "oly-instant")
+	}
+	if row.Outcome != backend.OutcomeCreated {
+		t.Errorf("outcome %q, want %q", row.Outcome, backend.OutcomeCreated)
+	}
+
+	// Which liveness comes back is a genuine race and both arms are correct:
+	// the command may or may not have exited before the confirming listing
+	// ran. Pinning one would make this test flaky for a reason that has
+	// nothing to do with the rule. What must never happen is an error, and
+	// what must always happen is a classified row rather than a blank one.
+	switch row.Liveness {
+	case backend.LivenessPresent, backend.LivenessGone:
+	default:
+		t.Errorf("liveness %q, want present or gone — the row must be classified either way", row.Liveness)
+	}
+}
+
+// The same command WITH a corpse requested keeps the session, which is the
+// whole point of the flag and the contrast that makes the case above correct.
+func TestTheSameCommandWithACorpseRequestedStaysListed(t *testing.T) {
+	b := newBackend(t)
+	row, err := b.Create(context.Background(), backend.CreateSpec{
+		Name:         "oly-corpse-kept",
+		Dir:          t.TempDir(),
+		Cols:         80,
+		Rows:         24,
+		Command:      []string{"sh", "-c", "exit 0"},
+		RemainOnExit: true,
+	})
+	if err != nil {
+		t.Fatalf("creating: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Kill(context.Background(), "oly-corpse-kept") })
+	if row.Liveness != backend.LivenessPresent {
+		t.Errorf("liveness %q, want %q — a requested corpse must keep the session listed", row.Liveness, backend.LivenessPresent)
+	}
+}

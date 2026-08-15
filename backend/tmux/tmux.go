@@ -140,7 +140,21 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 			return s, nil
 		}
 	}
-	return backend.Session{}, backend.Errorf(backend.CodeUnexpected, "session %s was created but is not listed", spec.Name)
+
+	// Created, and already finished. Without a corpse flag a session whose
+	// command exits takes the session with it, so a fast-exiting command is
+	// routinely gone before this listing runs. That is the documented
+	// behaviour of the option, not an infrastructure failure — reporting it as
+	// one would make an ordinary short command look like Olympus broke.
+	//
+	// The row is synthesized rather than omitted so the caller still learns
+	// what happened: it was created, and it is gone.
+	return backend.Session{
+		Name:     spec.Name,
+		Liveness: backend.LivenessGone,
+		CWD:      spec.Dir,
+		Outcome:  backend.OutcomeCreated,
+	}, nil
 }
 
 const sessionFormat = "#{session_name}\x1f#{session_id}\x1f#{session_attached}\x1f#{pane_dead}\x1f#{session_path}"

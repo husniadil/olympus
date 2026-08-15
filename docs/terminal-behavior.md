@@ -246,6 +246,14 @@ Initial size on zmx is accepted for interface conformance and **ignored** — zm
 has no spawn-time sizing concept, and the PTY is sized entirely by whatever
 client attaches later. Do not paper over this.
 
+**A session that finishes before creation returns is not a failure.** Without
+`remain-on-exit` (§2.7) a session takes itself down when its command exits, so a
+fast-exiting command is routinely gone by the time the confirming listing runs.
+Creation MUST NOT report that as an error — an ordinary short command would look
+like Olympus broke. It returns the row it can honestly give: named, outcome
+`created`, liveness `gone`. The caller learns both that it was created and that
+it is already over.
+
 ### 2.2 tmux option ordering: chain, never a second call
 
 Options applying to a new tmux session MUST be chained into the *same*
@@ -1269,11 +1277,19 @@ the source of false "already gone" and false "died" reports.
 Concurrent writers to one session MUST serialize through an advisory,
 `flock`-based, per-session lock.
 
-- **Key derivation** is the (backend, socket-or-directory, session) triple: hash
-  the socket or directory, sanitize the session name (keep `[A-Za-z0-9._-]`,
-  replace everything else with `_`), and place the lock file under a private
-  temporary directory with mode 0700. Two different sockets or directories MUST
-  never contend on the same lock file even when a session name collides.
+- **Key derivation** is the (backend, socket-or-directory, session) triple:
+  **hash the whole triple**, sanitize the session name (keep `[A-Za-z0-9._-]`,
+  replace everything else with `_`) for a readable prefix, and place the lock
+  file under a private temporary directory with mode 0700. Two different
+  sockets, directories, or backends MUST never contend on the same lock file
+  even when a session name collides.
+
+  The hash MUST cover the session name, not only the socket or directory.
+  Sanitizing makes a name a *safe* path component but not a *unique* one:
+  `my build` and `my_build` sanitize identically, so a name-only-sanitized key
+  makes two unrelated sessions share a lock. The visible symptom is not merely
+  over-serialization — it is a `CONFLICT` raised against a caller about a
+  session it never touched.
 - **Advisory only.** `flock` is cooperative: only other Olympus processes going
   through the same path observe it. A human typing in a raw `tmux attach`, or any
   non-Olympus writer, is unaffected and can still race.

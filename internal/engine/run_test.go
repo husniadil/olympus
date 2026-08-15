@@ -1,0 +1,295 @@
+package engine_test
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/engine"
+)
+
+func runner(f *fakeBackend, locks *engine.Locks) engine.Runner {
+	return engine.Runner{
+		Backend:  f,
+		Locks:    locks,
+		Key:      key("build"),
+		LockWait: time.Second,
+		Timeout:  400 * time.Millisecond,
+		Poll:     10 * time.Millisecond,
+	}
+}
+
+// completes makes the pane behave like a shell that ran the injected line: it
+// echoes the line, then emits the start marker, the output, and the completion.
+func completes(output string, code int) func(*fakeBackend, string) {
+	return func(f *fakeBackend, line string) {
+		id := idFromLine(line)
+		f.setScreen(line + "\nOLY_S_" + id + "\n" + output + "\nOLY_D_" + id + "_" + itoa(code) + "_\n")
+	}
+}
+
+func idFromLine(line string) string {
+	const prefix = "OLY_S_"
+	at := strings.Index(line, prefix)
+	if at < 0 {
+		return ""
+	}
+	rest := line[at+len(prefix):]
+	end := strings.IndexAny(rest, ";  \t")
+	if end < 0 {
+		return rest
+	}
+	return rest[:end]
+}
+
+func TestExecReturnsTheOutputAndExitCode(t *testing.T) {
+	f := &fakeBackend{onType: completes("built ok", 0)}
+	got, err := runner(f, nil).Exec(context.Background(), "build", "make build")
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if got.Output != "built ok" {
+		t.Errorf("output %q, want %q", got.Output, "built ok")
+	}
+	if got.ExitCode != 0 {
+		t.Errorf("exit code %d, want 0", got.ExitCode)
+	}
+}
+
+// A failing command is a normal result, not an infrastructure failure: the
+// protocol worked, and what it reports is the command's own status.
+func TestAFailingCommandIsNotAnError(t *testing.T) {
+	f := &fakeBackend{onType: completes("boom", 7)}
+	got, err := runner(f, nil).Exec(context.Background(), "build", "make build")
+	if err != nil {
+		t.Fatalf("a non-zero exit was reported as an error: %v", err)
+	}
+	if got.ExitCode != 7 {
+		t.Errorf("exit code %d, want 7", got.ExitCode)
+	}
+}
+
+// §6.3: both degradations are silent, so the check has to happen before any
+// pane interaction — a rejected command must not have typed anything.
+func TestADegradingCommandIsRejectedBeforeAnyInjection(t *testing.T) {
+	f := &fakeBackend{}
+	_, err := runner(f, nil).Exec(context.Background(), "build", "make build\nrm -rf /")
+	if !errors.Is(err, backend.ErrUsage) {
+		t.Fatalf("error is %v, want a usage error", err)
+	}
+	if typed, submits := f.counts(); typed != 0 || submits != 0 {
+		t.Errorf("the pane was touched %d times before the command was rejected", typed+submits)
+	}
+}
+
+func TestACommandThatNeverCompletesTimesOut(t *testing.T) {
+	f := &fakeBackend{onType: func(f *fakeBackend, line string) {
+		// The line echoes and the run starts, but nothing ever completes.
+		f.setScreen(line + "\nOLY_S_" + idFromLine(line) + "\nstill working\n")
+	}}
+	_, err := runner(f, nil).Exec(context.Background(), "build", "sleep 100")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Errorf("error is %v, want a timeout", err)
+	}
+}
+
+// §11.2: a run releases the lock BEFORE polling. Holding it across the whole
+// wait would block every other writer against the session for the full timeout,
+// for no benefit — the polling phase only reads.
+func TestTheLockIsReleasedBeforePolling(t *testing.T) {
+	locks := newLocks(t)
+	f := &fakeBackend{onType: func(f *fakeBackend, line string) {
+		f.setScreen(line + "\nOLY_S_" + idFromLine(line) + "\nworking\n")
+	}}
+
+	// Recorded once, not signalled on a channel: the poll loop calls this many
+	// times, and a channel would be drained by a later call before the
+	// assertion could read it.
+	var once sync.Once
+	var ran bool
+	var attemptErr error
+	f.onScreen = func(f *fakeBackend) {
+		once.Do(func() {
+			// Mid-poll, a competing writer must be able to take the session.
+			lock, err := locks.Acquire(context.Background(), key("build"), 50*time.Millisecond)
+			if err == nil {
+				_ = lock.Release()
+			}
+			ran, attemptErr = true, err
+		})
+	}
+
+	_, _ = runner(f, locks).Exec(context.Background(), "build", "sleep 100")
+
+	if !ran {
+		t.Fatal("the competing writer never ran, so this case proved nothing")
+	}
+	if attemptErr != nil {
+		t.Errorf("a competing writer was blocked during the poll phase: %v", attemptErr)
+	}
+}
+
+func TestStartReturnsAnIDWithoutWaiting(t *testing.T) {
+	f := &fakeBackend{}
+	id, err := runner(f, nil).Start(context.Background(), "build", "make deploy")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if id == "" {
+		t.Fatal("Start returned no id")
+	}
+	if typed, submits := f.counts(); typed != 1 || submits != 1 {
+		t.Errorf("injected %d times and submitted %d, want 1 and 1", typed, submits)
+	}
+}
+
+func TestPollReportsCompletionWithItsExitCode(t *testing.T) {
+	f := &fakeBackend{onType: completes("deployed", 0), state: backend.StatePresent}
+	r := runner(f, nil)
+
+	id, err := r.Start(context.Background(), "build", "make deploy")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	got, err := r.PollRun(context.Background(), "build", id)
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if got.Status != engine.PollCompleted {
+		t.Fatalf("status %q, want %q", got.Status, engine.PollCompleted)
+	}
+	if got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Errorf("exit code %v, want 0", got.ExitCode)
+	}
+	if got.Output != "deployed" {
+		t.Errorf("output %q, want %q", got.Output, "deployed")
+	}
+}
+
+// The exit code is a pointer so pending and died can leave it unset. A fake
+// zero would read as success to a consumer that forgot to branch on status.
+func TestPendingAndDiedCarryNoExitCode(t *testing.T) {
+	f := &fakeBackend{state: backend.StatePresent}
+	f.sessions = []backend.Session{{Name: "build", Liveness: backend.LivenessPresent}}
+	f.onType = func(f *fakeBackend, line string) {
+		f.setScreen(line + "\nOLY_S_" + idFromLine(line) + "\nworking\n")
+	}
+	r := runner(f, nil)
+
+	id, err := r.Start(context.Background(), "build", "sleep 100")
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	pending, err := r.PollRun(context.Background(), "build", id)
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if pending.Status != engine.PollPending {
+		t.Fatalf("status %q, want %q", pending.Status, engine.PollPending)
+	}
+	if pending.ExitCode != nil {
+		t.Errorf("a pending run carries exit code %d, want none", *pending.ExitCode)
+	}
+
+	// The session goes away underneath the run.
+	f.sessions = nil
+	died, err := r.PollRun(context.Background(), "build", id)
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if died.Status != engine.PollDied {
+		t.Errorf("status %q, want %q", died.Status, engine.PollDied)
+	}
+	if died.ExitCode != nil {
+		t.Errorf("a died run carries exit code %d, want none", *died.ExitCode)
+	}
+}
+
+// §6.8: poll answers about the command, never about the backend. A target that
+// never existed is indistinguishable from one that vanished, from a read-only
+// vantage point, so both collapse to died rather than to not-found.
+func TestPollingATargetThatNeverExistedIsDiedNotNotFound(t *testing.T) {
+	f := &fakeBackend{}
+	got, err := runner(f, nil).PollRun(context.Background(), "never-existed", "someid")
+	if err != nil {
+		t.Fatalf("polling a target that never existed failed: %v", err)
+	}
+	if got.Status != engine.PollDied {
+		t.Errorf("status %q, want %q", got.Status, engine.PollDied)
+	}
+}
+
+// §6.9: a corpse keeps the session listed, so session-level death detection
+// alone reports pending forever even though the command has died.
+func TestACorpsePaneIsDiedNotPending(t *testing.T) {
+	f := &fakeBackend{
+		sessions: []backend.Session{{Name: "build", Dead: true, Liveness: backend.LivenessPresent}},
+	}
+	got, err := runner(f, nil).PollRun(context.Background(), "build", "someid")
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if got.Status != engine.PollDied {
+		t.Errorf("status %q for a listed session whose pane is dead, want %q", got.Status, engine.PollDied)
+	}
+}
+
+// §6.7: an unknown id and a still-pending command are indistinguishable, and
+// that is deliberate — distinguishing them would need persistent state. It is
+// the caller's job to bound how long it waits.
+func TestAnUnknownIDReadsAsPending(t *testing.T) {
+	f := &fakeBackend{sessions: []backend.Session{{Name: "build", Liveness: backend.LivenessPresent}}}
+	got, err := runner(f, nil).PollRun(context.Background(), "build", "an-id-nobody-issued")
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if got.Status != engine.PollPending {
+		t.Errorf("status %q for an unknown id, want %q", got.Status, engine.PollPending)
+	}
+}
+
+// §11.1: polling must not take the lock. A read that blocks on a writer turns
+// observation into contention, and observing a busy session is the case that
+// matters most.
+func TestPollingDoesNotTakeTheLock(t *testing.T) {
+	locks := newLocks(t)
+	held, err := locks.Acquire(context.Background(), key("build"), time.Second)
+	if err != nil {
+		t.Fatalf("acquiring: %v", err)
+	}
+	defer held.Release()
+
+	f := &fakeBackend{sessions: []backend.Session{{Name: "build", Liveness: backend.LivenessPresent}}}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := runner(f, locks).PollRun(context.Background(), "build", "someid"); err != nil {
+			t.Errorf("PollRun: %v", err)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Error("polling blocked on the write lock")
+	}
+}
+
+// §6.4: the window grows on a backend that needs an explicit depth, and is not
+// requested at all on one that returns its own scrollback.
+func TestTheCaptureWindowIsOnlyRequestedWhereItMeansSomething(t *testing.T) {
+	native := &fakeBackend{caps: backend.Capabilities{NativeScrollback: true}, onType: completes("ok", 0)}
+	if _, err := runner(native, nil).Exec(context.Background(), "build", "cmd"); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+
+	windowed := &fakeBackend{caps: backend.Capabilities{NativeScrollback: false}, onType: completes("ok", 0)}
+	if _, err := runner(windowed, nil).Exec(context.Background(), "build", "cmd"); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+}
