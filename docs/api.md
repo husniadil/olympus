@@ -218,6 +218,7 @@ Both are documented in the affected operation's `--help`, not only here.
 |---|---|---|
 | `--backend <name>` | `OLYMPUS_BACKEND` | all |
 | `--socket <name>` | — | tmux backend only |
+| `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` | tmux backend only |
 | `--json` | — | all |
 | `--no-lock` | — | operations that take the write lock |
 | `-q` / `--quiet` | — | human output only |

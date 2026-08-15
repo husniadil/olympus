@@ -2,7 +2,10 @@ package tmux_test
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -376,7 +379,7 @@ func TestViewsGroupByIDSoTheBaseStaysAddressableByName(t *testing.T) {
 func listBuffers(t *testing.T, b backend.Backend) string {
 	t.Helper()
 	socket := socketOf(t, b)
-	out, err := exec.Command("tmux", "-L", socket, "list-buffers").Output()
+	out, err := exec.Command("tmux", "-S", socket, "list-buffers").Output()
 	if err != nil {
 		// No buffers at all makes tmux exit non-zero on some versions.
 		return ""
@@ -388,12 +391,12 @@ func listBuffers(t *testing.T, b backend.Backend) string {
 // are held to the same isolation rule as the backend itself (§2.9).
 func socketOf(t *testing.T, b backend.Backend) string {
 	t.Helper()
-	type socketed interface{ Socket() string }
+	type socketed interface{ Scope() string }
 	s, ok := b.(socketed)
 	if !ok {
 		t.Fatal("the tmux backend does not expose its socket, so a raw verification call cannot be isolated")
 	}
-	return s.Socket()
+	return s.Scope()
 }
 
 func lastMatching(screen, prefix string) string {
@@ -522,7 +525,7 @@ func TestCreatingAViewSetsUpItsReadOnlyPosture(t *testing.T) {
 	// "no such session" for a session that plainly exists (§9.1, §10).
 	option := func(name string) string {
 		t.Helper()
-		out, err := exec.Command("tmux", "-L", socket, "show-options", "-t", "="+view.Name+":", name).Output()
+		out, err := exec.Command("tmux", "-S", socket, "show-options", "-t", "="+view.Name+":", name).Output()
 		if err != nil {
 			return ""
 		}
@@ -543,7 +546,7 @@ func TestCreatingAViewSetsUpItsReadOnlyPosture(t *testing.T) {
 
 	// The empty pass-through table strips tmux's own mouse bindings, so the
 	// wheel would do nothing at all without these being re-added.
-	bindings, err := exec.Command("tmux", "-L", socket, "list-keys", "-T", "olympus-passthrough").Output()
+	bindings, err := exec.Command("tmux", "-S", socket, "list-keys", "-T", "olympus-passthrough").Output()
 	if err != nil {
 		t.Fatalf("listing the pass-through table: %v", err)
 	}
@@ -564,7 +567,7 @@ func TestTheHyperlinkOptInIsIdempotent(t *testing.T) {
 	socket := socketOf(t, b)
 	count := func() int {
 		t.Helper()
-		out, _ := exec.Command("tmux", "-L", socket, "show-options", "-g", "terminal-features").Output()
+		out, _ := exec.Command("tmux", "-S", socket, "show-options", "-g", "terminal-features").Output()
 		return strings.Count(string(out), "hyperlinks")
 	}
 
@@ -684,11 +687,11 @@ func TestAForeignGroupedSessionIsNotReportedAsAView(t *testing.T) {
 
 	// A grouped session created outside Olympus, exactly as an operator would.
 	socket := socketOf(t, b)
-	id, err := exec.Command("tmux", "-L", socket, "display-message", "-p", "-t", "=oly-fbase:", "#{session_id}").Output()
+	id, err := exec.Command("tmux", "-S", socket, "display-message", "-p", "-t", "=oly-fbase:", "#{session_id}").Output()
 	if err != nil {
 		t.Fatalf("reading the base's id: %v", err)
 	}
-	if err := exec.Command("tmux", "-L", socket, "new-session", "-d",
+	if err := exec.Command("tmux", "-S", socket, "new-session", "-d",
 		"-t", strings.TrimSpace(string(id)), "-s", "operators-own-window").Run(); err != nil {
 		t.Fatalf("creating a foreign grouped session: %v", err)
 	}
@@ -713,5 +716,81 @@ func TestAForeignGroupedSessionIsNotReportedAsAView(t *testing.T) {
 	}
 	if len(views) != 1 || views[0].Name != "olympus-view-oly-fbase-c3" {
 		t.Errorf("listing views of %s returned %+v, want only Olympus's own", base, views)
+	}
+}
+
+// §17.2: a socket NAME and a socket PATH address different servers, and neither
+// can see the other's sessions.
+//
+// The distinction is the whole point of offering both: a name lands in the
+// directory tmux shares with every server the user runs, while a path puts the
+// socket where the caller chooses — a project directory, a mounted volume, a
+// directory with tighter permissions.
+func TestASocketPathAddressesADifferentServerFromASocketName(t *testing.T) {
+	requireTmux(t)
+	ctx := context.Background()
+
+	dir, err := os.MkdirTemp(os.TempDir(), "olyp")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	path := filepath.Join(dir, "by-path.sock")
+	name := fmt.Sprintf("olyname-%d-%d", os.Getpid(), socketCounter.Add(1))
+
+	byPath := tmux.New(tmux.WithSocketPath(path))
+	byName := tmux.New(tmux.WithSocket(name))
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-S", path, "kill-server").Run()
+		_ = exec.Command("tmux", "-L", name, "kill-server").Run()
+		dir := os.Getenv("TMUX_TMPDIR")
+		if dir == "" {
+			dir = "/tmp"
+		}
+		_ = os.Remove(filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), name))
+	})
+
+	if _, err := byPath.Create(ctx, backend.CreateSpec{Name: "on-path", Dir: t.TempDir(), Cols: 80, Rows: 24}); err != nil {
+		t.Fatalf("creating on the path-addressed server: %v", err)
+	}
+	if _, err := byName.Create(ctx, backend.CreateSpec{Name: "on-name", Dir: t.TempDir(), Cols: 80, Rows: 24}); err != nil {
+		t.Fatalf("creating on the name-addressed server: %v", err)
+	}
+
+	// The socket really is where it was asked to be, rather than wherever tmux
+	// would have put a name.
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("no socket at the requested path: %v", err)
+	}
+
+	// Neither server sees the other's sessions: they are separate servers, and
+	// a session is scoped to one.
+	for _, c := range []struct {
+		what     string
+		backend  backend.Backend
+		wants    string
+		wantsNot string
+	}{
+		{"path-addressed", byPath, "on-path", "on-name"},
+		{"name-addressed", byName, "on-name", "on-path"},
+	} {
+		sessions, err := c.backend.Sessions(ctx)
+		if err != nil {
+			t.Fatalf("%s: listing: %v", c.what, err)
+		}
+		var names []string
+		for _, s := range sessions {
+			names = append(names, s.Name)
+		}
+		if len(names) != 1 || names[0] != c.wants {
+			t.Errorf("%s server lists %v, want only %q", c.what, names, c.wants)
+		}
+	}
+
+	// And the scope they report differs, which is what keeps their lock keys
+	// and diagnostics apart.
+	if byPath.Scope() == byName.Scope() {
+		t.Errorf("both addressings report the same scope %q, so they would share a lock", byPath.Scope())
 	}
 }

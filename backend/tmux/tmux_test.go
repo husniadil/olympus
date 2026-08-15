@@ -23,26 +23,27 @@ var socketCounter atomic.Int64
 // server must never be touched, so every backend here gets a private -L socket
 // that is torn down with the case.
 func newIsolated(t backendtest.Reporter) backend.Backend {
-	socket := fmt.Sprintf("olyt-%d-%d", os.Getpid(), socketCounter.Add(1))
+	// Addressed by PATH rather than by name, so the socket lives in a directory
+	// this test owns and disappears with it. A named socket lands in the
+	// directory tmux shares with every server the operator runs, and killing a
+	// server does not unlink its socket — which left hundreds of dead files
+	// there before this changed.
+	//
+	// The directory is short and made outside the testing package's own temp
+	// dir: that one embeds the test's name, and a socket path carries a hard
+	// byte budget.
+	dir, err := os.MkdirTemp(os.TempDir(), "olyt")
+	if err != nil {
+		t.Fatalf("creating a private socket directory: %v", err)
+	}
+	path := filepath.Join(dir, fmt.Sprintf("s%d.sock", socketCounter.Add(1)))
+
 	t.Cleanup(func() {
 		// Best effort: a case that never started a server has nothing to kill.
-		_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
-		// Killing the server does not unlink its socket file, so a suite that
-		// stops here leaves one behind per case — hundreds of them across a
-		// few runs, in a directory the operator shares with their own servers.
-		_ = os.Remove(socketPath(socket))
+		_ = exec.Command("tmux", "-S", path, "kill-server").Run()
+		_ = os.RemoveAll(dir)
 	})
-	return tmux.New(tmux.WithSocket(socket))
-}
-
-// socketPath is where tmux places a named socket: TMUX_TMPDIR or /tmp, then a
-// per-uid directory, then the bare name.
-func socketPath(socket string) string {
-	dir := os.Getenv("TMUX_TMPDIR")
-	if dir == "" {
-		dir = "/tmp"
-	}
-	return filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), socket)
+	return tmux.New(tmux.WithSocketPath(path))
 }
 
 func requireTmux(t *testing.T) {

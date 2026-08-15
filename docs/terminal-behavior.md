@@ -1789,7 +1789,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 
 | Name | Shape | Used for |
 |---|---|---|
-| tmux socket | `olympus` (default, overridable) | §17.2 |
+| tmux socket | `olympus` (default, overridable by name or path) | §17.2 |
 | tmux buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1) |
 | tmux key table | `olympus-passthrough` | view scroll bindings (§9.3) |
 | view session | `olympus-view-<base>-<nonce>` | grouped views (§9) |
@@ -1811,6 +1811,19 @@ A genuine asymmetry, sharper because the default backend is zmx (§0.1):
 - **tmux**: Olympus defaults to its **own socket**, never touching the operator's
   default tmux server unless explicitly pointed at it. Sessions Olympus creates
   are invisible to a plain `tmux ls`.
+
+  tmux addresses a server two ways and they are NOT interchangeable. A socket
+  **name** is resolved by tmux inside a per-user directory it chooses; a socket
+  **path** is used verbatim. Both MUST be offered: the name is the familiar
+  form, and the path is what lets the socket live somewhere the caller controls
+  — a project directory, a mounted volume, a directory with tighter permissions
+  than the shared one. A path also means the socket disappears with the
+  directory holding it, which a name does not: killing a server does not unlink
+  its socket file.
+
+  The two MUST NOT collapse to one identifier. Whichever form is in effect is
+  what a lock key and the diagnostic identify the server by, and a name and a
+  path are different servers whose sessions cannot see each other.
 - **zmx**: there is **no socket equivalent**. Sessions are global to one daemon
   per user, selected by environment (§2.9), so Olympus shares the operator's live
   daemon and its sessions appear in the operator's own `zmx list` alongside

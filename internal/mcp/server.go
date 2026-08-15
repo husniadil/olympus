@@ -88,6 +88,9 @@ func open() (*olympus.Olympus, error) {
 	if v := strings.TrimSpace(os.Getenv("OLYMPUS_SOCKET")); v != "" {
 		opts = append(opts, olympus.WithSocket(v))
 	}
+	if v := strings.TrimSpace(os.Getenv("OLYMPUS_SOCKET_PATH")); v != "" {
+		opts = append(opts, olympus.WithSocketPath(v))
+	}
 	if v := strings.TrimSpace(os.Getenv("ZMX_DIR")); v != "" {
 		opts = append(opts, olympus.WithZmxDir(v))
 	}

@@ -39,13 +39,14 @@ type Olympus struct {
 }
 
 type config struct {
-	explicit string
-	socket   string
-	zmxDir   string
-	noLock   bool
-	lockWait time.Duration
-	installs installedFunc
-	env      string
+	explicit   string
+	socket     string
+	socketPath string
+	zmxDir     string
+	noLock     bool
+	lockWait   time.Duration
+	installs   installedFunc
+	env        string
 }
 
 // An Option configures Open.
@@ -57,9 +58,21 @@ func WithBackend(name string) Option {
 	return func(c *config) { c.explicit = name }
 }
 
-// WithSocket selects the tmux socket. It has no meaning on other backends.
+// WithSocket selects the tmux socket by NAME, which tmux resolves inside its
+// own per-user directory. It has no meaning on other backends.
 func WithSocket(name string) Option {
 	return func(c *config) { c.socket = name }
+}
+
+// WithSocketPath selects the tmux socket by PATH, used verbatim.
+//
+// A name lands in a directory shared with every other tmux server the user
+// runs; a path lets the socket live somewhere the caller controls — a project
+// directory, a mounted volume, somewhere with tighter permissions. It is the
+// tmux counterpart to choosing a directory on a directory-addressed backend,
+// and it overrides any name.
+func WithSocketPath(path string) Option {
+	return func(c *config) { c.socketPath = path }
 }
 
 // WithZmxDir selects the zmx socket directory. It has no meaning on other
@@ -110,8 +123,16 @@ func Open(opts ...Option) (*Olympus, error) {
 		if socket == "" {
 			socket = tmux.DefaultSocket
 		}
-		o.backend = tmux.New(tmux.WithSocket(socket))
-		o.scope = socket
+		options := []tmux.Option{tmux.WithSocket(socket)}
+		if cfg.socketPath != "" {
+			options = append(options, tmux.WithSocketPath(cfg.socketPath))
+		}
+		built := tmux.New(options...)
+		o.backend = built
+		// The lock key and the diagnostic identify the server by this, so a
+		// name and a path must never collapse to the same string: they are
+		// different servers.
+		o.scope = built.Scope()
 	case backend.Zmx:
 		var options []zmx.Option
 		if cfg.zmxDir != "" {

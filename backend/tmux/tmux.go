@@ -24,17 +24,35 @@ import (
 const DefaultSocket = "olympus"
 
 // A Tmux is a backend driving one tmux server, identified by its socket.
+//
+// tmux addresses a server two ways and they are not interchangeable: a NAME
+// resolves to a socket inside a per-user directory tmux chooses, while a PATH
+// is used verbatim. The name is the familiar form; the path is what lets a
+// caller put the socket somewhere they control — a project directory, a mounted
+// volume, a directory with tighter permissions than the shared one.
 type Tmux struct {
-	socket  string
-	buffers atomic.Int64
+	socket     string
+	socketPath string
+	buffers    atomic.Int64
 }
 
 // An Option configures a backend.
 type Option func(*Tmux)
 
-// WithSocket selects the tmux socket. Tests MUST use a private one (§2.9).
+// WithSocket selects the tmux socket by NAME, which tmux resolves inside its
+// own per-user directory. Tests MUST use a private one (§2.9).
 func WithSocket(name string) Option {
-	return func(t *Tmux) { t.socket = name }
+	return func(t *Tmux) { t.socket = name; t.socketPath = "" }
+}
+
+// WithSocketPath selects the tmux socket by PATH, used verbatim.
+//
+// This is what makes tmux's isolation posture as controllable as a
+// directory-based backend's: the socket can live wherever the caller wants
+// rather than in a directory shared with every other tmux server that user
+// runs. It overrides any name.
+func WithSocketPath(path string) Option {
+	return func(t *Tmux) { t.socketPath = path }
 }
 
 // New builds a tmux backend.
@@ -453,7 +471,13 @@ func atoi(s string) int {
 
 // run invokes the tmux client and maps its failure into the error vocabulary.
 func (t *Tmux) run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	full := append([]string{"-L", t.socket}, args...)
+	// -S takes a path verbatim; -L takes a name tmux resolves itself. Passing
+	// both would let tmux pick, which is not a decision to leave to it.
+	addressing := []string{"-L", t.socket}
+	if t.socketPath != "" {
+		addressing = []string{"-S", t.socketPath}
+	}
+	full := append(addressing, args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
 	cmd.Stdin = stdin
 	cmd.Env = clientEnv()
@@ -551,6 +575,17 @@ func isNoServer(err error) bool {
 	msg := strings.ToLower(errText(err))
 	return strings.Contains(msg, "no server running") ||
 		strings.Contains(msg, "error connecting to")
+}
+
+// Scope reports how this backend addresses its server: the socket path when one
+// was given, otherwise the socket name. It is what a lock key and a diagnostic
+// identify the server by, so the two forms must never collapse to the same
+// string — they are different servers.
+func (t *Tmux) Scope() string {
+	if t.socketPath != "" {
+		return t.socketPath
+	}
+	return t.socket
 }
 
 // Socket reports the tmux socket this backend drives. It exists so a test can

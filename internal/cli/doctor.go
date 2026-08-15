@@ -40,6 +40,9 @@ func (a *App) doctorCmd() *cobra.Command {
 			if a.socket != "" {
 				opts = append(opts, olympus.WithSocket(a.socket))
 			}
+			if a.socketPath != "" {
+				opts = append(opts, olympus.WithSocketPath(a.socketPath))
+			}
 			if a.zmxDir != "" {
 				opts = append(opts, olympus.WithZmxDir(a.zmxDir))
 			}

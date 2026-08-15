@@ -108,7 +108,12 @@ func buildBackend(name backend.Name, cfg config) (backend.Backend, string) {
 		if socket == "" {
 			socket = tmux.DefaultSocket
 		}
-		return tmux.New(tmux.WithSocket(socket)), socket
+		options := []tmux.Option{tmux.WithSocket(socket)}
+		if cfg.socketPath != "" {
+			options = append(options, tmux.WithSocketPath(cfg.socketPath))
+		}
+		built := tmux.New(options...)
+		return built, built.Scope()
 	default:
 		var options []zmx.Option
 		if cfg.zmxDir != "" {
@@ -128,6 +133,9 @@ func buildBackend(name backend.Name, cfg config) (backend.Backend, string) {
 func isolationOf(name backend.Name, scope string) string {
 	switch name {
 	case backend.Tmux:
+		if strings.HasPrefix(scope, "/") {
+			return "socket at " + scope + "; these sessions are invisible to any tmux not pointed at that path"
+		}
 		return "private socket " + strconv.Quote(scope) + "; these sessions do not appear in a plain `tmux ls`"
 	default:
 		where := scope

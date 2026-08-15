@@ -154,6 +154,18 @@ sessions do not show up in a plain `tmux ls`. On zmx there is no socket
 equivalent — sessions are global to your daemon and appear in your own
 `zmx list`. `olympus doctor` states which is in effect.
 
+You can put the tmux socket wherever you like with `--socket-path`, rather than
+letting tmux choose the directory:
+
+```sh
+olympus --backend tmux --socket-path ./.olympus/sock start build
+```
+
+That keeps a project's sessions with the project, and the socket disappears when
+the directory does. `--socket` takes a plain name instead and lets tmux place
+it. The two address different servers, so sessions created under one are not
+visible under the other.
+
 ---
 
 ## Exit codes
