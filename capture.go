@@ -41,17 +41,11 @@ func (s Screens) MarshalJSON() ([]byte, error) {
 
 // Capture reads several targets in one call.
 //
-// It applies the door's own rule, which is stricter than the backend's: the
-// metadata for every target is gathered FIRST, and where the alt-screen flag is
-// true the capture is skipped entirely and the screen comes back empty
-// (behavior §5.3).
-//
-// The backend layer deliberately does not do this — it never refuses a target,
-// it just returns whatever the underlying call yields. The policy belongs here
-// because it depends on what the caller is going to do with the answer: a pane
-// on the alternate screen has no scrollback, so capturing it only re-reports a
-// grid a live consumer already mirrors, and the flag is what makes the empty
-// result mean "skipped by design".
+// A pane on the alternate screen — a full-screen application — IS captured, and
+// its visible grid is exactly what a caller driving that application needs. What
+// the alternate screen genuinely lacks is scrollback, so a history request
+// against one cannot be honoured and says so through a warning rather than by
+// quietly returning less than was asked for (behavior §5.3).
 func (o *Olympus) Capture(ctx context.Context, targets []string, opts ...ScreenOption) (Screens, error) {
 	if len(targets) == 0 {
 		return Screens{}, backend.Errorf(backend.CodeUsage, "no targets given to capture")
@@ -66,6 +60,7 @@ func (o *Olympus) Capture(ctx context.Context, targets []string, opts ...ScreenO
 		Screens: make(map[string]string, len(targets)),
 		Meta:    make(map[string]backend.ScreenMeta, len(targets)),
 	}
+	altScreen := false
 	for _, target := range targets {
 		resolved, err := o.resolveTarget(ctx, target)
 		if err != nil {
@@ -77,14 +72,18 @@ func (o *Olympus) Capture(ctx context.Context, targets []string, opts ...ScreenO
 			return Screens{}, err
 		}
 		out.Meta[target] = meta
+
+		perTarget := options
 		if meta.AltScreen {
-			// Skipped, not captured-and-empty. The flag beside it is what
-			// tells the caller which of those two this is.
-			out.Screens[target] = ""
-			continue
+			// There is no scrollback on the alternate screen, so asking for
+			// history is asking for something that does not exist. Dropping
+			// the request keeps the capture honest; the warning below keeps it
+			// visible.
+			perTarget.HistoryLines = 0
+			altScreen = true
 		}
 
-		capture, err := o.backend.Screen(ctx, resolved, options)
+		capture, err := o.backend.Screen(ctx, resolved, perTarget)
 		if err != nil {
 			return Screens{}, err
 		}
@@ -97,6 +96,12 @@ func (o *Olympus) Capture(ctx context.Context, targets []string, opts ...ScreenO
 	out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureMeta)...)
 	if options.HistoryLines > 0 {
 		out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureHistory)...)
+		if altScreen {
+			out.Warnings = append(out.Warnings, Warning{
+				Code:    WarningDegraded,
+				Message: "a target is on the alternate screen, which has no scrollback, so the history request was dropped for it",
+			})
+		}
 	}
 	return out, nil
 }

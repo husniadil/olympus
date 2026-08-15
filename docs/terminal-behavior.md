@@ -720,6 +720,14 @@ History **is** a documented no-op on zmx, whose history command already returns
 full scrollback with no separate viewport mode to opt into. Both flag states MUST
 return byte-identical output, regression-guarded.
 
+**Trailing whitespace does not survive identically across backends.** tmux
+preserves a row's padding and the trailing space of an unterminated prompt; zmx
+normalizes it away, so a REPL prompt captured as `>>> ` on one comes back as
+`>>>` on the other. A pattern that *requires* a trailing space therefore matches
+on one backend and silently never matches on the other. Doors MUST NOT paper
+over this by re-padding — the fix belongs in the pattern (`^>>>\s*$`), and
+§5.5 says so where callers will read it.
+
 ### 5.3 Alt-screen panes capture empty, by design
 
 A pane on the alternate screen (a TUI issuing `\e[?1049h`) has no scrollback, so a
@@ -728,20 +736,57 @@ capture only re-reports the visible grid a live consumer already mirrors.
 Two layers, behaving differently — state both precisely:
 
 - **The backend's capture method** never refuses a target for being on the alt
-  screen. It succeeds; the underlying call simply yields nothing useful. The
-  alt-screen metadata flag is the signal a caller uses to decide whether the
-  result is worth taking. This layer has no opinion.
-- **The door layer** is stricter: it gathers metadata for every target first and,
-  where the alt-screen flag is true, **skips the capture call entirely** and
-  returns an empty screen. The flag being true is what makes empty mean *skipped
-  by design* rather than *captured and came back empty*.
+  screen. It succeeds, and returns the visible grid. The alt-screen metadata
+  flag travels beside it. This layer has no opinion.
+- **The door layer** gathers metadata for every target first, and where the
+  alt-screen flag is true it **drops any history request** for that target and
+  discloses that it did (§0.8). It still captures.
+
+**The door MUST NOT skip an alt-screen capture.** An earlier revision required
+exactly that, reasoning that the visible grid is one "a live consumer already
+mirrors". That reasoning silently assumes an attached human. Olympus serves
+programs too (CLAUDE.md non-negotiable #6), and for a caller driving a
+full-screen application — an editor, a pager, a TUI client — the visible grid is
+not redundant, it is the **only** way to observe the program at all. Skipping it
+means such a program can be started and never seen, with an empty string and no
+error to explain why.
+
+What the alternate screen genuinely lacks is scrollback, and that is the part
+the door must refuse: a history request against it asks for something that does
+not exist, so the request is dropped and a warning says so rather than quietly
+returning less than was asked for.
 
 zmx never reports alt-screen: its capture metadata is always the zero value, with
 no subprocess run to check. This is **not** an unsupported-class error — the
 caller asked a question with an honest answer on zmx ("not tracked"), so the call
 succeeds with zeroes rather than failing.
 
-### 5.4 Capture metadata
+### 5.4 Waiting for a pattern is LINE-oriented
+
+Waiting matches a caller's regular expression against **each line** of the
+screen, never against the whole capture as one string.
+
+A screen is lines, and callers write line-oriented patterns: `^>>> ` for a REPL
+prompt, `\$ $` for a shell. A regular-expression engine anchors `^` and `$` to
+the whole text by default, so whole-screen matching makes every anchored pattern
+**silently never match** — while a plain substring keeps working, which is
+precisely what lets the defect ship unnoticed.
+
+Each line is tried both as captured and with trailing whitespace trimmed. A
+terminal pads rows out to the pane's width, and that padding is invisible to
+whoever wrote the pattern; requiring them to know about it would make the
+pattern depend on the pane's width, which they do not control.
+
+**Patterns MUST NOT require a trailing space.** Whether one survives into a
+capture is a backend difference (§5.2), so `^>>> $` matches on one backend and
+never on the other. `^>>>\s*$` is the portable form, and doors SHOULD say so
+where callers will read it.
+
+The matched line is reported alongside the screen: a caller waiting on a pattern
+almost always wants the line, and making them re-run the match to find it is
+asking them to reimplement what just happened.
+
+### 5.5 Capture metadata
 
 Per-target metadata carries the alt-screen flag and the copy-mode scroll position
 (lines scrolled up from the live bottom; 0 when not in copy mode). tmux-only; zmx

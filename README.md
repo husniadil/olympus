@@ -56,8 +56,10 @@ thing.
 ```sh
 olympus start build --dir /repo
 olympus send build 'make test'        # types it, confirms it landed, submits it
-olympus wait build '\$ $'             # block until the prompt comes back
+olympus wait build '\$\s*$'           # block until the prompt comes back
 olympus screen build api docs         # several sessions in one call
+olympus panes                         # every pane, across every session
+olympus capabilities                  # what this backend can do
 olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
 ```
@@ -130,6 +132,13 @@ rather than hopeful.
 exit code — with `--json` it is in `data.exit_code` and the process exits 0;
 without it, the process exits with the command's status so it composes in a
 pipeline like running the command directly.
+
+**It drives interactive programs, not just commands.** `run` uses shell syntax
+to mark a command's start and end, so it needs a shell — point it at a REPL and
+it will time out. Drive a REPL or a full-screen program with `send`, `key` and
+`wait` instead, and read it with `screen`. Patterns are matched per line, and
+should not require a trailing space: write `^>>>\s*$`, not `^>>> $`, because
+whether that space survives into a capture differs by backend.
 
 **Where sessions live differs.** On tmux, Olympus uses its own socket, so its
 sessions do not show up in a plain `tmux ls`. On zmx there is no socket

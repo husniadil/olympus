@@ -128,6 +128,53 @@ func captureCases() []Case {
 			},
 		},
 		{
+			Name: "§5.5 metadata is readable without capturing, and agrees with a capture",
+			Fn: func(e *Env) {
+				// The door needs the flag BEFORE deciding what to ask for, so
+				// metadata has to be answerable on its own. A backend that only
+				// produced it as a side effect of capturing would force the
+				// door to capture first and decide afterwards, which is the
+				// wrong order when the answer changes the request.
+				target := e.StartShell()
+				// Warmed so the pane has real content: agreement between two
+				// zero values is not agreement about anything, and a backend
+				// that answers nothing would otherwise satisfy this case.
+				e.Warm(target)
+
+				meta, err := e.Backend.ScreenMeta(e.Ctx(), target)
+				if err != nil {
+					e.T.Fatalf("reading capture metadata: %v", err)
+				}
+				if meta.AltScreen {
+					e.T.Errorf("an ordinary shell pane reports the alternate screen")
+				}
+				if meta.ScrollPosition != 0 {
+					e.T.Errorf("scroll_position is %d for a pane at the live bottom, want 0", meta.ScrollPosition)
+				}
+
+				// The two paths must agree: a caller that reads metadata and
+				// then captures must not be told two different things about
+				// the same pane.
+				capture := e.Screen(target)
+				if capture.Text == "" {
+					e.T.Errorf("the capture is empty for a pane that has run a command")
+				}
+				if capture.Meta != meta {
+					e.T.Errorf("metadata read alone is %+v but %+v alongside a capture", meta, capture.Meta)
+				}
+			},
+		},
+		{
+			Name: "§5.5 metadata for an absent session is not-found",
+			Fn: func(e *Env) {
+				if _, err := e.Backend.ScreenMeta(e.Ctx(), e.Name()); err == nil {
+					e.T.Errorf("reading metadata for an absent session succeeded")
+				} else if backend.CodeOf(err) != backend.CodeSessionNotFound {
+					e.T.Errorf("metadata for an absent session is %q, want %q", backend.CodeOf(err), backend.CodeSessionNotFound)
+				}
+			},
+		},
+		{
 			Name: "§10 capturing an absent session is not-found",
 			Fn: func(e *Env) {
 				_, err := e.Backend.Screen(e.Ctx(), e.Name(), backend.ScreenOpts{})

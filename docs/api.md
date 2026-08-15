@@ -28,6 +28,7 @@ same operation.
 | kill a session | `stop` | `stop_session` | `Stop` |
 | session detail / presence | `info` | `session_info` | `Info` |
 | type literal text | `type` | `type_text` | `Type` |
+| deliver text, confirmed, and submit | `send` | `send_text` | `Send` |
 | send named keys | `key` | `send_keys` | `Press` |
 | paste multi-line text | `paste` | `paste_text` | `Paste` |
 | read the screen | `screen` | `capture` | `Screen`, `Capture` |
@@ -270,9 +271,11 @@ only on `start`, and is `created` | `reused` | `reaped`.
 }
 ```
 
-An alt-screen target returns `""` with `alt_screen: true` — the flag is what
-makes empty mean *skipped by design* (behavior spec §5.3). Both maps are always
-objects, never `null`, including on the zero value a failure returns.
+An alt-screen target IS captured: its visible grid is the only way to observe a
+full-screen application, and `alt_screen: true` tells a caller that there is no
+scrollback behind it (behavior spec §5.3). A history request against such a
+target is dropped, with a warning. Both maps are always objects, never `null`,
+including on the zero value a failure returns.
 
 **Presence** (`info`): `info` carries the tri-state presence answer and **MUST NOT
 error on an absent target**:

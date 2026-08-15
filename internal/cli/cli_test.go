@@ -314,3 +314,129 @@ func TestHelpPointsScriptsAtTheStableOutput(t *testing.T) {
 		}
 	}
 }
+
+// The verbs added alongside the ergonomic layer, exercised through the door
+// rather than only through the library beneath it.
+func TestNewVerbIsStrictAndStartIsNot(t *testing.T) {
+	flags := isolation(t)
+	target := name()
+
+	if got := run(t, append(flags, "new", target)...); got.code != 0 {
+		t.Fatalf("new: exit %d, stderr %q", got.code, got.stderr)
+	}
+	t.Cleanup(func() { run(t, append(flags, "stop", target, "--force")...) })
+
+	// A name that exists is a conflict, which is exit 6 — not a silent reuse.
+	again := run(t, append(flags, "new", target, "--json")...)
+	if again.code != 6 {
+		t.Errorf("new on an existing name: exit %d, want 6", again.code)
+	}
+	if e := again.envelope(t); e.Error == nil || e.Error.Code != "CONFLICT" {
+		t.Errorf("code %v, want CONFLICT", e.Error)
+	}
+
+	// start reuses it instead, which is the whole difference between them.
+	if got := run(t, append(flags, "start", target)...); got.code != 0 {
+		t.Errorf("start on an existing name: exit %d, want 0", got.code)
+	}
+}
+
+func TestPanesVerbListsAllOrOne(t *testing.T) {
+	flags := isolation(t)
+	first, second := name(), name()
+	run(t, append(flags, "start", first)...)
+	run(t, append(flags, "start", second)...)
+	t.Cleanup(func() {
+		run(t, append(flags, "stop", first, "--force")...)
+		run(t, append(flags, "stop", second, "--force")...)
+	})
+
+	all := run(t, append(flags, "panes", "--json")...)
+	if all.code != 0 {
+		t.Fatalf("panes: exit %d, stderr %q", all.code, all.stderr)
+	}
+	rows, _ := all.envelope(t).Data.([]any)
+	if len(rows) < 2 {
+		t.Errorf("panes with no target returned %d rows, want at least 2", len(rows))
+	}
+
+	one := run(t, append(flags, "panes", first, "--json")...)
+	oneRows, _ := one.envelope(t).Data.([]any)
+	if len(oneRows) == 0 {
+		t.Errorf("panes for one session returned nothing")
+	}
+	for _, row := range oneRows {
+		pane, _ := row.(map[string]any)
+		if pane["session_name"] != first {
+			t.Errorf("a pane of %v appeared while listing %s", pane["session_name"], first)
+		}
+	}
+}
+
+func TestCapabilitiesVerbAnswersDirectly(t *testing.T) {
+	flags := isolation(t)
+	got := run(t, append(flags, "capabilities", "--json")...)
+	if got.code != 0 {
+		t.Fatalf("capabilities: exit %d, stderr %q", got.code, got.stderr)
+	}
+	caps, _ := got.envelope(t).Data.(map[string]any)
+	// tmux has views; a caller must be able to learn that WITHOUT provoking an
+	// unsupported error first.
+	if views, ok := caps["views"].(bool); !ok || !views {
+		t.Errorf("capabilities did not report view support: %v", caps)
+	}
+	if _, ok := caps["tracks_alt_screen"]; !ok {
+		t.Errorf("capabilities omits alt-screen tracking, which callers branch on: %v", caps)
+	}
+}
+
+// A throwaway run has no target, and cannot be detached because there would be
+// nothing left to poll.
+func TestRunWithNoTargetUsesAThrowawaySession(t *testing.T) {
+	flags := isolation(t)
+
+	got := run(t, append(flags, "run", `printf 'cli-throw-%d\n' 3`)...)
+	if got.code != 0 {
+		t.Fatalf("throwaway run: exit %d, stderr %q", got.code, got.stderr)
+	}
+	if !strings.Contains(got.stdout, "cli-throw-3") {
+		t.Errorf("stdout %q does not carry the command's output", got.stdout)
+	}
+
+	// Nothing left behind.
+	listed := run(t, append(flags, "ls", "--json")...)
+	if sessions, _ := listed.envelope(t).Data.([]any); len(sessions) != 0 {
+		t.Errorf("the throwaway run left %d sessions behind", len(sessions))
+	}
+
+	detached := run(t, append(flags, "run", "sleep 1", "--detach", "--json")...)
+	if detached.code != 2 {
+		t.Errorf("a detached throwaway run: exit %d, want 2", detached.code)
+	}
+}
+
+// The screen verb takes several targets and emits the map shape api §5
+// specifies, not one screen per invocation.
+func TestScreenVerbTakesSeveralTargets(t *testing.T) {
+	flags := isolation(t)
+	first, second := name(), name()
+	run(t, append(flags, "start", first)...)
+	run(t, append(flags, "start", second)...)
+	t.Cleanup(func() {
+		run(t, append(flags, "stop", first, "--force")...)
+		run(t, append(flags, "stop", second, "--force")...)
+	})
+
+	got := run(t, append(flags, "screen", first, second, "--json")...)
+	if got.code != 0 {
+		t.Fatalf("screen: exit %d, stderr %q", got.code, got.stderr)
+	}
+	data, _ := got.envelope(t).Data.(map[string]any)
+	screens, _ := data["screens"].(map[string]any)
+	if len(screens) != 2 {
+		t.Errorf("screen returned %d screens, want 2", len(screens))
+	}
+	if _, ok := data["meta"].(map[string]any); !ok {
+		t.Errorf("screen returned no meta map: %v", data)
+	}
+}

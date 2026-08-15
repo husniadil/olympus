@@ -1,4 +1,13 @@
+# Private working notes. Names the origin repos freely, which the checked-in
+# docs must never do — so this must never be committed.
 CLAUDE.local.md
+
+# Local tool permissions, which record absolute paths to other repositories on
+# this machine. Ignored here rather than relying on a machine-level global
+# ignore: that protection is invisible to anyone else and disappears with the
+# machine.
+.claude/settings.local.json
+
 /olympus
 /bin/
 /dist/

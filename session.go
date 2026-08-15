@@ -310,9 +310,17 @@ func (s *Session) WaitFor(ctx context.Context, pattern string, opts ...WaitOptio
 		screen, err := s.Screen(ctx)
 		if err == nil {
 			last = screen
-			if expression.MatchString(screen.Text) {
+			// Matched per LINE, never against the whole screen as one string.
+			//
+			// A screen is lines, and callers write line-oriented patterns:
+			// `^>>> $` for a REPL prompt, `\$ $` for a shell. Go's ^ and $
+			// anchor to the whole text by default, so whole-screen matching
+			// makes every one of those silently never match — while a plain
+			// substring still works, which is what makes the bug so easy to
+			// ship.
+			if line, ok := firstMatchingLine(expression, screen.Text); ok {
 				screen.Matched = true
-				screen.Line = firstMatchingLine(expression, screen.Text)
+				screen.Line = line
 				return screen, nil
 			}
 		}
@@ -382,18 +390,31 @@ func (s *Session) runner(opts ...RunOption) engine.Runner {
 	return r
 }
 
-// firstMatchingLine returns the first line a pattern matches, so a caller does
-// not have to re-run the match to find out which line it was.
-func firstMatchingLine(expression *regexp.Regexp, screen string) string {
+// firstMatchingLine returns the first line a pattern matches.
+//
+// Each line is tried BOTH as captured and with trailing whitespace trimmed,
+// because a terminal's padding is invisible to the person writing the pattern
+// and either reading can be the intended one:
+//
+//   - `^42$` is written against a line the caller sees as "42". A terminal may
+//     have padded it out to the pane's width, so `$` would anchor past a column
+//     of spaces and never match without the trim.
+//   - `^>>> $` is written against a REPL prompt whose trailing space is real and
+//     is the whole point of the pattern. Trimming would destroy exactly what it
+//     is looking for.
+//
+// Requiring the caller to know which one their terminal produced would make the
+// pattern depend on the pane's width, which is not something they control.
+func firstMatchingLine(expression *regexp.Regexp, screen string) (string, bool) {
 	for _, line := range strings.Split(screen, "\n") {
-		if expression.MatchString(line) {
-			return line
+		trimmed := strings.TrimRight(line, " \t\r")
+		if expression.MatchString(line) || expression.MatchString(trimmed) {
+			// The trimmed form is returned: the trailing spaces are invisible
+			// anyway, and a caller printing this wants the line, not padding.
+			return trimmed, true
 		}
 	}
-	// The pattern matched the screen but no single line, which happens when it
-	// spans a newline. The screen already carries it; there is no one line to
-	// name.
-	return ""
+	return "", false
 }
 
 // A Job is a detached run.
