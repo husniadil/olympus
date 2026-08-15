@@ -1408,6 +1408,30 @@ is what resolution reads to swap an id for a session — a row that cannot name
 its owner resolves to nothing, and the operation then reports a live session as
 absent.
 
+### 10.1 A pane id is an address for the session, not for the pane
+
+The consequence of the rule above, stated because it reads like a defect until
+the reason is visible: after resolution the operation runs against the session's
+**active** window and pane, so addressing a pane in some other window does not
+reach that pane. `send %0` and `send <session>` are the same operation.
+
+This is deliberate. Every name comparison and every write-lock key is
+session-scoped (§11), so a pane-precise target would key locks on something the
+rest of the system cannot see, and two callers driving two panes of one session
+would serialize against nothing. Precision here would buy addressing and sell
+the lock.
+
+It costs nothing on a session Olympus made, which is single-window and
+single-pane by §17.4. It only becomes visible on a session somebody else added a
+window to, and then the honest answer is that Olympus does not manage windows —
+not that it will reach into one.
+
+Which window is active after another window appears is the **multiplexer's**
+decision and differs between them: measured, tmux switches to the new window
+while meja stays on the current one. Olympus MUST NOT depend on either, and
+tests of this behaviour MUST assert that a pane id and a session name are
+indistinguishable rather than asserting which window received the text.
+
 Every tmux backend operation addresses sessions through exact-match `=<name>`
 syntax, which does **not** accept a bare pane id (`%0`) even though tmux's own
 `-t` does. Consumers holding pane ids would otherwise have to do their own
@@ -2016,8 +2040,13 @@ the same rule §1.1 applies to `LANG`, for the same reason.
 Recorded so they are not re-proposed as missing features:
 
 - **No command registry.** §6.7 — statelessness is load-bearing.
-- **No pane splitting.** Every session Olympus creates is single-pane, which is
-  the only reason §9.4's side effect is unobservable.
+- **No pane splitting, and no windows.** Every session Olympus creates is
+  single-window and single-pane, which is the only reason §9.4's side effect is
+  unobservable. Windows and panes are *reported* — every pane row carries its
+  window index — and never created: there is no verb, no tool and no method that
+  makes either. tmux and meja have windows; zmx has neither windows nor panes,
+  and its pane row is synthesized from the session, so its window index is
+  always 0. What follows when somebody else adds a window is §10's business.
 - **No embedded multiplexer, and no PTY-only degraded mode.** §0.7.
 - **No Windows target.** The attach path is Unix-PTY-bound.
 - **No default exit marker.** §14 — a fixed default invites collision.

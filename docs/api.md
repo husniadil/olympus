@@ -328,6 +328,17 @@ only on `start`, and is `created` | `reused` | `reaped`.
 `current_path` and `current_command` carry different meanings per backend
 (behavior spec §3.4) and trigger warnings on zmx per §0.8.
 
+Panes and windows are **reported, never created**. No verb, tool or method makes
+either: every session Olympus creates is single-window and single-pane. tmux and
+meja have both concepts; zmx has neither, and its row is synthesized from the
+session, so `pane_id` is the session's name and `window_index` is always 0.
+
+`pane_id` works as a target anywhere a session name does, in each backend's own
+spelling — `%7` on tmux, `7` on meja, the session's name on zmx. It addresses the
+**session that owns the pane**, not the pane: after a second window exists, an
+operation still runs against the session's active window. Behavior spec §10.1
+explains why precision here would cost the write lock.
+
 **Screen** (`screen`): one or more targets in a single call.
 
 ```json

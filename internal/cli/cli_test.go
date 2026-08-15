@@ -656,3 +656,108 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 		t.Errorf("stop on meja exited %d: %s", got.code, got.stderr)
 	}
 }
+
+// §17.4: Olympus does not manage windows, and this pins what that MEANS on a
+// backend that has them and a session somebody else has added one to.
+//
+// Two consequences, neither obvious, both easy to break by "improving" one of
+// them:
+//
+//   - a capture follows the session's ACTIVE window, not window 0
+//   - a pane id addresses the session, so it does NOT reach that pane
+//
+// The second reads like a bug until you see why §10 collapses a pane id to its
+// owning session: every name comparison and every write-lock key is
+// session-scoped, so a pane-precise target would key locks on something the
+// rest of the system cannot see. Pinned here so nobody makes it "precise" and
+// takes the locking with it.
+func TestWindowsBelongToTheMultiplexerNotToOlympus(t *testing.T) {
+	for _, be := range []struct {
+		name      string
+		newWindow func(socket, session string) *exec.Cmd
+	}{
+		{"tmux", func(socket, session string) *exec.Cmd {
+			return exec.Command("tmux", "-S", socket, "new-window", "-t", "="+session)
+		}},
+		{"meja", func(socket, session string) *exec.Cmd {
+			return exec.Command("meja", "-S", socket, "new-window", "-t", session)
+		}},
+	} {
+		t.Run(be.name, func(t *testing.T) {
+			// zmx is absent from this table on purpose: it has no window
+			// concept at all, so there is no behaviour here to pin.
+			probe := "version"
+			if be.name == "tmux" {
+				probe = "-V"
+			}
+			if err := exec.Command(be.name, probe).Run(); err != nil {
+				t.Skipf("%s is not installed or not runnable", be.name)
+			}
+			dir, err := os.MkdirTemp(os.TempDir(), "olyw")
+			if err != nil {
+				t.Fatalf("MkdirTemp: %v", err)
+			}
+			socket := filepath.Join(dir, "s.sock")
+			t.Cleanup(func() {
+				_ = exec.Command(be.name, "-S", socket, "kill-server").Run()
+				_ = os.RemoveAll(dir)
+			})
+
+			name := fmt.Sprintf("oly-win-%s-%d", be.name, os.Getpid())
+			on := func(args ...string) result {
+				return run(t, append(args, "--backend", be.name, "--socket-path", socket)...)
+			}
+			if got := on("start", name); got.code != 0 {
+				t.Fatalf("start: %s", got.stderr)
+			}
+
+			// Added from OUTSIDE Olympus, which is the only way a second window
+			// can exist: Olympus has no verb that makes one.
+			if out, err := be.newWindow(socket, name).CombinedOutput(); err != nil {
+				t.Fatalf("adding a window with %s: %v\n%s", be.name, err, out)
+			}
+
+			panes, _ := on("panes", "--json").envelope(t).Data.([]any)
+			windows := map[float64]string{}
+			for _, row := range panes {
+				p, _ := row.(map[string]any)
+				idx, _ := p["window_index"].(float64)
+				id, _ := p["pane_id"].(string)
+				windows[idx] = id
+			}
+			if len(windows) < 2 {
+				t.Fatalf("a second window exists but Olympus reports %d: %v", len(windows), panes)
+			}
+
+			// WHICH window becomes active after somebody adds one differs
+			// between multiplexers — measured: tmux switches to the new one,
+			// meja does not — so the invariant is asserted without naming it.
+			// A pane id and a session name must be indistinguishable as
+			// targets. That is what "a pane id addresses the owning session"
+			// means, and it holds wherever the active window happens to be.
+			somePane := windows[0]
+			if somePane == "" {
+				t.Fatalf("no pane reported for window 0: %v", windows)
+			}
+			if got := on("send", name, "echo via-session-name"); got.code != 0 {
+				t.Fatalf("send to the session: %s", got.stderr)
+			}
+			if got := on("send", somePane, "echo via-pane-id"); got.code != 0 {
+				t.Fatalf("send to pane %s: %s", somePane, got.stderr)
+			}
+
+			// One capture sees both. If a pane id selected its own pane, one of
+			// these two markers would have landed somewhere this capture cannot
+			// reach — which is exactly the surprise being pinned against.
+			screen := on("screen", name).stdout
+			if !strings.Contains(screen, "via-session-name") {
+				t.Errorf("what was sent to the session name is not on the session's screen:\n%s", screen)
+			}
+			if !strings.Contains(screen, "via-pane-id") {
+				t.Errorf("what was sent to pane %s is not on the session's screen — a pane id selected a pane, "+
+					"but §10 makes it an address for the OWNING SESSION, which is what the write lock keys on",
+					somePane)
+			}
+		})
+	}
+}
