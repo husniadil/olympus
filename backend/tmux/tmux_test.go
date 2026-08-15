@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -26,8 +27,22 @@ func newIsolated(t backendtest.Reporter) backend.Backend {
 	t.Cleanup(func() {
 		// Best effort: a case that never started a server has nothing to kill.
 		_ = exec.Command("tmux", "-L", socket, "kill-server").Run()
+		// Killing the server does not unlink its socket file, so a suite that
+		// stops here leaves one behind per case — hundreds of them across a
+		// few runs, in a directory the operator shares with their own servers.
+		_ = os.Remove(socketPath(socket))
 	})
 	return tmux.New(tmux.WithSocket(socket))
+}
+
+// socketPath is where tmux places a named socket: TMUX_TMPDIR or /tmp, then a
+// per-uid directory, then the bare name.
+func socketPath(socket string) string {
+	dir := os.Getenv("TMUX_TMPDIR")
+	if dir == "" {
+		dir = "/tmp"
+	}
+	return filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), socket)
 }
 
 func requireTmux(t *testing.T) {
