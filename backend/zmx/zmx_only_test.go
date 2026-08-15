@@ -296,3 +296,24 @@ func TestAnInitialSizeIsAcceptedAndIgnored(t *testing.T) {
 }
 
 var _ = zmx.New
+
+// A backend with nowhere to keep a session label MUST say so rather than
+// swallow the write. Silently accepting a status and reading back nothing would
+// make a caller wait forever for a state that can never be reported.
+func TestZmxHasNowhereToKeepAStatus(t *testing.T) {
+	requireZmx(t)
+
+	z := newBackend(t)
+	ctx := context.Background()
+
+	if z.Capabilities().SessionStatus {
+		t.Fatal("zmx claims it can carry a session status")
+	}
+	err := z.SetStatus(ctx, "anything", "working")
+	if backend.CodeOf(err) != backend.CodeUnsupported {
+		t.Errorf("SetStatus reports %v, want UNSUPPORTED", backend.CodeOf(err))
+	}
+	if _, err := z.Status(ctx, "anything"); backend.CodeOf(err) != backend.CodeUnsupported {
+		t.Errorf("Status reports %v, want UNSUPPORTED", backend.CodeOf(err))
+	}
+}

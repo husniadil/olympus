@@ -84,7 +84,11 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		// The send path does not reliably deliver control keys: Ctrl-X and
 		// friends are dropped, so an editor can be opened and read but never
 		// exited (§4.9). Capture is unaffected — a repaint IS reflected.
-		ControlKeys:     false,
+		ControlKeys: false,
+		// No per-session metadata of any kind: zmx has no option, label or
+		// annotation command, so there is nowhere a status could outlive the
+		// process that set it.
+		SessionStatus:   false,
 		TracksAltScreen: false,
 	}
 }
@@ -469,6 +473,18 @@ func (z *Zmx) ScreenMeta(ctx context.Context, target string) (backend.ScreenMeta
 func (z *Zmx) ServerEnv(ctx context.Context, key string) (string, bool, error) {
 	return "", false, backend.Errorf(backend.CodeUnsupported,
 		"zmx has no server environment: there is no shared server whose environment could be read")
+}
+
+// SetStatus is unsupported: zmx keeps no per-session metadata (§13.4).
+func (z *Zmx) SetStatus(ctx context.Context, target, status string) error {
+	return backend.Errorf(backend.CodeUnsupported, "zmx cannot carry a session status")
+}
+
+// Status is unsupported for the same reason. It refuses rather than returning
+// empty, which would be indistinguishable from a session that has simply not
+// reported yet.
+func (z *Zmx) Status(ctx context.Context, target string) (string, error) {
+	return "", backend.Errorf(backend.CodeUnsupported, "zmx cannot carry a session status")
 }
 
 func (z *Zmx) CreateView(ctx context.Context, base string, spec backend.ViewSpec) (backend.View, error) {

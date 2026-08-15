@@ -245,3 +245,25 @@ func TestSelfTool(t *testing.T) {
 		}
 	}
 }
+
+// The status vocabulary must reach the MCP door too, or an agent driving
+// Olympus through it has no way to answer "are you still working?" except by
+// scraping a screen that cannot tell it apart from a prompt.
+func TestSessionStatusTool(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	set := w.callTool(t, "session_status", map[string]any{"target": name, "set": "waiting on review"})
+	data, _ := set["data"].(map[string]any)
+	if data["status"] != "waiting on review" {
+		t.Fatalf("setting a status returned %v", data)
+	}
+
+	got := w.callTool(t, "session_status", map[string]any{"target": name})
+	data, _ = got["data"].(map[string]any)
+	if data["status"] != "waiting on review" {
+		t.Errorf("reading the status back returned %v", data)
+	}
+}

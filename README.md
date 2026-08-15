@@ -61,6 +61,8 @@ olympus screen build api docs         # several sessions in one call
 olympus watch build                   # follow output as it is produced
 olympus panes                         # every pane, across every session
 olympus self                          # which session am I running in?
+olympus status --set ready            # from inside: tell whoever is driving
+olympus status build --wait ready     # from outside: block until it says so
 olympus capabilities                  # what this backend can do
 olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over

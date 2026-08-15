@@ -490,3 +490,26 @@ func TestDoctorDistinguishesAServerItStartedFromOneItFound(t *testing.T) {
 		t.Errorf("doctor never says that Olympus configures only servers it starts:\n%s", got.stdout)
 	}
 }
+
+// Reading a status nobody set is an answer, not a failure, and the CLI has to
+// preserve that: exit 0 with an empty value.
+func TestStatusOnAnAbsentSessionIsNotFound(t *testing.T) {
+	got := run(t, "status", "no-such-session-"+t.Name(), "--json")
+	if got.code != 3 {
+		t.Errorf("exit %d, want 3 (SESSION_NOT_FOUND)", got.code)
+	}
+}
+
+// The verb is one shape: a target, and flags that decide whether we are
+// reading, writing or blocking.
+func TestStatusVerbExists(t *testing.T) {
+	got := run(t, "status", "--help")
+	if got.code != 0 {
+		t.Fatalf("exit %d, want 0", got.code)
+	}
+	for _, flag := range []string{"--set", "--wait"} {
+		if !strings.Contains(got.stdout, flag) {
+			t.Errorf("status has no %s flag:\n%s", flag, got.stdout)
+		}
+	}
+}

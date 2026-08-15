@@ -46,6 +46,13 @@ All notable changes to this project are documented here. The format follows
   reports which case applies and what is actually in effect. A private socket is not a private
   configuration, and an operator's `default-command` was measurably corrupting
   the run protocol's exit marker.
+- Session status: an opaque label a process inside a session leaves for whoever
+  drives it from outside, as `status`, the `session_status` tool, and
+  `SetStatus`/`Status`/`WaitForStatus`. It answers what a capture cannot — a
+  program at a prompt and one mid-work render identically. Olympus defines no
+  vocabulary of states; backends that cannot carry one refuse both directions.
+  With no target it uses the session the caller is in, resolving that session's
+  server along with its name.
 - Views: the read-only posture and wheel bindings, with the base probed before
   anything is created. OSC 8 hyperlinks are declared per attach client with
   tmux's `-T`, so no server option is rewritten.

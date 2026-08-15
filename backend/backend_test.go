@@ -43,6 +43,8 @@ func (stub) Follow(context.Context, string) (io.ReadCloser, error) {
 func (stub) Attach(context.Context, string, backend.AttachSpec) (backend.Attachment, error) {
 	return backend.Attachment{}, nil
 }
+func (stub) SetStatus(context.Context, string, string) error { return nil }
+func (stub) Status(context.Context, string) (string, error)  { return "", nil }
 func (stub) CreateView(context.Context, string, backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, nil
 }

@@ -173,6 +173,8 @@ func (f *fakeBackend) Attach(context.Context, string, backend.AttachSpec) (backe
 	return backend.Attachment{}, backend.Errorf(backend.CodeUnsupported, "the fake does not attach")
 }
 
+func (f *fakeBackend) SetStatus(context.Context, string, string) error { return nil }
+func (f *fakeBackend) Status(context.Context, string) (string, error)  { return "", nil }
 func (f *fakeBackend) CreateView(context.Context, string, backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, backend.Errorf(backend.CodeUnsupported, "the fake has no views")
 }

@@ -521,3 +521,45 @@ func TestDiagnoseDoesNotMistakeAMatchingConfigForOwnership(t *testing.T) {
 		t.Error("doctor reports a server Olympus never touched as one it started and configured, because the operator's own settings happened to match")
 	}
 }
+
+// The story this exists for: a program inside a session says what it is doing,
+// and a caller outside blocks until it says the thing they care about.
+//
+// A screen scrape cannot answer this reliably — a program sitting at a prompt
+// and a program halfway through work can render identically — so the answer has
+// to come from the program itself.
+func TestWaitingForASessionToReportAStatus(t *testing.T) {
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			s := session(t, ol)
+			ctx := context.Background()
+
+			if !ol.Capabilities().SessionStatus {
+				if err := s.SetStatus(ctx, "working"); olympus.CodeOf(err) != backend.CodeUnsupported {
+					t.Errorf("a backend that cannot carry a status reports %v, want UNSUPPORTED", olympus.CodeOf(err))
+				}
+				return
+			}
+
+			// Nobody has reported anything yet, so waiting must time out rather
+			// than match an empty status against an empty want.
+			if _, err := s.WaitForStatus(ctx, "ready", olympus.WaitTimeout(300*time.Millisecond)); olympus.CodeOf(err) != backend.CodeTimeout {
+				t.Errorf("waiting on a status nobody set reports %v, want TIMEOUT", olympus.CodeOf(err))
+			}
+
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				_ = s.SetStatus(context.Background(), "ready")
+			}()
+
+			got, err := s.WaitForStatus(ctx, "ready", olympus.WaitTimeout(5*time.Second))
+			if err != nil {
+				t.Fatalf("WaitForStatus: %v", err)
+			}
+			if got != "ready" {
+				t.Errorf("WaitForStatus returned %q, want %q", got, "ready")
+			}
+		})
+	}
+}

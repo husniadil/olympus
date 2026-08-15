@@ -28,6 +28,7 @@ same operation.
 | kill a session | `stop` | `stop_session` | `Stop` |
 | session detail / presence | `info` | `session_info` | `Info` |
 | which session am I in | `self` | `self` | `Self` |
+| read/set/await a status | `status` | `session_status` | `SetStatus`, `Status`, `WaitForStatus` |
 | type literal text | `type` | `type_text` | `Type` |
 | deliver text, confirmed, and submit | `send` | `send_text` | `Send` |
 | send named keys | `key` | `send_keys` | `Press` |
@@ -248,6 +249,29 @@ cannot change which session its own process is sitting in.
 Field names are `snake_case` in JSON, and identical across CLI and MCP. These are
 semver-bound once shipped.
 
+**Status** (`status`):
+
+| Field | Type | Notes |
+|---|---|---|
+| `session` | string | The session the status belongs to. |
+| `status` | string | Empty when the session has never reported one. |
+
+The same shape in all three modes — read, `--set`, `--wait` — so a caller parsing
+the output needs one parser rather than three.
+
+The value is **opaque**: Olympus stores and returns it exactly as given, defines
+no vocabulary of states, and matches `--wait` exactly rather than as a pattern.
+What counts as busy or blocked belongs to the program in the session, not to the
+terminal. Backends that cannot carry one refuse both the read and the write with
+`UNSUPPORTED`; `capabilities` reports it as `session_status`. Behavior spec
+§13.1.
+
+With no target, `status` addresses the session the calling process is running in
+— and takes that session's *backend and server* from the same answer, not from
+the defaults. A reporter that resolved its name but not its server would write
+onto a different backend entirely on any isolated setup, and the waiter would
+time out against a session that never heard anything.
+
 **Identity** (`self`):
 
 | Field | Type | Notes |
@@ -365,11 +389,11 @@ for those.
     { "name": "zmx", "installed": true, "version": "0.6.0", "below_floor": false,
       "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
                         "server_env": false, "control_keys": false,
-                        "tracks_alt_screen": false } },
+                        "session_status": false, "tracks_alt_screen": false } },
     { "name": "tmux", "installed": true, "version": "3.7b", "below_floor": false,
       "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
                         "server_env": true, "control_keys": true,
-                        "tracks_alt_screen": true },
+                        "session_status": true, "tracks_alt_screen": true },
       "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []

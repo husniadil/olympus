@@ -137,6 +137,16 @@ type Capabilities struct {
 	// is not fully characterized and is not worth characterizing: what a caller
 	// needs to know is that control keys cannot be relied on there.
 	ControlKeys bool `json:"control_keys"`
+	// SessionStatus reports whether a session can carry an opaque label a
+	// process inside it sets for whoever drives it from outside.
+	//
+	// It is a capability rather than an assumption because a backend needs
+	// somewhere to keep it that outlives the process that set it: the reporter
+	// is inside the session and the reader is outside, and they never run at
+	// the same moment. A backend without such a place MUST refuse the write
+	// rather than swallow it, or a caller waits forever for a state that can
+	// never be reported.
+	SessionStatus bool `json:"session_status"`
 	// TracksAltScreen reports whether capture metadata's alt-screen flag
 	// means anything on this backend. Without it a caller cannot tell "this
 	// pane is not on the alternate screen" from "this backend does not

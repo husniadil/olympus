@@ -240,6 +240,16 @@ type Backend interface {
 	// Attach prepares a client for the engine to run inside a PTY.
 	Attach(ctx context.Context, target string, spec AttachSpec) (Attachment, error)
 
+	// SetStatus records an opaque label on a session, for a process inside it
+	// to leave for whoever drives it from outside.
+	//
+	// Olympus never interprets the value, and MUST NOT enumerate the states a
+	// caller may use: those describe what is driving the terminal rather than
+	// the terminal. UNSUPPORTED on a backend with nowhere to keep it.
+	SetStatus(ctx context.Context, target, status string) error
+	// Status reports that label, empty when the session has never been given
+	// one. Empty is a real answer, not an error (§3.5).
+	Status(ctx context.Context, target string) (string, error)
 	// CreateView adds a view onto base.
 	//
 	// It is not a side-effect-free read: on a backend that supports it, view

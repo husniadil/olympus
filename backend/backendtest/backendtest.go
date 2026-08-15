@@ -137,5 +137,6 @@ func Cases() []Case {
 	all = append(all, injectionCases()...)
 	all = append(all, captureCases()...)
 	all = append(all, viewCases()...)
+	all = append(all, statusCases()...)
 	return all
 }

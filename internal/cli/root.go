@@ -173,6 +173,7 @@ release. Scripts should use --json, whose shape is semver-bound.`),
 		a.stopCmd(),
 		a.infoCmd(),
 		a.selfCmd(),
+		a.statusCmd(),
 		a.panesCmd(),
 		a.typeCmd(),
 		a.keyCmd(),
@@ -197,7 +198,31 @@ release. Scripts should use --json, whose shape is semver-bound.`),
 
 // open builds a handle with the global options applied.
 func (a *App) open() (*olympus.Olympus, error) {
+	return a.openAt(olympus.Identity{})
+}
+
+// openAt opens a handle, letting a discovered location fill in what no flag
+// supplied.
+//
+// Flags still win: an operator who names a backend or a socket has said where
+// they mean, and a process discovering its own surroundings must not overrule
+// that. The discovery only fills the gap that would otherwise be filled by a
+// default pointing somewhere else entirely.
+func (a *App) openAt(here olympus.Identity) (*olympus.Olympus, error) {
 	opts := []olympus.Option{}
+	if a.backendName == "" && here.Backend != "" {
+		opts = append(opts, olympus.WithBackend(string(here.Backend)))
+		if here.Scope != "" {
+			switch here.Backend {
+			case backend.Tmux:
+				// Self reports tmux's scope as the socket PATH, which is what
+				// tmux itself puts in the environment.
+				opts = append(opts, olympus.WithSocketPath(here.Scope))
+			case backend.Zmx:
+				opts = append(opts, olympus.WithZmxDir(here.Scope))
+			}
+		}
+	}
 	if a.backendName != "" {
 		opts = append(opts, olympus.WithBackend(a.backendName))
 	}

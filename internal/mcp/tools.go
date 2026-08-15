@@ -21,6 +21,7 @@ var ToolNames = []string{
 	"list_sessions",
 	"stop_session",
 	"session_info",
+	"session_status",
 	"self",
 	"list_panes",
 	"type_text",
@@ -121,6 +122,20 @@ type waitParams struct {
 	Pattern  string `json:"pattern" jsonschema:"a regular expression to wait for"`
 	Seconds  int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
 	Interval int    `json:"interval_ms,omitempty" jsonschema:"how often to re-read the screen, in milliseconds"`
+}
+
+type statusParams struct {
+	Target  string `json:"target" jsonschema:"the session to address"`
+	Set     string `json:"set,omitempty" jsonschema:"record this status on the session instead of reading it"`
+	Wait    string `json:"wait,omitempty" jsonschema:"block until the session reports exactly this status"`
+	Seconds int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
+}
+
+// A statusResult is what the status tool answers with, in every mode, so a
+// caller does not need three shapes for one tool.
+type statusResult struct {
+	Session string `json:"session"`
+	Status  string `json:"status"`
 }
 
 type listPaneParams struct {
@@ -324,6 +339,41 @@ func register(s *sdk.Server) {
 		func(ctx context.Context, ol *olympus.Olympus, in listPaneParams) ([]backend.Pane, []olympus.Warning, error) {
 			panes, err := ol.Panes(ctx, in.Target)
 			return panes, ol.PaneWarnings(), err
+		})
+
+	addTool(s, "session_status", "Read, set, or wait for a session's status: an opaque label a process INSIDE a session leaves for whoever drives it from outside. It answers what a capture cannot — a program at a prompt and a program mid-work render identically. Olympus never interprets the value and defines no vocabulary of states. Not every backend can carry one; `capabilities` reports it as session_status.",
+		func(ctx context.Context, ol *olympus.Olympus, in statusParams) (statusResult, []olympus.Warning, error) {
+			session, err := ol.Open(ctx, in.Target)
+			if err != nil {
+				return statusResult{}, nil, err
+			}
+			out := statusResult{Session: in.Target}
+			switch {
+			case in.Set != "" && in.Wait != "":
+				return statusResult{}, nil, olympus.ErrUsage
+			case in.Set != "":
+				if err := session.SetStatus(ctx, in.Set); err != nil {
+					return statusResult{}, nil, err
+				}
+				out.Status = in.Set
+			case in.Wait != "":
+				var opts []olympus.WaitOption
+				if in.Seconds > 0 {
+					opts = append(opts, olympus.WaitTimeout(time.Duration(in.Seconds)*time.Second))
+				}
+				got, err := session.WaitForStatus(ctx, in.Wait, opts...)
+				if err != nil {
+					return statusResult{}, nil, err
+				}
+				out.Status = got
+			default:
+				got, err := session.Status(ctx)
+				if err != nil {
+					return statusResult{}, nil, err
+				}
+				out.Status = got
+			}
+			return out, nil, nil
 		})
 
 	addTool(s, "self", "Report which session this MCP server is running inside, if any. Being outside one is an answer, not a failure. Nested sessions report no single address, because the environment cannot say which is inner.",

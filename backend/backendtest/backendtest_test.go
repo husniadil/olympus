@@ -51,6 +51,8 @@ func (inert) Attach(context.Context, string, backend.AttachSpec) (backend.Attach
 func (inert) CreateView(context.Context, string, backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, nil
 }
+func (inert) SetStatus(context.Context, string, string) error         { return nil }
+func (inert) Status(context.Context, string) (string, error)          { return "", nil }
 func (inert) ScrollView(context.Context, string, int) error           { return nil }
 func (inert) Views(context.Context, string) ([]backend.View, error)   { return nil, nil }
 func (inert) ServerEnv(context.Context, string) (string, bool, error) { return "", false, nil }

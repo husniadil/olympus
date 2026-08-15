@@ -114,3 +114,74 @@ func viewCases() []Case {
 		},
 	}
 }
+
+// statusCases prove a backend either carries a session's status or refuses it.
+//
+// A backend that has nowhere to keep one MUST refuse the write. Accepting it
+// and reading back nothing is the worst of the three outcomes: a caller waiting
+// on a state it can never receive has no failure to react to, only silence.
+func statusCases() []Case {
+	return []Case{
+		{
+			Name: "§13.1 a session carries an opaque status, or answers unsupported",
+			Fn: func(e *Env) {
+				name := e.StartShell()
+
+				err := e.Backend.SetStatus(e.Ctx(), name, "waiting on review")
+				if !e.Backend.Capabilities().SessionStatus {
+					if err == nil {
+						e.T.Fatalf("a backend that does not advertise a session status accepted one anyway, so a caller will wait forever for a state that can never be reported")
+					}
+					if !errors.Is(err, backend.ErrUnsupported) {
+						e.T.Errorf("setting a status is %q, want %q — unsupported is not unavailable", backend.CodeOf(err), backend.CodeUnsupported)
+					}
+					return
+				}
+				if err != nil {
+					e.T.Fatalf("a backend that advertises a session status failed to set one: %v", err)
+				}
+
+				got, err := e.Backend.Status(e.Ctx(), name)
+				if err != nil {
+					e.T.Fatalf("reading back a status: %v", err)
+				}
+				// Opaque: the value is returned exactly as given, because the
+				// backend has promised not to interpret it.
+				if got != "waiting on review" {
+					e.T.Errorf("status is %q, want %q", got, "waiting on review")
+				}
+			},
+		},
+		{
+			Name: "§13.1 a session that has reported nothing reads as empty, not as an error",
+			Fn: func(e *Env) {
+				name := e.StartShell()
+				got, err := e.Backend.Status(e.Ctx(), name)
+
+				if !e.Backend.Capabilities().SessionStatus {
+					// The READ must refuse too, not only the write. A backend
+					// that answers empty here is indistinguishable from one
+					// whose session has simply not reported yet, and a caller
+					// cannot tell "nothing to wait for, ever" from "not yet".
+					if err == nil {
+						e.T.Fatalf("a backend that cannot carry a status answered %q instead of refusing, so a caller cannot tell it apart from a session that has not reported yet", got)
+					}
+					if !errors.Is(err, backend.ErrUnsupported) {
+						e.T.Errorf("reading a status is %q, want %q", backend.CodeOf(err), backend.CodeUnsupported)
+					}
+					return
+				}
+
+				if err != nil {
+					// Empty is a real answer, the same tri-state rule as
+					// presence: a caller must be able to tell "has reported
+					// nothing" from "could not ask".
+					e.T.Fatalf("reading an unset status is an error: %v", err)
+				}
+				if got != "" {
+					e.T.Errorf("a session that never reported a status reads as %q", got)
+				}
+			},
+		},
+	}
+}

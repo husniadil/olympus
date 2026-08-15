@@ -997,3 +997,41 @@ func backendOnAHostileServer(t *testing.T, conf string) (backend.Backend, string
 	b := backendUnderHostileConfig(t, conf)
 	return b, socketOf(t, b)
 }
+
+// A status is a label a process INSIDE a session leaves for whoever is driving
+// it from outside — "I am waiting on you" — which a screen scrape cannot tell
+// you reliably, because a program at a prompt and a program mid-work can render
+// identically.
+//
+// Olympus stores it and never reads meaning into it. Enumerating states would
+// mean naming the concerns of whatever is driving the terminal rather than the
+// terminal, which this repo does not do.
+func TestASessionCarriesAStatusItWasGiven(t *testing.T) {
+	requireTmux(t)
+
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-status", Dir: t.TempDir(), Cols: 80, Rows: 24})
+	ctx := context.Background()
+
+	// Unset is empty, not an error: a session that has never reported anything
+	// is a real state, and one a caller has to be able to tell from a failure.
+	got, err := b.Status(ctx, name)
+	if err != nil {
+		t.Fatalf("reading an unset status: %v", err)
+	}
+	if got != "" {
+		t.Errorf("a session that never reported a status reads as %q", got)
+	}
+
+	if err := b.SetStatus(ctx, name, "waiting on review"); err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	got, err = b.Status(ctx, name)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	// Opaque: whitespace and prose survive, because Olympus is not parsing it.
+	if got != "waiting on review" {
+		t.Errorf("status is %q, want %q", got, "waiting on review")
+	}
+}

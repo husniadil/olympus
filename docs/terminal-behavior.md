@@ -1569,7 +1569,7 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
-server environment, control keys, alt-screen tracking.
+server environment, control keys, session status, alt-screen tracking.
 
 **Control-key delivery decides whether a full-screen program can be DRIVEN**,
 which makes it the most consequential entry here. Without it a caller can open
@@ -1588,6 +1588,46 @@ The name is carried on the capability value so it is self-describing in-process,
 but it is **not repeated on the wire**. Every structured shape that reports
 capabilities already names the backend on the row or in the envelope (api §5),
 and a second copy would be a second place for the two to disagree.
+
+### 13.1 Session status
+
+A session MAY carry a **status**: an opaque label a process *inside* it leaves
+for whoever is driving it from outside.
+
+It exists because a capture cannot answer the question. A program sitting at a
+prompt and a program halfway through work can render identically, and the
+difference is a fact only the program itself holds. Waiting on a screen pattern
+means guessing at a program's idle appearance; waiting on a status means the
+program said so.
+
+**Olympus MUST NOT interpret the value, and MUST NOT define a vocabulary of
+states.** What counts as busy, blocked or finished is a property of the program
+in the session, not of the terminal — enumerating them would name the concerns
+of whatever is driving Olympus rather than the thing Olympus drives, which §0
+rules out. The value is stored and returned exactly as given.
+
+Matching is therefore **exact**, never a pattern: a partial match would be
+Olympus reading structure into a string it has promised not to read.
+
+**An unset status is empty, not an error**, the same tri-state rule as presence
+(§3.5). A caller must be able to tell "has reported nothing" from "could not
+ask".
+
+**A backend that cannot carry one MUST refuse both the write AND the read.**
+Refusing the write alone is not enough: a read that answers empty is
+indistinguishable from a session that has simply not reported yet, so a caller
+cannot tell "not yet" from "never, on this backend". Accepting the write and
+answering empty is the worst outcome of the three — a caller waiting on a state
+that can never arrive has no failure to react to, only silence.
+
+It is a capability rather than a degraded-operation warning for the same reason
+control keys are: the caller's whole approach changes. With it, coordinate on
+reported state; without it, fall back to screen patterns and their guesswork.
+
+The store must outlive the process that wrote it — the reporter is inside the
+session and the reader is outside, and they never run at the same moment. On
+tmux this is a session-scoped user option, which tmux keeps and never acts on.
+zmx has no per-session metadata of any kind, so it declares the capability false.
 
 Capabilities MUST NOT include whether a session outlives its command. That is a
 property of the **caller's** own wrapper — does the shell it spawned keep running
