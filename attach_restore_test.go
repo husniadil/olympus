@@ -1,3 +1,5 @@
+//go:build darwin || linux
+
 package olympus_test
 
 import (
@@ -153,7 +155,7 @@ func TestAttachHandsTheTerminalBack(t *testing.T) {
 // only the terminal can answer that.
 func termiosOf(fd uintptr) (syscall.Termios, error) {
 	var t syscall.Termios
-	if _, _, errno := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TIOCGETA,
+	if _, _, errno := syscall.Syscall6(syscall.SYS_IOCTL, fd, ioctlGetTermios,
 		uintptr(unsafe.Pointer(&t)), 0, 0, 0); errno != 0 {
 		return t, errno
 	}

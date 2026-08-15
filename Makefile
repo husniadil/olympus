@@ -38,6 +38,19 @@ test:
 	@unformatted=$$(gofmt -l .); \
 	  [ -z "$$unformatted" ] || { echo "gofmt needed: $$unformatted"; exit 1; }
 	go vet ./...
+	@# The OTHER supported platform, checked by compiling for it.
+	@#
+	@# Everything here is developed on one OS, and the parts that reach for a
+	@# terminal or a signal are exactly the parts that differ between them —
+	@# termios ioctls are spelled TIOCGETA on Darwin and TCGETS on Linux. A test
+	@# that hardcodes one compiles cleanly for its author and breaks the whole
+	@# package for everyone else, which is how the attach-restore test shipped
+	@# building on Darwin and not on Linux.
+	@#
+	@# vet rather than test: it type-checks tests too, so it catches the class
+	@# without needing that OS to run on.
+	GOOS=linux GOARCH=amd64 go vet ./...
+	GOOS=darwin GOARCH=arm64 go vet ./...
 	go test -race $(TEST_CONCURRENCY) ./...
 
 install:
