@@ -513,3 +513,112 @@ func TestStatusVerbExists(t *testing.T) {
 		}
 	}
 }
+
+// Every backend Olympus supports must be reachable from the CLI and named
+// where a reader looks for the list. A backend that works but is undiscoverable
+// is one nobody uses.
+func TestTheCLIOffersEveryBackend(t *testing.T) {
+	help := run(t, "--help")
+	if help.code != 0 {
+		t.Fatalf("exit %d, want 0", help.code)
+	}
+	for _, name := range []string{"zmx", "tmux", "meja"} {
+		if !strings.Contains(help.stdout, name) {
+			t.Errorf("the --backend flag does not mention %q:\n%s", name, help.stdout)
+		}
+	}
+
+	// The doctor matrix is where a reader compares them, so an absent backend
+	// there reads as an unsupported one.
+	doctor := run(t, "doctor")
+	if !strings.Contains(doctor.stdout, "meja") {
+		t.Errorf("doctor never mentions meja:\n%s", doctor.stdout)
+	}
+
+	// An unknown backend stays a usage error, and the message has to list what
+	// IS legal or the correction is a guess.
+	bad := run(t, "ls", "--backend", "nope")
+	if bad.code != 2 {
+		t.Errorf("exit %d for an unknown backend, want 2 (USAGE)", bad.code)
+	}
+	if !strings.Contains(bad.stderr, "meja") {
+		t.Errorf("the unknown-backend message does not list meja: %s", bad.stderr)
+	}
+}
+
+// The CLI counterpart of the MCP coverage test: every verb must reach meja, and
+// every verb meja cannot serve must exit 7 (UNSUPPORTED) rather than 1
+// (UNEXPECTED).
+//
+// The two exit codes are the whole point. One tells a script "choose another
+// approach"; the other tells it "try again". A backend wired in carelessly
+// returns the second for the first, and a script then retries forever against a
+// capability that does not exist.
+func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
+	if err := exec.Command("meja", "version").Run(); err != nil {
+		t.Skip("meja is not installed or not runnable")
+	}
+	dir, err := os.MkdirTemp(os.TempDir(), "olyc")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	socket := filepath.Join(dir, "m.sock")
+	t.Cleanup(func() {
+		_ = exec.Command("meja", "-S", socket, "kill-server").Run()
+		_ = os.RemoveAll(dir)
+	})
+
+	name := fmt.Sprintf("oly-cli-meja-%d", os.Getpid())
+	where := []string{"--backend", "meja", "--socket-path", socket}
+	on := func(args ...string) result { return run(t, append(args, where...)...) }
+
+	if got := on("start", name); got.code != 0 {
+		t.Fatalf("start on meja exited %d: %s", got.code, got.stderr)
+	}
+
+	for _, args := range [][]string{
+		{"ls"},
+		{"panes"},
+		{"info", name},
+		{"capabilities"},
+		{"doctor"},
+		{"self"},
+		{"type", name, "echo served"},
+		{"key", name, "enter"},
+		{"screen", name},
+		{"paste", name, "one\ntwo"},
+		{"send", name, "echo confirmed"},
+		{"run", name, "echo ran"},
+		{"wait", name, "ran", "--timeout", "15s"},
+		// The marker is always the caller's to choose; there is no default.
+		{"exit-status", name, "OLYDONE"},
+	} {
+		if got := on(args...); got.code != 0 {
+			t.Errorf("`%s` is not served on meja: exit %d %s", strings.Join(args, " "), got.code, got.stderr)
+		}
+	}
+
+	// `watch` is deliberately absent from both lists. It IS served on meja — a
+	// client is an output tap, so Follow works — and it streams until
+	// interrupted, so running it here would hang rather than assert. The
+	// conformance suite covers it at the backend, where it can be bounded.
+	for _, args := range [][]string{
+		{"view", "create", name},
+		{"view", "ls", name},
+		{"server-env", "PATH"},
+		{"status", name},
+	} {
+		got := on(args...)
+		if got.code == 0 {
+			continue // served after all, which is not a failure
+		}
+		if got.code != 7 {
+			t.Errorf("`%s` on meja exits %d, want 7 (UNSUPPORTED): %s",
+				strings.Join(args, " "), got.code, got.stderr)
+		}
+	}
+
+	if got := on("stop", name); got.code != 0 {
+		t.Errorf("stop on meja exited %d: %s", got.code, got.stderr)
+	}
+}

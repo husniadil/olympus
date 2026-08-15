@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/meja"
 	"github.com/husniadil/olympus/backend/tmux"
 	"github.com/husniadil/olympus/backend/zmx"
 	"github.com/husniadil/olympus/internal/engine"
@@ -64,13 +65,18 @@ func WithSocket(name string) Option {
 	return func(c *config) { c.socket = name }
 }
 
-// WithSocketPath selects the tmux socket by PATH, used verbatim.
+// WithSocketPath selects the server socket by PATH, used verbatim. It applies
+// to the tmux and meja backends, which both address a server that way.
 //
-// A name lands in a directory shared with every other tmux server the user
-// runs; a path lets the socket live somewhere the caller controls — a project
+// A name lands in a directory shared with every other server the user runs; a
+// path lets the socket live somewhere the caller controls — a project
 // directory, a mounted volume, somewhere with tighter permissions. It is the
-// tmux counterpart to choosing a directory on a directory-addressed backend,
-// and it overrides any name.
+// counterpart to choosing a directory on a directory-addressed backend, and on
+// tmux it overrides any name.
+//
+// On meja it is the ONLY form offered, because meja keeps a server's session
+// recovery files beside its socket: a named profile Olympus drove would leave
+// persisted sessions in the operator's own store.
 func WithSocketPath(path string) Option {
 	return func(c *config) { c.socketPath = path }
 }
@@ -140,6 +146,17 @@ func Open(opts ...Option) (*Olympus, error) {
 		}
 		o.backend = zmx.New(options...)
 		o.scope = cfg.zmxDir
+	case backend.Meja:
+		// meja takes the same --socket-path a caller gives tmux: both address
+		// a server by an exact path, and a second option meaning the same
+		// thing would be a second contract to keep in step.
+		var options []meja.Option
+		if cfg.socketPath != "" {
+			options = append(options, meja.WithSocketPath(cfg.socketPath))
+		}
+		built := meja.New(options...)
+		o.backend = built
+		o.scope = built.Scope()
 	}
 
 	if !cfg.noLock {

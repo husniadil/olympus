@@ -19,8 +19,14 @@ import (
 const BackendEnv = "OLYMPUS_BACKEND"
 
 // preference is the order backends are tried when nothing was chosen: the
-// default first, then the fallback (behavior §0.3).
-var preference = []backend.Name{backend.Zmx, backend.Tmux}
+// default first, then the fallbacks (behavior §0.3).
+//
+// meja is LAST, and that placement is load-bearing rather than alphabetical. A
+// backend that displaced zmx or tmux would move a caller's sessions to one they
+// never chose, and sessions never migrate between backends — so meja answers
+// only when it is the last one standing, which beats refusing to run on a host
+// that does have a working multiplexer.
+var preference = []backend.Name{backend.Zmx, backend.Tmux, backend.Meja}
 
 // A Reason names the resolution rule that applied, satisfying the disclosure
 // requirement of behavior §0.4.
@@ -137,7 +143,7 @@ func knownNames() []string {
 func errNoBackendInstalled() error {
 	var b strings.Builder
 	b.WriteString("no terminal multiplexer is installed.\n")
-	b.WriteString("Olympus drives an existing multiplexer rather than embedding one, so it needs zmx or tmux.\n")
+	b.WriteString("Olympus drives an existing multiplexer rather than embedding one, so it needs one of zmx, tmux or meja.\n")
 	for _, name := range preference {
 		fmt.Fprintf(&b, "  %s: %s\n", name, installHint(name))
 	}
@@ -159,6 +165,8 @@ func installHint(name backend.Name) string {
 		// Deliberately not a URL: a wrong one is worse than none, and this
 		// message is the first thing a new user reads.
 		return "install it from the zmx project and make sure `zmx` is on your PATH"
+	case backend.Meja:
+		return "install it with `go install github.com/garindra/meja@latest` and make sure `meja` is on your PATH"
 	default:
 		return "no install instructions are known"
 	}

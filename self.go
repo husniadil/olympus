@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/meja"
 	"github.com/husniadil/olympus/backend/tmux"
 )
 
@@ -38,35 +39,66 @@ type Identity struct {
 // — "reply into this session" — which is impossible if a process cannot name
 // its own.
 func Self(ctx context.Context) (Identity, error) {
-	session := os.Getenv("ZMX_SESSION")
+	// Every backend that claims this process, gathered before any of them is
+	// believed. Deciding on the first match found would make the answer depend
+	// on the order they happen to be checked in, which is exactly the guess
+	// this function refuses to make.
+	var claimants []backend.Name
+	zmxSession := os.Getenv("ZMX_SESSION")
+	if zmxSession != "" {
+		claimants = append(claimants, backend.Zmx)
+	}
 	pane := os.Getenv("TMUX_PANE")
 	socket := tmuxSocket(os.Getenv("TMUX"))
-
-	// Sessions nest, and the environment cannot say which is inner: both sets
-	// of variables are present and inheritance looks the same either way.
-	// Reporting the ambiguity is the only honest answer — a confident wrong
-	// address would send another program's reply to somebody else's terminal.
-	if session != "" && pane != "" && socket != "" {
-		return Identity{Inside: true, Nested: []backend.Name{backend.Zmx, backend.Tmux}}, nil
+	if pane != "" && socket != "" {
+		claimants = append(claimants, backend.Tmux)
+	}
+	// meja names the session directly, so unlike tmux nothing has to be asked
+	// of the server to learn it.
+	mejaSession := os.Getenv("MEJA_SESSION_TARGET")
+	mejaSocket := os.Getenv("MEJA_SOCKET")
+	if mejaSession != "" {
+		claimants = append(claimants, backend.Meja)
 	}
 
-	if session != "" {
+	// Sessions nest, and the environment cannot say which is inner: every set
+	// of variables is present and inheritance looks the same either way.
+	// Reporting the ambiguity is the only honest answer — a confident wrong
+	// address would send another program's reply to somebody else's terminal.
+	if len(claimants) > 1 {
+		return Identity{Inside: true, Nested: claimants}, nil
+	}
+	if len(claimants) == 0 {
+		return Identity{}, nil
+	}
+
+	switch claimants[0] {
+	case backend.Zmx:
 		return Identity{
 			Inside:  true,
 			Backend: backend.Zmx,
-			Session: session,
+			Session: zmxSession,
 			Scope:   os.Getenv("ZMX_DIR"),
 		}, nil
+	case backend.Meja:
+		// meja identifies a pane's own session by ID (MEJA_SESSION_TARGET=@1),
+		// and Olympus addresses sessions by name, so the name has to be asked
+		// for — of the server this process is actually inside, which is the
+		// point of meja also publishing its socket.
+		here := Identity{Inside: true, Backend: backend.Meja, Scope: mejaSocket}
+		name, err := meja.New(meja.WithSocketPath(mejaSocket)).SessionOf(ctx, mejaSession)
+		if err != nil {
+			return here, err
+		}
+		here.Session = name
+		return here, nil
 	}
+
 	// tmux puts the socket and the PANE in the environment, but not the
 	// session's name — so the name has to be asked for, and asked of the
 	// socket this process is actually inside rather than whichever one a
 	// handle happens to be configured with. Getting that wrong would name a
 	// session on the wrong server, which is worse than naming none.
-	if pane == "" || socket == "" {
-		return Identity{}, nil
-	}
-
 	here := Identity{Inside: true, Backend: backend.Tmux, Scope: socket}
 	name, err := tmux.New(tmux.WithSocketPath(socket)).SessionOf(ctx, pane)
 	if err != nil {

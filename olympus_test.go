@@ -36,6 +36,12 @@ func legs(t *testing.T) []leg {
 	if _, err := exec.LookPath("zmx"); err == nil {
 		out = append(out, leg{"zmx", openZmx})
 	}
+	// Checked by RUNNING it, not by finding it: a dangling shim on PATH
+	// satisfies a lookup and fails every call, which would report as a wall of
+	// broken cases rather than an absent backend.
+	if err := exec.Command("meja", "version").Run(); err == nil {
+		out = append(out, leg{"meja", openMeja})
+	}
 	if len(out) == 0 {
 		t.Skip("no backend is installed")
 	}
@@ -57,6 +63,30 @@ func openTmux(t *testing.T) *olympus.Olympus {
 			dir = "/tmp"
 		}
 		_ = os.Remove(filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), socket))
+	})
+	return ol
+}
+
+// openMeja opens a handle on a meja server nobody else uses.
+//
+// A socket PATH, never a profile name: meja keeps session recovery files beside
+// the socket, so a named profile would leave persisted sessions in the
+// operator's own store to come back on their next restore (§2.9).
+func openMeja(t *testing.T) *olympus.Olympus {
+	t.Helper()
+	dir, err := os.MkdirTemp(os.TempDir(), "olyo")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	socket := filepath.Join(dir, "m.sock")
+	ol, err := olympus.Open(olympus.WithBackend("meja"), olympus.WithSocketPath(socket))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ol.Close()
+		_ = exec.Command("meja", "-S", socket, "kill-server").Run()
+		_ = os.RemoveAll(dir)
 	})
 	return ol
 }

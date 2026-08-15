@@ -149,3 +149,42 @@ func TestSurroundingWhitespaceIsIgnored(t *testing.T) {
 		t.Errorf("resolved %q, want %q", got.Backend, backend.Tmux)
 	}
 }
+
+// §0.3: a third backend is selectable by name, and joins the fallback chain
+// LAST.
+//
+// Last is the whole point. The standing order is zmx by default and tmux when
+// it is absent; a new backend that displaced either would silently move a
+// caller's sessions to a backend they never chose, and sessions never migrate
+// between backends. Meja answers only when it is the last one standing.
+func TestMejaIsSelectableAndFallsBackLast(t *testing.T) {
+	all := installed(backend.Zmx, backend.Tmux, backend.Meja)
+	onlyMeja := installed(backend.Meja)
+
+	chosen, err := resolve("meja", "", all)
+	if err != nil {
+		t.Fatalf("selecting meja explicitly: %v", err)
+	}
+	if chosen.Backend != backend.Meja || chosen.Reason != ReasonFlag {
+		t.Errorf("explicit meja resolved to %+v", chosen)
+	}
+
+	// With everything installed, meja must not displace the standing default.
+	chosen, err = resolve("", "", all)
+	if err != nil {
+		t.Fatalf("resolving with everything installed: %v", err)
+	}
+	if chosen.Backend == backend.Meja {
+		t.Errorf("meja displaced the default backend: %+v", chosen)
+	}
+
+	// Last one standing: refusing here would be hostile on a host with a
+	// working multiplexer installed.
+	chosen, err = resolve("", "", onlyMeja)
+	if err != nil {
+		t.Fatalf("resolving with only meja installed: %v", err)
+	}
+	if chosen.Backend != backend.Meja || chosen.Reason != ReasonFallback {
+		t.Errorf("with only meja installed, resolution is %+v", chosen)
+	}
+}

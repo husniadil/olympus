@@ -46,6 +46,13 @@ All notable changes to this project are documented here. The format follows
   reports which case applies and what is actually in effect. A private socket is not a private
   configuration, and an operator's `default-command` was measurably corrupting
   the run protocol's exit marker.
+- A third backend, **meja**, green on the full conformance suite and reachable
+  from all three doors. It is last in the fallback order, so it answers only
+  when neither zmx nor tmux is installed. Its injections run under a transient
+  headless client — meja refuses input on a session with none — sized to the
+  session's current geometry, because meja shrinks a session to its smallest
+  client and never restores it. Views, server environment, session status and
+  remain-on-exit are capability-gated rather than faked.
 - Session status: an opaque label a process inside a session leaves for whoever
   drives it from outside, as `status`, the `session_status` tool, and
   `SetStatus`/`Status`/`WaitForStatus`. It answers what a capture cannot — a

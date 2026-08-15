@@ -160,6 +160,12 @@ sessions do not show up in a plain `tmux ls`. On zmx there is no socket
 equivalent — sessions are global to your daemon and appear in your own
 `zmx list`. `olympus doctor` states which is in effect.
 
+A third backend, **meja**, is supported and comes last in that order: it answers
+only when neither zmx nor tmux is installed, since sessions never migrate
+between backends. Address it with `--socket-path`, which is the only form
+offered there — meja keeps a server's saved sessions beside its socket, so a
+named profile would write into your own store.
+
 A private socket is not a private configuration: tmux fixes a server's settings
 at boot from your `tmux.conf`, so your file reaches Olympus's sessions whichever
 socket they are on. That is mostly what you want — attach to one and you get

@@ -267,3 +267,90 @@ func TestSessionStatusTool(t *testing.T) {
 		t.Errorf("reading the status back returned %v", data)
 	}
 }
+
+// isolateMeja points the door at a meja server nobody else uses.
+//
+// A socket PATH, never a profile: meja keeps session recovery files beside the
+// socket, so a named profile would leave persisted sessions in the operator's
+// own store (§2.9). Checked by RUNNING meja, because a dangling shim on PATH
+// satisfies a lookup and fails every call.
+func isolateMeja(t *testing.T) {
+	t.Helper()
+	if err := exec.Command("meja", "version").Run(); err != nil {
+		t.Skip("meja is not installed or not runnable")
+	}
+	dir, err := os.MkdirTemp(os.TempDir(), "olym")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	socket := filepath.Join(dir, "m.sock")
+	t.Setenv("OLYMPUS_BACKEND", "meja")
+	t.Setenv("OLYMPUS_SOCKET_PATH", socket)
+	t.Cleanup(func() {
+		_ = exec.Command("meja", "-S", socket, "kill-server").Run()
+		_ = os.RemoveAll(dir)
+	})
+}
+
+// Every tool must reach meja, and every tool meja cannot serve must say so in
+// the vocabulary a caller branches on.
+//
+// UNSUPPORTED and UNEXPECTED are the two answers that must never be confused:
+// one means "this backend will never do that, choose another approach", the
+// other means "something went wrong, retrying might help". A backend wired in
+// carelessly reports the second for the first, and a caller then retries
+// forever against a capability that does not exist.
+func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
+	isolateMeja(t)
+	w := newWire(t)
+	name := sessionName()
+
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	served := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"list_sessions", map[string]any{}},
+		{"list_panes", map[string]any{}},
+		{"session_info", map[string]any{"target": name}},
+		{"capabilities", map[string]any{}},
+		{"doctor", map[string]any{}},
+		{"version", map[string]any{}},
+		{"self", map[string]any{}},
+		{"type_text", map[string]any{"target": name, "text": "echo served"}},
+		{"send_keys", map[string]any{"target": name, "keys": []any{"enter"}}},
+		{"capture", map[string]any{"targets": []any{name}}},
+		{"paste_text", map[string]any{"target": name, "text": "one\ntwo"}},
+		{"send_text", map[string]any{"target": name, "text": "echo confirmed"}},
+		{"run_command", map[string]any{"target": name, "command": "echo ran"}},
+		{"wait_for", map[string]any{"target": name, "pattern": "ran", "seconds": 15}},
+	}
+	for _, c := range served {
+		got := w.callTool(t, c.tool, c.args)
+		if got["ok"] == false {
+			t.Errorf("%s is not served on meja: %v", c.tool, got)
+		}
+	}
+
+	// meja has no read-only client, no key table and no option store, so these
+	// have no mechanism rather than a broken one.
+	refused := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"create_view", map[string]any{"base": name}},
+		{"list_views", map[string]any{"base": name}},
+		{"server_env", map[string]any{"key": "PATH"}},
+		{"session_status", map[string]any{"target": name}},
+	}
+	for _, c := range refused {
+		text := w.callToolExpectingError(t, c.tool, c.args)
+		if !strings.Contains(text, "UNSUPPORTED") {
+			t.Errorf("%s on meja reports %q, want UNSUPPORTED — a caller must be able to tell "+
+				"'this backend never will' from 'try again'", c.tool, text)
+		}
+	}
+
+	w.callTool(t, "stop_session", map[string]any{"target": name})
+}

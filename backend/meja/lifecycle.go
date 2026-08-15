@@ -195,3 +195,28 @@ func (m *Meja) Kill(ctx context.Context, target string) error {
 	}
 	return named(target, err)
 }
+
+// SessionOf maps a session target onto the session's NAME.
+//
+// It exists because meja identifies a pane's own session by ID: it puts
+// MEJA_SESSION_TARGET=@1 in every pane's environment, while Olympus addresses
+// sessions by name everywhere. The "@" is meja's own spelling for a target and
+// is absent from the #{session_id} the server reports, so it is stripped before
+// the comparison rather than matched against.
+//
+// Both spellings do address the same session, so this is a translation for
+// Olympus's vocabulary rather than a repair of meja's.
+func (m *Meja) SessionOf(ctx context.Context, target string) (string, error) {
+	want := strings.TrimPrefix(target, "@")
+	out, err := m.run(ctx, nil, "list-sessions", "-F", "#{session_id}\t#{session_name}")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
+		if len(fields) == 2 && fields[0] == want {
+			return fields[1], nil
+		}
+	}
+	return "", backend.Errorf(backend.CodeSessionNotFound, "no session %s on this server", target)
+}

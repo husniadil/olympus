@@ -29,6 +29,12 @@ Terminology:
 Nothing below matters until a backend has been chosen and proven to exist. Both
 halves are contract, because both are the first thing a new user hits.
 
+Three backends are supported: **zmx**, the default; **tmux**, the fallback; and
+**meja**, which answers only when it is the last one standing. That order is
+load-bearing rather than alphabetical — sessions are backend-scoped and never
+migrate, so a backend that displaced another would move a caller's sessions to
+one they never chose.
+
 ### 0.1 Resolution order
 
 The backend resolves from the first of these that is set:
@@ -110,7 +116,7 @@ rather than discovering it one unsupported error at a time.
 This is what turns "it does not work on my machine" into one command's output,
 and it is what every error in §0.2 and §0.3 points at.
 
-### 0.7 Neither backend installed
+### 0.7 No backend installed
 
 The error MUST be a single complete message, not a failure per attempted backend.
 It states that Olympus drives an existing terminal multiplexer and does not embed
@@ -456,6 +462,53 @@ Tests MUST NEVER touch the operator's live default server.
 A shared external server addressed by a bare literal name is a real collision
 surface: two processes pointing at the same tmux socket name can crash the same
 underlying server out from under each other.
+
+- **meja**: use a socket PATH (`-S`), never a profile name (`-L`). meja stores a
+  server's session RECOVERY FILES beside its socket, so a named profile would
+  leave persisted test sessions in the operator's own store, to reappear on
+  their next restore. A path takes the recovery store with it.
+
+### 2.10 meja routes input through a client
+
+meja refuses every INPUT command on a session with no client attached:
+`send-keys` and `paste-buffer` both answer `command requires an attached client`
+even when given an explicit `-t`. Observation — listing, capture — needs no
+client. This is a structural difference from tmux and zmx, which take input from
+any caller, and everything else in this section follows from it.
+
+Olympus therefore attaches a **transient headless client** for the duration of
+an injection. It MUST NOT hold a durable one: a CLI process runs once and exits,
+so there is nowhere to keep it, and a process that outlived the command to hold
+it would be the daemon §6.7 rules out. Measured cost of attach-inject-detach:
+68ms cold, 23ms warm.
+
+The operation MUST be attempted first, and the client created only if it
+refuses. A session a human is already sitting in has a client, and joining it
+with a second one is not free — see the size rule below. The retry after
+attaching MUST poll the OPERATION rather than a status field: the question is
+whether the command works yet, and asking it directly cannot disagree with
+itself.
+
+**A transient client MUST be sized to the session's current geometry.** meja
+sizes a session to its SMALLEST client and does NOT restore the size when that
+client leaves. Measured: a human attached at 200x50 gives a 200x49 pane; a
+client attaching at 80x24 shrinks it to 80x23, and it stays there after that
+client exits. A driving client of the wrong size therefore reshapes somebody
+else's terminal, silently and permanently. The correct request is the pane's
+current width and its height **plus one row** — meja reserves one row for its
+status bar and subtracts it from every client — which measures as leaving the
+geometry untouched.
+
+`command requires an attached client` MUST NOT be collapsed into absence. It
+shares an error class with an unreachable server but means the opposite of
+missing: the session is there, and the client Olympus needed was not.
+
+**Following needs no output tap, because a client is one.** meja has no
+`pipe-pane` equivalent, but everything a session renders is written to every
+attached client, so a headless client whose PTY is handed back is a copy of the
+stream rather than a reconstruction of it. Polling a capture instead would be a
+different thing under the same name: it drops whatever is overwritten between
+two reads, and a follow that silently loses output is worse than none.
 
 ---
 

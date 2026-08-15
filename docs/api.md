@@ -218,9 +218,9 @@ Both are documented in the affected operation's `--help`, not only here.
 
 | CLI | Environment | Applies to |
 |---|---|---|
-| `--backend <name>` | `OLYMPUS_BACKEND` | all |
+| `--backend <name>` | `OLYMPUS_BACKEND` | all (`zmx`, `tmux`, `meja`) |
 | `--socket <name>` | — | tmux backend only |
-| `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` | tmux backend only |
+| `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` | tmux and meja backends |
 | `--zmx-dir <dir>` | `ZMX_DIR` | zmx backend only |
 | `--json` | — | all |
 | `--no-lock` | — | operations that take the write lock |

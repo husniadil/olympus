@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/meja"
 	"github.com/husniadil/olympus/backend/tmux"
 	"github.com/husniadil/olympus/backend/zmx"
 )
@@ -20,6 +21,11 @@ var floors = map[backend.Name]string{
 	backend.Tmux: "3.3",
 	// The reference version; support is best-effort.
 	backend.Zmx: "0.6.0",
+	// The version every measurement behind this backend was taken against —
+	// the -F format fields it parses, the attached-client rule its injections
+	// work around, and the resize behaviour its client sizing compensates for.
+	// Support below it is best-effort because none of those were checked there.
+	backend.Meja: "0.0.25",
 }
 
 // A BackendReport is one backend's entry in the diagnostic.
@@ -126,6 +132,13 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 
 func buildBackend(name backend.Name, cfg config) (backend.Backend, string) {
 	switch name {
+	case backend.Meja:
+		var options []meja.Option
+		if cfg.socketPath != "" {
+			options = append(options, meja.WithSocketPath(cfg.socketPath))
+		}
+		built := meja.New(options...)
+		return built, built.Scope()
 	case backend.Tmux:
 		socket := cfg.socket
 		if socket == "" {
@@ -191,6 +204,14 @@ func effectiveOf(ctx context.Context, b backend.Backend) (map[string]string, boo
 // both are surprising if you learned the other first (behavior §17.2).
 func isolationOf(name backend.Name, scope string) string {
 	switch name {
+	case backend.Meja:
+		if strings.HasPrefix(scope, "/") {
+			// Worth stating separately from tmux's: meja keeps each server's
+			// session RECOVERY files beside its socket, so the path decides
+			// where persisted sessions land as well as which server answers.
+			return "socket at " + scope + "; its saved sessions live beside it, invisible to your default meja"
+		}
+		return "your default meja profile in ~/.meja/default; these sessions appear in your own `meja ls` and are saved into your own store"
 	case backend.Tmux:
 		if strings.HasPrefix(scope, "/") {
 			return "socket at " + scope + "; these sessions are invisible to any tmux not pointed at that path"
