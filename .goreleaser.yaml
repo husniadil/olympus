@@ -1,0 +1,48 @@
+version: 2
+
+# Olympus drives a multiplexer rather than embedding one, so the release carries
+# only the binary: the backends are the user's own installation, which is why
+# `olympus doctor` exists and why every unavailable-backend error points at it.
+
+before:
+  hooks:
+    - go mod tidy
+    - go run ./tools/gendoc dist/doc
+
+builds:
+  - id: olympus
+    main: ./cmd/olympus
+    binary: olympus
+    env: [CGO_ENABLED=0]
+    # macOS and Linux only. The PTY handling, the termios work and the socket
+    # semantics are POSIX; a Windows build would compile into something that
+    # cannot do the job.
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+
+archives:
+  - formats: [tar.gz]
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+      - src: dist/doc/man/*
+        dst: man
+      - src: dist/doc/completions/*
+        dst: completions
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  prerelease: auto

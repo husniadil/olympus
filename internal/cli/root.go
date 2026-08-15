@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -124,6 +125,12 @@ func asExitCode(err error, out *exitCode) bool {
 		return true
 	}
 	return false
+}
+
+// Root builds the command tree, for generating documentation and completions
+// from the one definition rather than maintaining a second copy of it.
+func Root() *cobra.Command {
+	return (&App{Out: os.Stdout, Err: os.Stderr, In: os.Stdin}).root(context.Background())
 }
 
 func (a *App) root(ctx context.Context) *cobra.Command {

@@ -1,4 +1,4 @@
-.PHONY: build test install clean
+.PHONY: build test install clean doc
 
 BIN := bin/olympus
 
@@ -20,3 +20,8 @@ install:
 
 clean:
 	rm -rf bin dist coverage.out
+
+# Manual pages and shell completions, generated from the command tree itself so
+# they cannot describe a surface the binary no longer has.
+doc:
+	go run ./tools/gendoc dist/doc

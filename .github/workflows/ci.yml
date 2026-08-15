@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One backend or platform failing should not hide the others: the whole
+      # point of the matrix is knowing WHICH combination broke.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        tmux: [system]
+        include:
+          # The floor is tmux 3.3, for allow-passthrough. Building it is only
+          # worth the CI minutes on one platform.
+          - os: ubuntu-latest
+            tmux: "3.3"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install tmux (system)
+        if: matrix.tmux == 'system'
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            brew install tmux
+          else
+            sudo apt-get update && sudo apt-get install -y tmux
+          fi
+          tmux -V
+
+      - name: Build tmux ${{ matrix.tmux }} (the version floor)
+        if: matrix.tmux != 'system'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libevent-dev libncurses-dev bison pkg-config
+          curl -fsSL "https://github.com/tmux/tmux/releases/download/${{ matrix.tmux }}/tmux-${{ matrix.tmux }}.tar.gz" | tar xz
+          cd "tmux-${{ matrix.tmux }}" && ./configure && make -j"$(nproc)" && sudo make install
+          tmux -V
+
+      # zmx is not packaged for these runners. Its leg skips loudly rather than
+      # failing the suite, so the tmux leg still proves everything it can — but
+      # CI must never be read as having covered zmx when it did not.
+      - name: Note the zmx leg
+        run: |
+          if command -v zmx >/dev/null 2>&1; then
+            echo "zmx present: $(zmx version | head -1)"
+          else
+            echo "::warning::zmx is not installed on this runner; its conformance leg is SKIPPED, not passing"
+          fi
+
+      - name: Gate
+        run: make test
+
+  vet:
+    name: format and vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          [ -z "$unformatted" ] || { echo "gofmt needed: $unformatted"; exit 1; }
+      - run: go vet ./...
+      - name: go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
