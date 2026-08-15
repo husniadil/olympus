@@ -81,12 +81,11 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		Views:            false,
 		RemainOnExit:     false,
 		ServerEnv:        false,
-		// history returns the output the session has EMITTED, not a rendered
-		// grid. A program that repaints in place — an editor drawing a prompt
-		// over its shortcut bar — is therefore not reliably readable as it
-		// currently appears (§5.2).
-		RendersCurrentScreen: false,
-		TracksAltScreen:      false,
+		// The send path does not reliably deliver control keys: Ctrl-X and
+		// friends are dropped, so an editor can be opened and read but never
+		// exited (§4.9). Capture is unaffected — a repaint IS reflected.
+		ControlKeys:     false,
+		TracksAltScreen: false,
 	}
 }
 

@@ -206,7 +206,7 @@ func describeCapabilities(caps backend.Capabilities) string {
 		{"views", caps.Views},
 		{"remain-on-exit", caps.RemainOnExit},
 		{"server-env", caps.ServerEnv},
-		{"renders-current-screen", caps.RendersCurrentScreen},
+		{"control-keys", caps.ControlKeys},
 		{"alt-screen-tracking", caps.TracksAltScreen},
 	} {
 		if c.set {

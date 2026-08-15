@@ -287,12 +287,11 @@ func TestDrivingAFullScreenEditor(t *testing.T) {
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
-			if !ol.Capabilities().RendersCurrentScreen {
-				// A backend that returns emitted output rather than the
-				// current grid cannot show an in-place repaint, so an editor's
-				// save prompt is never observable. That is a documented
-				// limitation (§5.2), not a failure to report here.
-				t.Skip("this backend does not render the current screen, so a full-screen program cannot be driven by reading it")
+			if !ol.Capabilities().ControlKeys {
+				// Without control keys the editor can be opened and read but
+				// never saved or exited, which is a documented limitation
+				// (§4.9) rather than a failure to report here.
+				t.Skip("this backend does not deliver control keys, so a full-screen program cannot be driven")
 			}
 			ctx := context.Background()
 

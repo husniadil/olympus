@@ -2,6 +2,7 @@ package backendtest
 
 import (
 	"strings"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -119,6 +120,40 @@ func injectionCases() []Case {
 						e.T.Errorf("pressing %q is %q, want %q", key, backend.CodeOf(err), backend.CodeUsage)
 					}
 				}
+			},
+		},
+		{
+			Name: "§4.9 a backend claiming control keys actually delivers them",
+			Fn: func(e *Env) {
+				// Measured against the session rather than trusted: `cat -v`
+				// prints a control byte as ^X, so whatever arrives is visible
+				// as ordinary output. Accepting a key and dropping it is worse
+				// than rejecting it — the caller sees success and waits for an
+				// effect that will never come.
+				if !e.Backend.Capabilities().ControlKeys {
+					return
+				}
+				target := e.StartShell()
+				e.Warm(target)
+
+				if err := e.Backend.Type(e.Ctx(), target, "cat -v"); err != nil {
+					e.T.Fatalf("typing: %v", err)
+				}
+				if err := e.Backend.Submit(e.Ctx(), target); err != nil {
+					e.T.Fatalf("submitting: %v", err)
+				}
+				time.Sleep(e.budgets.Settle)
+
+				if err := e.Backend.Type(e.Ctx(), target, "MARK"); err != nil {
+					e.T.Fatalf("typing the marker: %v", err)
+				}
+				if err := e.Backend.Press(e.Ctx(), target, backend.KeyCtrlA); err != nil {
+					e.T.Fatalf("pressing: %v", err)
+				}
+				if err := e.Backend.Submit(e.Ctx(), target); err != nil {
+					e.T.Fatalf("submitting: %v", err)
+				}
+				e.WaitFor(target, "MARK^A")
 			},
 		},
 		{

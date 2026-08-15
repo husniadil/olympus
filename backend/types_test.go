@@ -70,14 +70,14 @@ func TestScreenMetaMarshalsToTheSpecShape(t *testing.T) {
 
 func TestCapabilitiesMarshalToTheSpecShape(t *testing.T) {
 	assertJSON(t, backend.Capabilities{
-		Backend:              backend.Zmx,
-		NativeScrollback:     true,
-		Views:                false,
-		RemainOnExit:         false,
-		ServerEnv:            false,
-		RendersCurrentScreen: false,
-		TracksAltScreen:      false,
-	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false,"renders_current_screen":false,"tracks_alt_screen":false}`)
+		Backend:          backend.Zmx,
+		NativeScrollback: true,
+		Views:            false,
+		RemainOnExit:     false,
+		ServerEnv:        false,
+		ControlKeys:      false,
+		TracksAltScreen:  false,
+	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"tracks_alt_screen":false}`)
 }
 
 // The tri-states are the reason several of these types exist at all. Their wire

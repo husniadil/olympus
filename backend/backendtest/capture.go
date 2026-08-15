@@ -165,23 +165,20 @@ func captureCases() []Case {
 			},
 		},
 		{
-			Name: "§5.2 a backend claiming to render the current screen shows an in-place repaint",
+			Name: "§5.2 a capture reflects an in-place repaint, not the first frame",
 			Fn: func(e *Env) {
-				// The claim is what decides whether a caller can drive a
-				// full-screen program, so it is checked rather than trusted: a
-				// backend that returns emitted output shows the first frame
-				// forever, and a caller reading a menu would act on a screen
-				// that is no longer there.
+				// A full-screen program repaints by moving the cursor and
+				// overwriting rather than by printing new lines. A capture that
+				// showed the FIRST frame forever would let a caller act on a
+				// screen that is no longer there — so this is required of every
+				// backend, not gated on a capability.
 				//
-				// The probe repaints IN PLACE — home the cursor, clear, write
-				// a new frame — which is exactly what an editor does and what
-				// emitted-output capture cannot represent.
+				// It is a case rather than an assumption because it looked for
+				// a while like one backend failed it. It does not: what that
+				// backend actually fails is delivering the keystroke that
+				// would have caused the repaint (§4.9).
 				target := e.StartCommand("sh", "-c",
 					`printf 'FRAME-ONE'; sleep 1; printf '\033[H\033[2JFRAME-TWO'; sleep 30`)
-
-				if !e.Backend.Capabilities().RendersCurrentScreen {
-					return
-				}
 
 				deadline := time.Now().Add(e.budgets.Screen)
 				for {
@@ -195,7 +192,7 @@ func captureCases() []Case {
 						return
 					}
 					if time.Now().After(deadline) {
-						e.T.Errorf("this backend claims to render the current screen, but a repaint left the old frame visible:\n%s", capture.Text)
+						e.T.Errorf("a repaint left the old frame visible, so a caller would act on a screen that is gone:\n%s", capture.Text)
 						return
 					}
 					time.Sleep(e.budgets.Poll)

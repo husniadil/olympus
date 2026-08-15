@@ -140,13 +140,13 @@ it will time out. Drive a REPL or a full-screen program with `send`, `key` and
 should not require a trailing space: write `^>>>\s*$`, not `^>>> $`, because
 whether that space survives into a capture differs by backend.
 
-**Driving a full-screen program needs tmux.** tmux reports the pane's current
-grid, so an editor's prompt is visible as it appears. zmx reports what the
-session has written, so a program that repaints in place keeps showing an
-earlier frame — you can start it and read its output, but not reliably see the
-frame it is on. `olympus capabilities` reports this as `renders_current_screen`,
-and `olympus doctor` shows it for both backends. Everything else — commands,
-REPLs, output — works the same on either.
+**Driving a full-screen program needs tmux.** Both backends *show* you one
+correctly — a repaint is captured as it currently looks. But zmx does not
+reliably deliver control keys, so an editor opened there can be typed into and
+read, and never saved or exited: Ctrl-O and Ctrl-X simply do not arrive.
+`olympus capabilities` reports this as `control_keys`, and `olympus doctor`
+shows it for both backends. Everything else — commands, REPLs, reading output —
+works the same on either.
 
 **Where sessions live differs.** On tmux, Olympus uses its own socket, so its
 sessions do not show up in a plain `tmux ls`. On zmx there is no socket

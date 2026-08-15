@@ -121,20 +121,22 @@ type Capabilities struct {
 	Views            bool `json:"views"`
 	RemainOnExit     bool `json:"remain_on_exit"`
 	ServerEnv        bool `json:"server_env"`
-	// RendersCurrentScreen reports whether a capture returns the pane's
-	// CURRENT rendered grid, or merely the output it has emitted.
+	// ControlKeys reports whether control keys reach the session.
 	//
 	// This is the capability that decides whether a full-screen program can be
-	// driven. A backend that renders the grid shows the frame as it looks now,
-	// so a caller can read a menu, a prompt or a cursor position and respond to
-	// it. A backend that returns emitted scrollback shows what was written,
-	// which for a program that repaints IN PLACE — moving the cursor and
-	// overwriting — can be an old frame indefinitely: the text is all there,
-	// but not as it currently appears.
+	// DRIVEN, as opposed to merely started and read. An editor is left with
+	// Ctrl-X and saved with Ctrl-O; a pager is scrolled with Ctrl-F. Where
+	// these are not delivered a caller can open such a program and watch it,
+	// and never get out of it.
 	//
-	// Output-producing commands are unaffected either way. Full-screen programs
-	// are the whole of the difference.
-	RendersCurrentScreen bool `json:"renders_current_screen"`
+	// Measured, rather than assumed from the backend's documentation: sending
+	// each byte to `cat -v` and reading back what arrived. tmux delivers the
+	// control range, tab and escape. zmx delivers printable text, tab and the
+	// terminator, but drops the control letters, a lone escape, and the arrow
+	// and home keys — while passing page-up and the function keys. The boundary
+	// is not fully characterized and is not worth characterizing: what a caller
+	// needs to know is that control keys cannot be relied on there.
+	ControlKeys bool `json:"control_keys"`
 	// TracksAltScreen reports whether capture metadata's alt-screen flag
 	// means anything on this backend. Without it a caller cannot tell "this
 	// pane is not on the alternate screen" from "this backend does not

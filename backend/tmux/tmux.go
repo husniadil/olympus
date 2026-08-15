@@ -56,10 +56,10 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		Views:            true,
 		RemainOnExit:     true,
 		ServerEnv:        true,
-		// capture-pane renders the pane's current grid, so a full-screen
-		// program can be read as it looks now.
-		RendersCurrentScreen: true,
-		TracksAltScreen:      true,
+		// send-keys delivers the control range, so a full-screen program can
+		// be driven and not merely watched.
+		ControlKeys:     true,
+		TracksAltScreen: true,
 	}
 }
 

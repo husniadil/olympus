@@ -673,6 +673,34 @@ On zmx, caller-visible atomicity is guaranteed by holding the per-session write
 lock across both writes. A failed submit write MUST return a timeout-class error
 ("text delivered but not submitted"), never silent success.
 
+### 4.9 Control keys are not deliverable on every backend
+
+A backend may accept a control key and silently not deliver it. That is worse
+than refusing it: the caller sees success and waits for an effect that never
+comes.
+
+Measured by sending each byte to `cat -v` in a live session and reading back what
+arrived:
+
+| | tmux | zmx |
+|---|---|---|
+| printable text | delivered | delivered |
+| tab, terminator | delivered | delivered |
+| control letters (`c-a`, `c-x`, …) | delivered | **dropped** |
+| lone escape | delivered | **dropped** |
+| arrows, home | delivered | **dropped** |
+| page-up, function keys | delivered | delivered |
+
+The zmx boundary is irregular and is deliberately NOT specified further: what a
+caller needs is that control keys cannot be relied on there, which the
+`control_keys` capability (§13) reports. Mapping the exact set would invite
+depending on it.
+
+The consequence is concrete: an editor opened on zmx can be typed into and read,
+but not saved or exited, because both are control keys. Doors MUST report this
+through the capability rather than by failing the keypress, since the keypress
+itself succeeds.
+
 ### 4.8 tmux eats an unescaped trailing semicolon
 
 tmux's `;` chaining separator treats an **unescaped trailing `;` byte** in a text
@@ -720,17 +748,10 @@ History **is** a documented no-op on zmx, whose history command already returns
 full scrollback with no separate viewport mode to opt into. Both flag states MUST
 return byte-identical output, regression-guarded.
 
-**A capture here is emitted OUTPUT, not a rendered grid**, and that is the
-sharpest limitation in this document for anyone driving a full-screen program.
-tmux's `capture-pane` reports the pane's current grid, so an editor's save
-prompt drawn over its shortcut bar is visible the moment it appears. zmx's
-history reports what the session has written, so a program that repaints IN
-PLACE — cursor addressing, overwrite — keeps showing an earlier frame: every
-byte is there, but not as it currently looks.
-
-Commands that simply produce output are unaffected. Full-screen programs are the
-whole of the difference, and `renders_current_screen` (§13) is the capability a
-caller feature-probes before deciding it can drive one.
+**A capture DOES reflect an in-place repaint on both backends.** This was
+measured after it looked otherwise: a program that clears and redraws is
+captured as it currently appears, not as it first appeared. The limitation that
+actually blocks driving a full-screen program is input, not capture — see §4.9.
 
 **Trailing whitespace does not survive identically across backends.** tmux
 preserves a row's padding and the trailing space of an unterminated prompt; zmx
@@ -1507,15 +1528,13 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
-server environment, current-screen rendering, alt-screen tracking.
+server environment, control keys, alt-screen tracking.
 
-**Current-screen rendering decides whether a full-screen program can be driven
-at all**, which makes it the most consequential entry here. A backend that
-returns emitted output rather than a rendered grid shows an editor's first frame
-indefinitely, so a caller reading a menu would be acting on a screen that is no
-longer there. It is a capability rather than a degraded-operation warning
-because the caller's whole approach changes: with it, drive the program; without
-it, do not try.
+**Control-key delivery decides whether a full-screen program can be DRIVEN**,
+which makes it the most consequential entry here. Without it a caller can open
+an editor, read it, and never get out of it. It is a capability rather than a
+degraded-operation warning because the caller's whole approach changes: with it,
+drive the program; without it, do not start.
 
 **Alt-screen tracking is a capability because the flag alone is ambiguous.** §5.3
 gives the door a rule — skip the capture where the alt-screen flag is true — and
