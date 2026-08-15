@@ -388,3 +388,31 @@ func TestDiagnoseNamesTheResolvedBackendAndWhy(t *testing.T) {
 		t.Error("the diagnostic does not say which rule chose it")
 	}
 }
+
+// §17.5: pinning options takes something from the operator, so the diagnostic
+// has to say what. A tool that quietly overrides a line in somebody's tmux.conf
+// and never mentions it turns "my config is being ignored" into an unanswerable
+// question — which is the exact failure `doctor` exists to prevent.
+func TestDiagnoseDisclosesWhatItPins(t *testing.T) {
+	diagnosis := olympus.Diagnose(context.Background())
+
+	for _, report := range diagnosis.Backends {
+		if report.Name != backend.Tmux {
+			// Nothing is pinned on a backend that takes no configuration file,
+			// and inventing an entry there would be a claim, not a disclosure.
+			if len(report.Managed) != 0 {
+				t.Errorf("%s reports pinned options %v, but nothing is pinned there", report.Name, report.Managed)
+			}
+			continue
+		}
+		if !report.Installed {
+			continue
+		}
+		if report.Managed["history-limit"] == "" {
+			t.Errorf("doctor does not disclose that Olympus pins history-limit: %v", report.Managed)
+		}
+		if _, ok := report.Managed["default-command"]; !ok {
+			t.Errorf("doctor does not disclose that Olympus pins default-command: %v", report.Managed)
+		}
+	}
+}

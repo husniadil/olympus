@@ -107,7 +107,10 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 		return backend.Session{}, backend.Errorf(backend.CodeUsage, "a session needs a name")
 	}
 
-	args := []string{"new-session", "-d", "-s", spec.Name}
+	// Ahead of new-session, in the SAME invocation: a pane reads these when it
+	// spawns, so applying them afterwards would configure the next session and
+	// leave this one misconfigured (§17.5).
+	args := append(pinManagedOptions(), "new-session", "-d", "-s", spec.Name)
 	if spec.Dir != "" {
 		args = append(args, "-c", spec.Dir)
 	}

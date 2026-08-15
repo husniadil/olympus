@@ -368,11 +368,21 @@ for those.
     { "name": "tmux", "installed": true, "version": "3.7b", "below_floor": false,
       "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
                         "server_env": true, "control_keys": true,
-                        "tracks_alt_screen": true } }
+                        "tracks_alt_screen": true },
+      "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []
 }
 ```
+
+`managed_options` is every option Olympus pins on servers it drives, overriding
+the operator's own configuration. A private socket is not a private
+configuration — tmux fixes a server's settings at boot from `tmux.conf`, so the
+operator's file reaches Olympus's sessions — and these two are pinned back
+because the run protocol's exit marker and the meaning of a capture's line count
+depend on them. Nothing cosmetic is pinned: keybindings, prefix and theme are
+left alone. It is omitted for backends that have no configuration file, rather
+than reported empty. Behavior spec §17.5 has the measurements and the rule.
 
 `reason` names the resolution rule that applied (`flag`, `env`, `default`,
 `fallback`), satisfying the disclosure requirement of behavior spec §0.4.

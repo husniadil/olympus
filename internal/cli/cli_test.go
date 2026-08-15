@@ -463,3 +463,16 @@ func TestSelfOutsideASessionSucceeds(t *testing.T) {
 		t.Errorf("the human form said nothing: exit %d, stdout %q", human.code, human.stdout)
 	}
 }
+
+// A human reading `olympus doctor` has to be told which of their tmux.conf
+// lines Olympus overrides. Putting it only in --json would disclose it to the
+// audience that was never going to be confused by it.
+func TestDoctorTellsAHumanWhatItOverrides(t *testing.T) {
+	got := run(t, "doctor")
+	if got.code != 0 {
+		t.Fatalf("exit %d, want 0", got.code)
+	}
+	if !strings.Contains(got.stdout, "history-limit") {
+		t.Errorf("doctor's human output never mentions the options it pins:\n%s", got.stdout)
+	}
+}

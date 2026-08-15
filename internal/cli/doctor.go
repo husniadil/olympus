@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -106,6 +108,28 @@ func writeDiagnosis(w io.Writer, d olympus.Diagnosis) {
 		if b.Installed {
 			fmt.Fprintf(w, "  %s: %s\n", b.Name, b.Isolation)
 		}
+	}
+
+	// Named as an override, not as a feature. The reader who needs this line is
+	// the one wondering why a setting of theirs has no effect (§17.5).
+	for _, b := range d.Backends {
+		if !b.Installed || len(b.Managed) == 0 {
+			continue
+		}
+		keys := make([]string, 0, len(b.Managed))
+		for key := range b.Managed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		fmt.Fprintf(w, "\nWHAT OLYMPUS OVERRIDES IN YOUR %s CONFIG\n", strings.ToUpper(string(b.Name)))
+		for _, key := range keys {
+			value := b.Managed[key]
+			if value == "" {
+				value = `"" (tmux's own default: your login shell)`
+			}
+			fmt.Fprintf(w, "  %s = %s\n", key, value)
+		}
+		fmt.Fprintln(w, "  everything else in your config is left alone, including keybindings and theme")
 	}
 
 	if len(d.InstallHints) > 0 {

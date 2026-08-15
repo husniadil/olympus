@@ -1887,3 +1887,73 @@ Recorded so they are not re-proposed as missing features:
 - **No embedded multiplexer, and no PTY-only degraded mode.** §0.7.
 - **No Windows target.** The attach path is Unix-PTY-bound.
 - **No default exit marker.** §14 — a fixed default invites collision.
+
+### 17.5 A private socket is not a private configuration
+
+tmux fixes a server's configuration **at boot**, from the operator's
+`tmux.conf`. The socket only decides *which* server that is. A backend
+addressed by `-L olympus` or by `-S <path>` therefore inherits every line of the
+operator's configuration, and this is measurable rather than theoretical:
+
+| option | server on a private socket | `-f /dev/null` |
+|---|---|---|
+| `history-limit` | whatever the operator set | 2000 |
+| `mouse` | whatever the operator set | off |
+
+Most of that inheritance is **wanted**. A session Olympus drives is still a
+terminal a human may end up sitting in (§0.8), and someone who attaches should
+find their own prefix, bindings and theme. Olympus MUST NOT take those away.
+
+Two options are different, because Olympus's own correctness rests on them:
+
+- **`default-command`** chooses the shell a session's pane runs, and the run
+  protocol's exit marker (§6.2) is written *by that shell*. Under `csh`,
+  `echo "OLY_D_<id>_$?_"` becomes `OLY_D_<id>_1`: `csh` reads `$?_` as "is the
+  variable `_` set", so the real exit status is replaced by a `1` and the
+  closing delimiter disappears. A caller is then told a command that failed
+  with 3 succeeded, or the marker never parses and the run reports a timeout
+  for a command that finished. An operator's configuration file MUST NOT be
+  able to cause that.
+- **`history-limit`** decides what a capture of N lines can actually return
+  (§5.2). Unpinned, the same request reads a different depth on every machine,
+  and a truncated history is indistinguishable from a short session.
+
+Olympus therefore MUST pin exactly these two on servers it drives, and MUST NOT
+pin anything cosmetic. `default-command` is pinned to empty, which restores
+tmux's own behaviour — the operator's login shell — so what is removed is only
+a config file's ability to substitute a *different* shell behind Olympus's back.
+
+`default-shell` is deliberately NOT pinned. tmux has no notion of a
+non-interactive pane, so pinning it would hand a human who attaches a bare `sh`
+prompt instead of their own shell — a real cost to one audience for a guarantee
+it does not actually deliver, since a login shell may be non-POSIX either way.
+That the run protocol assumes a POSIX-compatible shell is stated here and
+reported by the diagnostic, not enforced by confiscating the operator's shell.
+
+**The pins MUST be applied ahead of the command whose behaviour depends on
+them, in the same invocation.** A pane reads `default-command` and
+`history-limit` when it *spawns*: applying them after `new-session` configures
+the next session and leaves this one exactly as misconfigured as before — a fix
+that measures as working while fixing nothing.
+
+They MUST be applied as options rather than through tmux's `-f`. Configuration
+is per-server and fixed at boot, so `-f` is silently ignored on a server that is
+already running; chained options apply to whichever server answers. `-f` also
+cannot reproduce tmux's own configuration search order, which prefers the XDG
+location over `~/.tmux.conf` — replacing the file would mean re-implementing
+that order and getting it wrong on some machine.
+
+**What this does not cover.** Hooks and plugins in the operator's configuration
+run when the server boots, before any Olympus command can intervene. A
+`session-created` hook therefore executes in Olympus's sessions, and a plugin
+manager loads into Olympus's server. Only replacing the configuration file
+outright would prevent it, at the cost above. Callers needing that isolation
+MUST boot the server themselves with `-f`, on a socket of their own.
+
+**Pinning MUST be disclosed** (§0.6). A tool that silently overrides a line in
+somebody's `tmux.conf` turns "my configuration is being ignored" into an
+unanswerable question, which is exactly the failure the diagnostic exists to
+prevent. `doctor` names every pinned option and its value, in both output modes.
+
+Backends with no configuration file pin nothing, and MUST report nothing rather
+than an empty claim.

@@ -158,6 +158,15 @@ sessions do not show up in a plain `tmux ls`. On zmx there is no socket
 equivalent — sessions are global to your daemon and appear in your own
 `zmx list`. `olympus doctor` states which is in effect.
 
+A private socket is not a private configuration: tmux fixes a server's settings
+at boot from your `tmux.conf`, so your file reaches Olympus's sessions whichever
+socket they are on. That is mostly what you want — attach to one and you get
+your own prefix, bindings and theme. Two options are pinned back, because
+Olympus's own correctness rests on them: `default-command`, which decides the
+shell that writes a run's exit marker, and `history-limit`, which decides what a
+capture of N lines can return. `olympus doctor` names both under *what Olympus
+overrides in your tmux config*. Nothing cosmetic is touched.
+
 You can put the tmux socket wherever you like with `--socket-path`, rather than
 letting tmux choose the directory:
 

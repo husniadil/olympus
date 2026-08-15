@@ -794,3 +794,103 @@ func TestASocketPathAddressesADifferentServerFromASocketName(t *testing.T) {
 		t.Errorf("both addressings report the same scope %q, so they would share a lock", byPath.Scope())
 	}
 }
+
+// A socket of our own is not a configuration of our own: a server on a private
+// socket still loads the operator's tmux.conf, because tmux fixes configuration
+// per SERVER at boot and the socket only decides which server that is.
+//
+// Measured, and not theoretical: an operator's `default-command` makes our
+// sessions run a shell we never chose, and the run protocol's exit marker is
+// written by that shell. Under csh, `echo "OLY_D_id_$?_"` becomes
+// `OLY_D_id_1` — csh reads `$?_` as "is the variable _ set", so the real exit
+// status is replaced by a 1 and the closing delimiter disappears. A caller is
+// then told a command that failed with 3 succeeded, or is told nothing at all.
+//
+// So the options the protocol depends on are pinned by Olympus, and pinned
+// BEFORE the pane spawns — afterwards is too late, the shell is already running.
+func TestTheOperatorsConfigCannotChooseOurShell(t *testing.T) {
+	requireTmux(t)
+
+	b := backendUnderHostileConfig(t, `set -g default-command "/bin/csh"`)
+	name := create(t, b, backend.CreateSpec{Name: "shell", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	panes, err := b.Panes(context.Background(), name)
+	if err != nil {
+		t.Fatalf("Panes: %v", err)
+	}
+	if len(panes) != 1 {
+		t.Fatalf("want one pane, got %d", len(panes))
+	}
+	if panes[0].CurrentCommand == "csh" {
+		t.Errorf("the operator's default-command chose our shell: the run protocol's exit marker is written by it, and csh writes the wrong one")
+	}
+}
+
+// backendUnderHostileConfig gives a backend whose server will boot against a
+// tmux.conf the test controls, by pointing HOME at a directory it owns. The
+// operator's real configuration is never read and never written.
+func backendUnderHostileConfig(t *testing.T, conf string) backend.Backend {
+	t.Helper()
+
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".tmux.conf"), []byte(conf+"\n"), 0o600); err != nil {
+		t.Fatalf("writing the config the server will boot against: %v", err)
+	}
+	t.Setenv("HOME", home)
+	// tmux 3.7 prefers the XDG location, so leaving this set would let the
+	// operator's real file win and the test would prove nothing.
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	// A short directory, not t.TempDir(): a unix socket path is capped near 104
+	// bytes and the test's own name is part of t.TempDir()'s path.
+	dir, err := os.MkdirTemp(os.TempDir(), "olyc")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "s.sock")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
+	return tmux.New(tmux.WithSocketPath(socket))
+}
+
+// §17.5: a capture asking for N lines must mean the same thing on every
+// machine. tmux's own default history is 2000 and a typical operator config
+// raises it, so an unpinned Olympus reads a different depth everywhere and
+// reports the difference as no difference at all — the caller is handed a short
+// history that looks exactly like a short session.
+func TestTheOperatorsConfigCannotSetOurScrollbackDepth(t *testing.T) {
+	requireTmux(t)
+
+	b := backendUnderHostileConfig(t, "set -g history-limit 5")
+	name := create(t, b, backend.CreateSpec{Name: "depth", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	got := serverOption(t, b, "history-limit")
+	if got != itoa(tmux.HistoryLimit) {
+		t.Errorf("history-limit is %q, want the pinned %d — the operator's config decided how much of %s we can read",
+			got, tmux.HistoryLimit, name)
+	}
+}
+
+// The other half of the same rule: Olympus pins what its own correctness rests
+// on and NOTHING cosmetic. A human who attaches keeps their prefix, their
+// theme, their bindings — a session driven by a program is still a terminal
+// somebody may end up sitting in.
+func TestTheOperatorsOwnSettingsSurvive(t *testing.T) {
+	requireTmux(t)
+
+	b := backendUnderHostileConfig(t, `set -g @operators-own "kept"`)
+	create(t, b, backend.CreateSpec{Name: "cosmetic", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	if got := serverOption(t, b, "@operators-own"); got != "kept" {
+		t.Errorf("the operator's own setting is %q, want %q — Olympus took away more than it needs", got, "kept")
+	}
+}
+
+func serverOption(t *testing.T, b backend.Backend, name string) string {
+	t.Helper()
+	out, err := exec.Command("tmux", "-S", socketOf(t, b), "show-options", "-gqv", name).Output()
+	if err != nil {
+		t.Fatalf("show-options %s: %v", name, err)
+	}
+	return strings.TrimSpace(string(out))
+}

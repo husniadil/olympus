@@ -34,6 +34,16 @@ type BackendReport struct {
 	// differs sharply between backends and a user who learns one will be
 	// surprised by the other (behavior §17.2).
 	Isolation string `json:"isolation"`
+	// Managed is every option Olympus pins on servers it starts, overriding
+	// whatever the operator's configuration says.
+	//
+	// Disclosed rather than merely done. A socket of our own is not a
+	// configuration of our own — the operator's tmux.conf reaches our sessions
+	// — so a handful of options the protocol's correctness rests on are pinned
+	// back. Doing that silently turns "my tmux.conf is being ignored" into an
+	// unanswerable question, which is the exact failure this diagnostic exists
+	// to prevent (behavior §17.5).
+	Managed map[string]string `json:"managed_options,omitempty"`
 }
 
 // A ResolvedReport is which backend answers right now, and why.
@@ -80,6 +90,7 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		b, scope := buildBackend(name, cfg)
 		report.Capabilities = b.Capabilities()
 		report.Isolation = isolationOf(name, scope)
+		report.Managed = managedOf(name)
 		if version, err := b.Version(ctx); err == nil {
 			report.Version = version
 			report.BelowFloor = belowFloor(version, floors[name])
@@ -126,6 +137,19 @@ func buildBackend(name backend.Name, cfg config) (backend.Backend, string) {
 		}
 		return b, scope
 	}
+}
+
+// managedOf reports what Olympus pins, for the backend that has a configuration
+// file to be pinned against.
+func managedOf(name backend.Name) map[string]string {
+	if name != backend.Tmux {
+		return nil
+	}
+	pinned := map[string]string{}
+	for _, option := range tmux.ManagedOptions() {
+		pinned[option[0]] = option[1]
+	}
+	return pinned
 }
 
 // isolationOf states the posture in the user's terms. The two are opposite and
