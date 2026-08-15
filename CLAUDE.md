@@ -61,12 +61,19 @@ is worse than no spec, because it is still believed.
 
 ## Working agreements
 
-- **The spec is amendable.** If implementation shows a rule in
-  `docs/terminal-behavior.md` is wrong, incomplete, or unimplementable as
-  written, change it — in the same commit as the code that proved it. The spec
-  leads, but it is not immune to evidence.
+- **Development is test-first.** Failing test, then the code that makes it pass,
+  then refactor. The conformance suite is written *before* the backends it
+  tests, so a backend is developed against an executable definition of correct
+  rather than against prose.
+- **The specs are amendable.** If implementation shows a rule in
+  `docs/terminal-behavior.md` or `docs/api.md` is wrong, incomplete, or
+  unimplementable as written, change it — in the same commit as the code that
+  proved it. The specs lead, but they are not immune to evidence.
 - **Commit at checkpoints.** Small, working increments rather than one large
   drop, so each step is reviewable and revertible on its own.
+
+[`docs/roadmap.md`](docs/roadmap.md) has the ordered phases and what "done"
+means for each.
 
 ## Layering
 

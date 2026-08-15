@@ -25,8 +25,8 @@ same operation.
 |---|---|---|---|
 | create-or-reuse a session | `start` | `start_session` | `Session` |
 | list sessions | `ls` | `list_sessions` | `Sessions` |
-| kill a session | `stop` | `stop_session` | `Kill` / `Stop` |
-| session detail | `info` | `session_info` | `Info` |
+| kill a session | `stop` | `stop_session` | `Stop` |
+| session detail / presence | `info` | `session_info` | `Info` |
 | type literal text | `type` | `type_text` | `Type` |
 | send named keys | `key` | `send_keys` | `Press` |
 | paste multi-line text | `paste` | `paste_text` | `Paste` |
@@ -271,7 +271,24 @@ only on `start`, and is `created` | `reused` | `reaped`.
 An alt-screen target returns `""` with `alt_screen: true` — the flag is what
 makes empty mean *skipped by design* (behavior spec §5.3).
 
+**Presence** (`info`): `info` carries the tri-state presence answer and **MUST NOT
+error on an absent target**:
+
+```json
+{ "state": "present", "session": { }, "panes": [ ], "capabilities": { } }
+```
+
+`state` is `present` | `absent` | `error` (behavior spec §3.5). `session` and
+`panes` are omitted when the target is not present. Erroring with
+`SESSION_NOT_FOUND` instead would collapse the tri-state that exists precisely so
+a caller can tell "definitely gone" from "could not ask" — the whole point of
+§3.5. `info` is the only door onto that distinction, so it must preserve it.
+
 **Run** (`run`): `{"exit_code": 0, "output": "…"}`.
+
+`run` with **no target** creates a throwaway session for the run and kills it
+afterwards (behavior spec §6.10). `run --detach` with no target is a `USAGE`
+error, since nothing would remain to poll.
 
 **Detached run**: `start` returns `{"command_id": "…"}`; `poll` returns
 `{"status": "pending" | "completed" | "died", "exit_code": 0, "output": "…", "reason": "…"}`.
