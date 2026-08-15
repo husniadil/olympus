@@ -21,6 +21,7 @@ var ToolNames = []string{
 	"list_sessions",
 	"stop_session",
 	"session_info",
+	"self",
 	"list_panes",
 	"type_text",
 	"send_text",
@@ -323,6 +324,18 @@ func register(s *sdk.Server) {
 		func(ctx context.Context, ol *olympus.Olympus, in listPaneParams) ([]backend.Pane, []olympus.Warning, error) {
 			panes, err := ol.Panes(ctx, in.Target)
 			return panes, ol.PaneWarnings(), err
+		})
+
+	addTool(s, "self", "Report which session this MCP server is running inside, if any. Being outside one is an answer, not a failure. Nested sessions report no single address, because the environment cannot say which is inner.",
+		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) (olympus.Identity, []olympus.Warning, error) {
+			// Answers about this PROCESS, so the handle's configured backend
+			// is deliberately not consulted: it describes what this server
+			// would address, not where it is.
+			here, err := olympus.Self(ctx)
+			if err != nil && !here.Inside {
+				return olympus.Identity{}, nil, err
+			}
+			return here, nil, nil
 		})
 
 	addTool(s, "capabilities", "Report what the resolved backend can do. Branch on these rather than on an unsupported error.",

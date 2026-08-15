@@ -224,3 +224,24 @@ func TestSendToolCanVerifyWithoutSubmitting(t *testing.T) {
 		t.Errorf("combining atomic with no_submit was not rejected: %s", text)
 	}
 }
+
+// The server answers where IT is running, which is the same question the CLI
+// answers — an agent whose server sits inside a session can hand that address
+// to another agent.
+func TestSelfTool(t *testing.T) {
+	w := newWire(t)
+
+	got := w.callTool(t, "self", map[string]any{})
+	data, _ := got["data"].(map[string]any)
+	if _, ok := data["inside"]; !ok {
+		t.Fatalf("self returned no answer at all: %v", data)
+	}
+	// This test process is not inside an Olympus session, and the tool must
+	// say so plainly rather than failing or inventing a session.
+	if inside, _ := data["inside"].(bool); inside {
+		nested, _ := data["nested"].([]any)
+		if data["session"] == "" && len(nested) == 0 {
+			t.Errorf("self claims to be inside a session it cannot name: %v", data)
+		}
+	}
+}

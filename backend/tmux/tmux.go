@@ -593,3 +593,22 @@ func (t *Tmux) Scope() string {
 // itself (behavior §2.9), rather than reaching for the operator's default
 // server to check what happened.
 func (t *Tmux) Socket() string { return t.socket }
+
+// SessionOf reports which session owns a pane.
+//
+// It exists for a process asking which session it is ITSELF running in: tmux
+// tells a pane its own id through the environment but not its session's name,
+// so the name has to be asked for. Ordinary target resolution goes the same
+// way (§10) but answers for a caller outside; this answers for one inside.
+func (t *Tmux) SessionOf(ctx context.Context, pane string) (string, error) {
+	panes, err := t.Panes(ctx, "")
+	if err != nil {
+		return "", err
+	}
+	for _, p := range panes {
+		if p.ID == pane {
+			return p.SessionName, nil
+		}
+	}
+	return "", backend.Errorf(backend.CodeSessionNotFound, "no pane %s on this server", pane)
+}

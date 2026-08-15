@@ -440,3 +440,26 @@ func TestScreenVerbTakesSeveralTargets(t *testing.T) {
 		t.Errorf("screen returned no meta map: %v", data)
 	}
 }
+
+// `self` answers from wherever it is run. Outside a session that answer is
+// "nowhere", which is a result and not a failure — a script asking must be able
+// to branch on it without treating an error as the answer.
+func TestSelfOutsideASessionSucceeds(t *testing.T) {
+	t.Setenv("ZMX_SESSION", "")
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_PANE", "")
+
+	got := run(t, "self", "--json")
+	if got.code != 0 {
+		t.Fatalf("exit %d, want 0 — being outside a session is an answer", got.code)
+	}
+	data, _ := got.envelope(t).Data.(map[string]any)
+	if inside, _ := data["inside"].(bool); inside {
+		t.Errorf("self claims to be inside a session: %v", data)
+	}
+
+	human := run(t, "self")
+	if human.code != 0 || human.stdout == "" {
+		t.Errorf("the human form said nothing: exit %d, stdout %q", human.code, human.stdout)
+	}
+}

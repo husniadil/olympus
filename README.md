@@ -60,6 +60,7 @@ olympus wait build '\$\s*$'           # block until the prompt comes back
 olympus screen build api docs         # several sessions in one call
 olympus watch build                   # follow output as it is produced
 olympus panes                         # every pane, across every session
+olympus self                          # which session am I running in?
 olympus capabilities                  # what this backend can do
 olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over

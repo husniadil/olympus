@@ -27,6 +27,7 @@ same operation.
 | list panes | `panes` | `list_panes` | `Panes` |
 | kill a session | `stop` | `stop_session` | `Stop` |
 | session detail / presence | `info` | `session_info` | `Info` |
+| which session am I in | `self` | `self` | `Self` |
 | type literal text | `type` | `type_text` | `Type` |
 | deliver text, confirmed, and submit | `send` | `send_text` | `Send` |
 | send named keys | `key` | `send_keys` | `Press` |
@@ -234,12 +235,38 @@ makes it usable for isolation (§2.9).
 The Go door takes these as options to `Open`; the MCP door takes them from its
 process environment, since a stateless request carries no session configuration.
 
+`self` is the one operation none of the addressing options apply to. It answers
+where the calling process *is*, not what it would address, so honouring
+`--backend` or `--socket` there would let a caller's configuration contradict
+the truth. It is a package-level `Self(ctx)` in Go for the same reason: a handle
+cannot change which session its own process is sitting in.
+
 ---
 
 ## 5. Payload shapes
 
 Field names are `snake_case` in JSON, and identical across CLI and MCP. These are
 semver-bound once shipped.
+
+**Identity** (`self`):
+
+| Field | Type | Notes |
+|---|---|---|
+| `inside` | bool | Always present. False is an answer, not a failure. |
+| `backend` | string | Omitted when outside, and when nested. |
+| `session` | string | The name another program would use to reach this process. |
+| `scope` | string | The socket or directory that session lives on. |
+| `nested` | array | Every backend claiming this process, set only when more than one does. |
+
+Being outside a session exits `0` with `inside: false`: a caller told "nowhere"
+can act on it, whereas one handed an error must guess whether the error meant
+nowhere or could-not-tell.
+
+When `nested` is set, `backend`, `session` and `scope` are all empty. The
+environment cannot say which session is inner — both sets of variables are
+present and inheritance looks identical either way — and the use this operation
+exists for is telling another program where to reply. A confident wrong address
+delivers that reply to somebody else's terminal, silently.
 
 **Session row** (`start`, `ls`, `info`):
 

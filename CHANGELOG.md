@@ -35,6 +35,10 @@ All notable changes to this project are documented here. The format follows
   control keys — which decides whether a full-screen program can be driven.
 - `--socket-path`, addressing the tmux socket by path rather than by name, so it
   can live in a directory the caller controls.
+- Self-identification: `self` as a verb, a tool and `olympus.Self`, so a process
+  inside a session can name it — the address it hands another program to be
+  replied to. Being outside one is an answer, not a failure, and nested sessions
+  report the ambiguity rather than guessing which is inner.
 - Views: the full server-global setup — hyperlink passthrough, the read-only
   posture, wheel bindings — with the base probed before anything is created.
 
