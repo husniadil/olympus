@@ -296,6 +296,17 @@ error, since nothing would remain to poll.
 **`exit_code` is omitted unless `status` is `completed`** (behavior spec §6.7) —
 never a fake zero. Consumers branch on `status` first.
 
+**View row** (`view create`, `view ls`):
+
+```json
+{ "name": "olympus-view-build-a1b2", "base": "build", "id": "$9", "attached": false }
+```
+
+`base` is the session the view looks onto. A view's lifetime is independent of
+its base's, but the window and pane are shared (behavior spec §9.2), so a view
+row is not a session row and does not carry `liveness` or `cwd` — ask the base
+for those.
+
 **Doctor** (`doctor`):
 
 ```json
