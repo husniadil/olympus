@@ -593,3 +593,42 @@ func TestWaitingForASessionToReportAStatus(t *testing.T) {
 		})
 	}
 }
+
+// §10: a pane id addresses the session that owns it, on every backend, in that
+// backend's own spelling.
+//
+// Written as one rule across all three rather than per backend, because the
+// spellings are what differ and the rule is what must not: tmux writes "%0",
+// meja writes "1", and zmx has no panes at all so its synthesized id is the
+// session's own name. A caller that reads an id out of `panes` must be able to
+// hand it straight back as a target without knowing which backend it came from.
+func TestAPaneIDAddressesItsSession(t *testing.T) {
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			s := session(t, ol)
+			ctx := context.Background()
+
+			panes, err := ol.Panes(ctx, s.Name())
+			if err != nil {
+				t.Fatalf("Panes: %v", err)
+			}
+			if len(panes) == 0 {
+				t.Fatalf("the session reports no panes at all")
+			}
+			id := panes[0].ID
+
+			info, err := ol.Info(ctx, id)
+			if err != nil {
+				t.Fatalf("addressing pane %q: %v", id, err)
+			}
+			if info.State != backend.StatePresent {
+				t.Fatalf("pane %q reports %q, want present — an id read from `panes` must work as a target",
+					id, info.State)
+			}
+			if info.Session == nil || info.Session.Name != s.Name() {
+				t.Errorf("pane %q resolved to %v, want session %q", id, info.Session, s.Name())
+			}
+		})
+	}
+}

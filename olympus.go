@@ -212,14 +212,19 @@ func (o *Olympus) Sessions(ctx context.Context) ([]backend.Session, error) {
 // resolveTarget swaps a pane id for its owning session, in the one shared place
 // every operation calls (behavior §10).
 func (o *Olympus) resolveTarget(ctx context.Context, target string) (string, error) {
-	if o.backend.Capabilities().Backend == backend.Zmx {
+	lister := func() ([]backend.Pane, error) { return o.backend.Panes(ctx, "") }
+	switch o.backend.Capabilities().Backend {
+	case backend.Zmx:
 		// No pane-id concept here, so nothing to resolve: a "%"-prefixed
 		// target is simply an unknown session name under the ordinary lookup.
-		return backend.ResolveTarget(target, nil)
+		return backend.ResolveTarget(target, nil, nil)
+	case backend.Meja:
+		// meja spells pane ids as bare integers, and forbids a session name
+		// that is entirely numeric — so the shape is unambiguous rather than
+		// merely probable, and no session can be shadowed by a pane.
+		return backend.ResolveTarget(target, backend.NumericPaneID, lister)
 	}
-	return backend.ResolveTarget(target, func() ([]backend.Pane, error) {
-		return o.backend.Panes(ctx, "")
-	})
+	return backend.ResolveTarget(target, backend.PrefixedPaneID, lister)
 }
 
 func (o *Olympus) lockKey(session string) engine.LockKey {

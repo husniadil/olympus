@@ -16,7 +16,7 @@ func lister(panes ...backend.Pane) backend.PaneLister {
 // a listing, since listing costs a subprocess call on every operation.
 func TestOrdinaryTargetPassesThroughWithoutListing(t *testing.T) {
 	called := false
-	got, err := backend.ResolveTarget("build", func() ([]backend.Pane, error) {
+	got, err := backend.ResolveTarget("build", backend.PrefixedPaneID, func() ([]backend.Pane, error) {
 		called = true
 		return nil, nil
 	})
@@ -32,7 +32,7 @@ func TestOrdinaryTargetPassesThroughWithoutListing(t *testing.T) {
 }
 
 func TestPaneIDResolvesToItsOwningSession(t *testing.T) {
-	got, err := backend.ResolveTarget("%7", lister(
+	got, err := backend.ResolveTarget("%7", backend.PrefixedPaneID, lister(
 		backend.Pane{ID: "%3", SessionName: "other"},
 		backend.Pane{ID: "%7", SessionName: "build"},
 	))
@@ -47,7 +47,7 @@ func TestPaneIDResolvesToItsOwningSession(t *testing.T) {
 // §10: resolution failing is not-found naming the PANE ID, not a session name —
 // there was never a session to name, since resolution never happened.
 func TestUnknownPaneIDIsNotFoundNamingThePaneID(t *testing.T) {
-	_, err := backend.ResolveTarget("%99", lister(backend.Pane{ID: "%7", SessionName: "build"}))
+	_, err := backend.ResolveTarget("%99", backend.PrefixedPaneID, lister(backend.Pane{ID: "%7", SessionName: "build"}))
 	if !errors.Is(err, backend.ErrNotFound) {
 		t.Fatalf("error is %v, want ErrNotFound", err)
 	}
@@ -64,7 +64,7 @@ func TestUnknownPaneIDIsNotFoundNamingThePaneID(t *testing.T) {
 // created_at — or a pane-id caller silently operates on a view, and killing it
 // leaves the real session running.
 func TestPaneIDSharedWithViewsResolvesToTheBase(t *testing.T) {
-	got, err := backend.ResolveTarget("%7", lister(
+	got, err := backend.ResolveTarget("%7", backend.PrefixedPaneID, lister(
 		backend.Pane{ID: "%7", SessionName: "olympus-view-build-a1b2", CreatedAt: 200},
 		backend.Pane{ID: "%7", SessionName: "build", CreatedAt: 100},
 		backend.Pane{ID: "%7", SessionName: "olympus-view-build-c3d4", CreatedAt: 300},
@@ -82,7 +82,7 @@ func TestPaneIDSharedWithViewsResolvesToTheBase(t *testing.T) {
 // collapsing the two would turn every died-session question into not-found
 // before the caller's own death handling could report it properly.
 func TestCorpsePaneStillResolves(t *testing.T) {
-	got, err := backend.ResolveTarget("%7", lister(
+	got, err := backend.ResolveTarget("%7", backend.PrefixedPaneID, lister(
 		backend.Pane{ID: "%7", SessionName: "build", Dead: true},
 	))
 	if err != nil {
@@ -98,7 +98,7 @@ func TestCorpsePaneStillResolves(t *testing.T) {
 // one thing §3.2 forbids concluding on doubt.
 func TestListingFailurePropagatesRatherThanBecomingNotFound(t *testing.T) {
 	cause := backend.Errorf(backend.CodeBackendUnavailable, "no server running")
-	_, err := backend.ResolveTarget("%7", func() ([]backend.Pane, error) { return nil, cause })
+	_, err := backend.ResolveTarget("%7", backend.PrefixedPaneID, func() ([]backend.Pane, error) { return nil, cause })
 	if errors.Is(err, backend.ErrNotFound) {
 		t.Error("a listing failure became not-found")
 	}
@@ -110,7 +110,7 @@ func TestListingFailurePropagatesRatherThanBecomingNotFound(t *testing.T) {
 // An empty target reaching resolution is a caller bug, and a silent
 // pass-through would let it key a write lock — §10's named failure mode.
 func TestEmptyTargetIsUsage(t *testing.T) {
-	_, err := backend.ResolveTarget("", lister())
+	_, err := backend.ResolveTarget("", backend.PrefixedPaneID, lister())
 	if !errors.Is(err, backend.ErrUsage) {
 		t.Errorf("error is %v, want ErrUsage", err)
 	}
@@ -120,7 +120,7 @@ func TestEmptyTargetIsUsage(t *testing.T) {
 // ordinary unknown session name. Passing no lister is how a backend says that,
 // and it must not crash.
 func TestBackendWithoutPaneIDsPassesEverythingThrough(t *testing.T) {
-	got, err := backend.ResolveTarget("%7", nil)
+	got, err := backend.ResolveTarget("%7", backend.PrefixedPaneID, nil)
 	if err != nil {
 		t.Fatalf("ResolveTarget: %v", err)
 	}

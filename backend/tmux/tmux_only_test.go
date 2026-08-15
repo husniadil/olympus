@@ -1035,3 +1035,35 @@ func TestASessionCarriesAStatusItWasGiven(t *testing.T) {
 		t.Errorf("status is %q, want %q", got, "waiting on review")
 	}
 }
+
+// §8: the attach argv must be one tmux ACCEPTS, which only running it can show.
+//
+// Asserting that the argv string contains " -u" is what let a real defect ship:
+// -u is a global tmux flag and attach-session takes [-dErx], so `attach-session
+// … -u` is rejected outright with "command attach-session: unknown flag -u".
+// The string assertion passed the whole time, because the flag was present —
+// just in a position tmux refuses.
+//
+// Run without a terminal, tmux gets past flag parsing and fails at "open
+// terminal failed", which is the outcome this asserts for: the argv was
+// understood, and only the missing TTY stopped it. A flag error would mean the
+// command is malformed for every caller, TTY or not.
+func TestTheAttachArgvIsOneTmuxAccepts(t *testing.T) {
+	requireTmux(t)
+
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-argv", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	for _, role := range []backend.Role{backend.RoleController, backend.RoleViewer} {
+		att, err := b.Attach(context.Background(), name, backend.AttachSpec{Role: role})
+		if err != nil {
+			t.Fatalf("preparing a %s attach: %v", role, err)
+		}
+		out, _ := att.Cmd.CombinedOutput()
+		text := string(out)
+		if strings.Contains(text, "unknown flag") || strings.Contains(text, "usage:") {
+			t.Errorf("tmux rejects the %s attach argv: %s\n  argv: %s",
+				role, strings.TrimSpace(text), strings.Join(att.Cmd.Args, " "))
+		}
+	}
+}

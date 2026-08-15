@@ -36,12 +36,15 @@ func (t *Tmux) Attach(ctx context.Context, target string, spec backend.AttachSpe
 	// tmux renders for every other client of that server, including the
 	// operator's own sessions when Olympus is pointed at a server they already
 	// run (§9.6). A real terminal answers the probe and needs nothing from us.
-	args := append(t.addressing(), "-T", "hyperlinks", "attach-session", "-t", sessionTarget(target))
-	// Without -u the CLIENT — not the pane's programs — sanitizes every
-	// non-ASCII byte to "_" before it reaches the consumer. The pane is fine;
-	// the stream is not. This is additional to the LANG default: LANG is a belt
-	// for the programs inside the pane, -u is for the client (§1.4).
-	args = append(args, "-u")
+	//
+	// -u belongs to the same group and for the same structural reason, not
+	// merely by convention: attach-session takes [-dErx], and tmux rejects
+	// `attach-session … -u` outright with "command attach-session: unknown
+	// flag -u". Without it the CLIENT — not the pane's programs — sanitizes
+	// every non-ASCII byte to "_" before it reaches the consumer. The pane is
+	// fine; the stream is not. This is additional to the LANG default: LANG is
+	// a belt for the programs inside the pane, -u is for the client (§1.4).
+	args := append(t.addressing(), "-u", "-T", "hyperlinks", "attach-session", "-t", sessionTarget(target))
 	if spec.Role == backend.RoleViewer {
 		// A viewer drops resize as well as input, or a passive watcher
 		// reshapes everyone else's terminal (§8.7).

@@ -17,7 +17,12 @@ import (
 // returned as data — so every field here was checked against a live server.
 const (
 	sessionFormat = "#{session_name}\t#{session_id}\t#{session_created}"
-	paneFormat    = "#{pane_id}\t#{window_index}\t#{pane_dead}\t#{pane_current_command}\t#{pane_current_path}"
+	// session_name and session_id are carried on every pane row, not only on
+	// the ones asked for by session. A whole-server listing is exactly where a
+	// caller cannot supply the owner, and it is what target resolution reads to
+	// swap a pane id for its session — a row that cannot name its owner
+	// resolves to nothing (§10).
+	paneFormat = "#{pane_id}\t#{window_index}\t#{pane_dead}\t#{pane_current_command}\t#{pane_current_path}\t#{session_name}\t#{session_id}"
 )
 
 func (m *Meja) Create(ctx context.Context, spec backend.CreateSpec) (backend.Session, error) {
@@ -92,25 +97,27 @@ func (m *Meja) Sessions(ctx context.Context) ([]backend.Session, error) {
 	return sessions, nil
 }
 
-// createdAt reads a session's creation time, zero when it cannot be had.
-func (m *Meja) createdAt(ctx context.Context, target string) int64 {
-	if target == "" {
-		return 0
-	}
+// createdTimes reads every session's creation time, keyed by name.
+//
+// One call for the whole listing rather than one per row: the times are all in
+// a single answer, and asking per row would turn a pane listing into a
+// subprocess per pane.
+func (m *Meja) createdTimes(ctx context.Context) map[string]int64 {
+	times := map[string]int64{}
 	out, err := m.run(ctx, nil, "list-sessions", "-F", "#{session_name}\t#{session_created}")
 	if err != nil {
-		return 0
+		return times
 	}
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
-		if len(fields) == 2 && fields[0] == target {
-			n, convErr := strconv.ParseInt(strings.TrimSpace(fields[1]), 10, 64)
-			if convErr == nil {
-				return n
-			}
+		if len(fields) != 2 {
+			continue
+		}
+		if n, convErr := strconv.ParseInt(strings.TrimSpace(fields[1]), 10, 64); convErr == nil {
+			times[fields[0]] = n
 		}
 	}
-	return 0
+	return times
 }
 
 // cwdOf reads a session's directory from its first pane.
@@ -147,23 +154,28 @@ func (m *Meja) Panes(ctx context.Context, target string) ([]backend.Pane, error)
 	// SESSION's. That is not an approximation here: every session Olympus
 	// creates is single-window and single-pane, so the pane and the session
 	// were created by the same command at the same moment.
-	created := m.createdAt(ctx, target)
+	//
+	// Read for every session at once rather than for the target, because a
+	// whole-server listing has no single target and every row still has to
+	// carry its own time.
+	created := m.createdTimes(ctx)
 
 	var panes []backend.Pane
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
-		if len(fields) < 5 || fields[0] == "" {
+		if len(fields) < 7 || fields[0] == "" {
 			continue
 		}
 		window, _ := strconv.Atoi(fields[1])
 		panes = append(panes, backend.Pane{
 			ID:             fields[0],
-			SessionName:    target,
+			SessionName:    fields[5],
+			SessionID:      fields[6],
 			WindowIndex:    window,
 			Dead:           fields[2] == "1",
 			CurrentCommand: fields[3],
 			CurrentPath:    fields[4],
-			CreatedAt:      created,
+			CreatedAt:      created[fields[5]],
 			Liveness:       backend.LivenessPresent,
 		})
 	}

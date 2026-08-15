@@ -1385,6 +1385,29 @@ An empty result MUST serialize as an empty list, never null.
 
 ## 10. Targets and resolution
 
+**A pane id addresses the session that owns it, on every backend.** An id a
+caller reads out of a pane listing MUST work as a target without them knowing
+which backend produced it, or the listing hands out identifiers its own API
+rejects.
+
+Only the SPELLING differs, so only the spelling is per-backend:
+
+| Backend | Pane id | Why that shape is unambiguous |
+|---|---|---|
+| tmux | `%0` | The prefix cannot begin a session name Olympus would use. |
+| meja | `1` | meja rejects a session name that is entirely numeric, so a bare integer can only be a pane. |
+| zmx | the session's own name | No pane concept; the row is synthesized 1:1 from the session, so resolution is the identity. |
+
+The shape MUST be passed into resolution rather than branched on inside it. One
+rule with a per-backend spelling stays one rule; a copy per backend is where the
+two silently stop agreeing.
+
+**Every pane row MUST name its own session**, including in a whole-server
+listing. That listing is exactly where a caller cannot supply the owner, and it
+is what resolution reads to swap an id for a session — a row that cannot name
+its owner resolves to nothing, and the operation then reports a live session as
+absent.
+
 Every tmux backend operation addresses sessions through exact-match `=<name>`
 syntax, which does **not** accept a bare pane id (`%0`) even though tmux's own
 `-t` does. Consumers holding pane ids would otherwise have to do their own
