@@ -2,13 +2,18 @@ package tmux
 
 import (
 	"context"
-	"strconv"
 	"strings"
 
 	"github.com/husniadil/olympus/backend"
 )
 
-const viewFormat = "#{session_name}\x1f#{session_id}\x1f#{session_group}\x1f#{session_attached}\x1f#{session_created}"
+const viewFormat = "#{session_name}\x1f#{session_id}\x1f#{session_group}\x1f#{session_attached}"
+
+// ViewPrefix is the reserved name prefix every view carries (behavior §17.1).
+//
+// It is load-bearing beyond cosmetics: enumerating views selects on it, so
+// changing it orphans every view an older binary created.
+const ViewPrefix = "olympus-view-"
 
 // passthroughTable is the reserved key table a view runs under (behavior
 // §17.1). It is server-global rather than scoped to the view's session.
@@ -177,8 +182,19 @@ func (t *Tmux) ScrollView(ctx context.Context, view string, lines int) error {
 	return named(view, err)
 }
 
-// Views lists the views onto a base session, or onto every session when base is
-// empty. The base itself is never a view of itself, so it is excluded.
+// Views lists the views this backend owns, optionally for one base.
+//
+// The base comes straight from tmux's own #{session_group}. Because §9.1 groups
+// a view onto its base by the BASE'S SESSION ID rather than a synthetic name,
+// tmux's group-name answer for ANY member of that group already IS the base's
+// real session name — measured: a base `zzz-base` and a view grouped onto it
+// both answer `zzz-base`. No lookup, no bookkeeping, and no inference from list
+// order (§9.5).
+//
+// Rows are selected by the reserved prefix, which is what makes this "views
+// this backend owns" rather than "every grouped session". An operator who
+// groups two sessions of their own has not created an Olympus view, and
+// reporting one would invite a sweep to kill their session.
 func (t *Tmux) Views(ctx context.Context, base string) ([]backend.View, error) {
 	out, err := t.run(ctx, nil, "list-sessions", "-F", viewFormat)
 	if err != nil {
@@ -188,71 +204,27 @@ func (t *Tmux) Views(ctx context.Context, base string) ([]backend.View, error) {
 		return nil, err
 	}
 
-	// The base of a group is its OLDEST member, decided by SESSION ID.
-	//
-	// Two wrong discriminators, both tried:
-	//
-	//   - List order. tmux lists sessions sorted by NAME, and the reserved view
-	//     prefix sorts before most session names — so taking the first row as
-	//     the base reports every group with the base and the view swapped.
-	//   - Creation time. #{session_created} has one-second granularity, and a
-	//     view is created milliseconds after its base, so the two tie and the
-	//     tie-break falls back to name order — the same bug again, just rarer
-	//     and therefore worse.
-	//
-	// Session ids are monotonic and assigned in creation order, so they order
-	// the group exactly.
-	rows := splitLines(out)
-	type owner struct {
-		name string
-		id   int
-	}
-	groups := map[string]owner{}
-	for _, line := range rows {
-		f := strings.Split(line, "\x1f")
-		if len(f) < 5 || f[2] == "" {
-			continue
-		}
-		id := sessionOrder(f[1])
-		if seen, ok := groups[f[2]]; !ok || id < seen.id {
-			groups[f[2]] = owner{name: f[0], id: id}
-		}
-	}
-
 	var views []backend.View
-	for _, line := range rows {
+	for _, line := range splitLines(out) {
 		f := strings.Split(line, "\x1f")
-		if len(f) < 5 || f[2] == "" {
+		if len(f) < 4 {
 			continue
 		}
-		group := groups[f[2]]
-		if f[0] == group.name {
+		name, id, group, attached := f[0], f[1], f[2], f[3]
+		if !strings.HasPrefix(name, ViewPrefix) {
 			continue
 		}
-		if base != "" && group.name != base {
+		if base != "" && group != base {
 			continue
 		}
 		views = append(views, backend.View{
-			Name:     f[0],
-			Base:     group.name,
-			ID:       f[1],
-			Attached: f[3] == "1",
+			Name:     name,
+			Base:     group,
+			ID:       id,
+			Attached: attached == "1",
 		})
 	}
 	return views, nil
-}
-
-// sessionOrder turns a session id such as "$7" into its creation order.
-//
-// An unparseable id sorts last rather than first: guessing that an unknown
-// shape is the oldest would make it the group's base, which is exactly the
-// mistake this ordering exists to prevent.
-func sessionOrder(id string) int {
-	n, err := strconv.Atoi(strings.TrimPrefix(id, "$"))
-	if err != nil {
-		return int(^uint(0) >> 1)
-	}
-	return n
 }
 
 // sessionID reads a session's immutable id from the listing.

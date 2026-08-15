@@ -21,3 +21,11 @@ All notable changes to this project are documented here. The format follows
   `2026-07-28`.
 - Attach: PTY ownership, raw mode, two-layer terminal restore, the resize
   protocol, and the attach guard.
+- Multi-target capture, applying the door's alt-screen skip rule.
+- `panes`, `new` and `capabilities` as verbs and tools in their own right.
+- Throwaway runs: `run` with no target creates a session for the run and kills
+  it afterwards.
+- `paste --enter`, `send --no-enter`, and tunables on every operation that has a
+  budget or a window.
+- Views: the full server-global setup — hyperlink passthrough, the read-only
+  posture, wheel bindings — with the base probed before anything is created.

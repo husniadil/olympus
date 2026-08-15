@@ -59,6 +59,7 @@ func (a *App) typeCmd() *cobra.Command {
 
 func (a *App) sendCmd() *cobra.Command {
 	var atomic bool
+	var noEnter bool
 	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "send <target> <text>",
@@ -77,17 +78,21 @@ func (a *App) sendCmd() *cobra.Command {
 					if timeout > 0 {
 						opts = append(opts, olympus.VerifyBudget(timeout))
 					}
+					if noEnter {
+						opts = append(opts, olympus.WithoutSubmit())
+					}
 					err = s.Send(cmd.Context(), args[1], opts...)
 				}
 				if err != nil {
 					return err
 				}
-				return a.emit(map[string]any{"target": s.Name(), "atomic": atomic}, nil, nil)
+				return a.emit(map[string]any{"target": s.Name(), "atomic": atomic, "submitted": !noEnter || atomic}, nil, nil)
 			})
 		},
 	}
 	cmd.Flags().BoolVar(&atomic, "atomic", false, "deliver and submit as one unit, without verifying")
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "per-attempt verify budget, spent twice (default 5s)")
+	cmd.Flags().BoolVar(&noEnter, "no-enter", false, "confirm the text landed but leave it unsubmitted")
 	return cmd
 }
 

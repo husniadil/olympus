@@ -641,7 +641,9 @@ func TestAViewIsNeverMistakenForItsBase(t *testing.T) {
 	// the reserved prefix and the one that used to break.
 	base := create(t, b, backend.CreateSpec{Name: "zzz-base"})
 
-	view, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "aaa-view-of-zzz"})
+	// The reserved prefix sorts BEFORE this base's name, which is the ordering
+	// that used to make the base and the view swap places.
+	view, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-zzz-base-a1"})
 	if err != nil {
 		t.Fatalf("creating a view: %v", err)
 	}
@@ -667,5 +669,49 @@ func TestAViewIsNeverMistakenForItsBase(t *testing.T) {
 	}
 	if len(filtered) != 1 {
 		t.Errorf("listing views of %s returned %d, want 1", base, len(filtered))
+	}
+}
+
+// §9.5/§17.1: enumeration selects on the reserved prefix, so a session an
+// operator grouped themselves is NOT reported as a view.
+//
+// The consequence of getting this wrong is not cosmetic: a consumer sweeping
+// orphaned views would kill a session it never created.
+func TestAForeignGroupedSessionIsNotReportedAsAView(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-fbase"})
+
+	// A grouped session created outside Olympus, exactly as an operator would.
+	socket := socketOf(t, b)
+	id, err := exec.Command("tmux", "-L", socket, "display-message", "-p", "-t", "=oly-fbase:", "#{session_id}").Output()
+	if err != nil {
+		t.Fatalf("reading the base's id: %v", err)
+	}
+	if err := exec.Command("tmux", "-L", socket, "new-session", "-d",
+		"-t", strings.TrimSpace(string(id)), "-s", "operators-own-window").Run(); err != nil {
+		t.Fatalf("creating a foreign grouped session: %v", err)
+	}
+
+	views, err := b.Views(ctx, "")
+	if err != nil {
+		t.Fatalf("listing views: %v", err)
+	}
+	for _, v := range views {
+		if v.Name == "operators-own-window" {
+			t.Errorf("a session the operator grouped themselves was reported as a view; a sweep would kill it")
+		}
+	}
+
+	// And an Olympus view of the same base still is one.
+	if _, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-fbase-c3"}); err != nil {
+		t.Fatalf("creating a view: %v", err)
+	}
+	views, err = b.Views(ctx, base)
+	if err != nil {
+		t.Fatalf("listing views: %v", err)
+	}
+	if len(views) != 1 || views[0].Name != "olympus-view-oly-fbase-c3" {
+		t.Errorf("listing views of %s returned %+v, want only Olympus's own", base, views)
 	}
 }

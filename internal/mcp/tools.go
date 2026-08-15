@@ -49,17 +49,59 @@ type targetParams struct {
 	Target string `json:"target" jsonschema:"the session to address"`
 }
 
+type stopParams struct {
+	Target string `json:"target" jsonschema:"the session to end"`
+	Force  bool   `json:"force,omitempty" jsonschema:"skip the graceful attempt entirely"`
+	// Presses and InterruptSeconds shape the graceful attempt. The timeout
+	// bounds the POLL phase only, so total wall time is presses*gap plus it.
+	Presses          int `json:"presses,omitempty" jsonschema:"interrupts to send before waiting (default 1)"`
+	InterruptSeconds int `json:"interrupt_timeout_seconds,omitempty" jsonschema:"how long to wait for the interrupt before forcing (default 2)"`
+}
+
 type startParams struct {
 	Name    string   `json:"name" jsonschema:"the session name"`
 	Dir     string   `json:"dir,omitempty" jsonschema:"working directory for the session"`
 	Cols    int      `json:"cols,omitempty" jsonschema:"initial width; ignored by backends with no spawn-time sizing"`
 	Rows    int      `json:"rows,omitempty" jsonschema:"initial height; ignored by backends with no spawn-time sizing"`
 	Command []string `json:"command,omitempty" jsonschema:"argv to spawn instead of a login shell; executed, never typed"`
+	// KeepCorpse applies on the create path only and is unsupported on a
+	// backend with no corpse concept, which rejects it before doing anything.
+	KeepCorpse bool `json:"keep_corpse,omitempty" jsonschema:"leave a dead session to inspect after its command exits"`
+}
+
+// sessionOptions turns the shared create parameters into options, so
+// start_session and new_session cannot drift apart.
+func sessionOptions(in startParams) []olympus.SessionOption {
+	var opts []olympus.SessionOption
+	if in.Dir != "" {
+		opts = append(opts, olympus.In(in.Dir))
+	}
+	if in.Cols > 0 || in.Rows > 0 {
+		opts = append(opts, olympus.Size(in.Cols, in.Rows))
+	}
+	if len(in.Command) > 0 {
+		opts = append(opts, olympus.Command(in.Command...))
+	}
+	if in.KeepCorpse {
+		opts = append(opts, olympus.KeepCorpse())
+	}
+	return opts
 }
 
 type textParams struct {
 	Target string `json:"target" jsonschema:"the session to address"`
 	Text   string `json:"text" jsonschema:"the text to deliver"`
+	// Submit applies to type_text: an unverified terminator afterwards.
+	Submit bool `json:"submit,omitempty" jsonschema:"send the terminator afterwards, without verifying the text landed"`
+	// NoSubmit applies to send_text: verify without submitting.
+	NoSubmit bool `json:"no_submit,omitempty" jsonschema:"confirm the text landed but leave it unsubmitted"`
+	// Atomic applies to send_text: deliver and submit as one unit, skipping the
+	// on-screen check. It cannot be combined with verification.
+	Atomic bool `json:"atomic,omitempty" jsonschema:"deliver and submit as one unit, without verifying; single-line only"`
+	// Seconds applies to send_text: one attempt's verify budget, spent twice.
+	Seconds int `json:"timeout_seconds,omitempty" jsonschema:"per-attempt verify budget in seconds, spent twice (default 5)"`
+	// Enter applies to paste_text: submit the final line afterwards.
+	Enter bool `json:"enter,omitempty" jsonschema:"submit the final line afterwards, retrying the terminator once"`
 }
 
 type keysParams struct {
@@ -85,9 +127,13 @@ type listPaneParams struct {
 }
 
 type commandParams struct {
-	Target  string `json:"target" jsonschema:"the session to address"`
+	Target  string `json:"target,omitempty" jsonschema:"the session to run in; omit when throwaway is set"`
 	Command string `json:"command" jsonschema:"the command to run; must be a single line"`
-	Seconds int    `json:"seconds,omitempty" jsonschema:"how long to wait for the command, in seconds"`
+	Seconds int    `json:"timeout_seconds,omitempty" jsonschema:"how long to wait for the command, in seconds (default 60)"`
+	// Throwaway runs in a session created for this run and killed afterwards.
+	// It cannot be combined with starting a detached run: the session is gone
+	// the moment the run returns, leaving nothing to poll.
+	Throwaway bool `json:"throwaway,omitempty" jsonschema:"run in a throwaway session, killed afterwards; excludes target"`
 }
 
 type pollParams struct {
@@ -104,6 +150,7 @@ type markerParams struct {
 
 type viewParams struct {
 	Base    string `json:"base" jsonschema:"the session to look onto"`
+	Name    string `json:"name,omitempty" jsonschema:"view session name (default olympus-view-<base>-<nonce>)"`
 	NoMouse bool   `json:"no_mouse,omitempty" jsonschema:"do not enable wheel scrolling into the view's history"`
 }
 
@@ -151,17 +198,7 @@ type versionResult struct {
 func register(s *sdk.Server) {
 	addTool(s, "start_session", "Create a session, or reuse one that is already alive.",
 		func(ctx context.Context, ol *olympus.Olympus, in startParams) (backend.Session, []olympus.Warning, error) {
-			var opts []olympus.SessionOption
-			if in.Dir != "" {
-				opts = append(opts, olympus.In(in.Dir))
-			}
-			if in.Cols > 0 || in.Rows > 0 {
-				opts = append(opts, olympus.Size(in.Cols, in.Rows))
-			}
-			if len(in.Command) > 0 {
-				opts = append(opts, olympus.Command(in.Command...))
-			}
-			session, err := ol.Session(ctx, in.Name, opts...)
+			session, err := ol.Session(ctx, in.Name, sessionOptions(in)...)
 			if err != nil {
 				return backend.Session{}, nil, err
 			}
@@ -181,8 +218,18 @@ func register(s *sdk.Server) {
 		})
 
 	addTool(s, "stop_session", "End a session, interrupting it before forcing. Reports gone, graceful, or killed; all three are successes.",
-		func(ctx context.Context, ol *olympus.Olympus, in targetParams) (olympus.Stopped, []olympus.Warning, error) {
-			stopped, err := ol.Stop(ctx, in.Target)
+		func(ctx context.Context, ol *olympus.Olympus, in stopParams) (olympus.Stopped, []olympus.Warning, error) {
+			var opts []olympus.StopOption
+			if in.Force {
+				opts = append(opts, olympus.Force())
+			}
+			if in.Presses > 0 {
+				opts = append(opts, olympus.Presses(in.Presses))
+			}
+			if in.InterruptSeconds > 0 {
+				opts = append(opts, olympus.InterruptTimeout(time.Duration(in.InterruptSeconds)*time.Second))
+			}
+			stopped, err := ol.Stop(ctx, in.Target, opts...)
 			return stopped, stopped.Warnings, err
 		})
 
@@ -195,14 +242,37 @@ func register(s *sdk.Server) {
 	addTool(s, "type_text", "Place literal text in the input line WITHOUT submitting it.",
 		func(ctx context.Context, ol *olympus.Olympus, in textParams) (acknowledged, []olympus.Warning, error) {
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (acknowledged, error) {
-				return acknowledged{Target: s.Name()}, s.Type(ctx, in.Text)
+				if err := s.Type(ctx, in.Text); err != nil {
+					return acknowledged{}, err
+				}
+				if in.Submit {
+					return acknowledged{Target: s.Name()}, s.Submit(ctx)
+				}
+				return acknowledged{Target: s.Name()}, nil
 			})
 		})
 
 	addTool(s, "send_text", "Deliver text, confirm it is on screen, and only then submit it.",
 		func(ctx context.Context, ol *olympus.Olympus, in textParams) (acknowledged, []olympus.Warning, error) {
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (acknowledged, error) {
-				return acknowledged{Target: s.Name()}, s.Send(ctx, in.Text)
+				if in.Atomic {
+					// Verification and atomicity cannot be combined: a
+					// verified send's terminator is a separate call, and any
+					// cross-invocation retry re-types the text and doubles it.
+					if in.NoSubmit {
+						return acknowledged{}, backend.Errorf(backend.CodeUsage,
+							"atomic and no_submit cannot be combined: an atomic send is defined by delivering the terminator with the text")
+					}
+					return acknowledged{Target: s.Name()}, s.SendAtomic(ctx, in.Text)
+				}
+				var opts []olympus.SendOption
+				if in.NoSubmit {
+					opts = append(opts, olympus.WithoutSubmit())
+				}
+				if in.Seconds > 0 {
+					opts = append(opts, olympus.VerifyBudget(time.Duration(in.Seconds)*time.Second))
+				}
+				return acknowledged{Target: s.Name()}, s.Send(ctx, in.Text, opts...)
 			})
 		})
 
@@ -220,6 +290,9 @@ func register(s *sdk.Server) {
 	addTool(s, "paste_text", "Place multi-line text in the input line. The final line is never submitted without a separate terminator.",
 		func(ctx context.Context, ol *olympus.Olympus, in textParams) (acknowledged, []olympus.Warning, error) {
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (acknowledged, error) {
+				if in.Enter {
+					return acknowledged{Target: s.Name()}, s.PasteAndSubmit(ctx, in.Text)
+				}
 				return acknowledged{Target: s.Name()}, s.Paste(ctx, in.Text)
 			})
 		})
@@ -239,17 +312,7 @@ func register(s *sdk.Server) {
 
 	addTool(s, "new_session", "Create a session, failing with a conflict if the name is taken. Use start_session to create-or-reuse; this is for a caller that means the session must not already exist.",
 		func(ctx context.Context, ol *olympus.Olympus, in startParams) (backend.Session, []olympus.Warning, error) {
-			var opts []olympus.SessionOption
-			if in.Dir != "" {
-				opts = append(opts, olympus.In(in.Dir))
-			}
-			if in.Cols > 0 || in.Rows > 0 {
-				opts = append(opts, olympus.Size(in.Cols, in.Rows))
-			}
-			if len(in.Command) > 0 {
-				opts = append(opts, olympus.Command(in.Command...))
-			}
-			session, err := ol.Create(ctx, in.Name, opts...)
+			session, err := ol.Create(ctx, in.Name, sessionOptions(in)...)
 			if err != nil {
 				return backend.Session{}, nil, err
 			}
@@ -290,6 +353,14 @@ func register(s *sdk.Server) {
 			if in.Seconds > 0 {
 				opts = append(opts, olympus.RunTimeout(time.Duration(in.Seconds)*time.Second))
 			}
+			if in.Throwaway {
+				if in.Target != "" {
+					return olympus.Result{}, nil, backend.Errorf(backend.CodeUsage,
+						"a throwaway run creates its own session, so it takes no target")
+				}
+				result, warnings, err := ol.RunOnce(ctx, in.Command)
+				return result, warnings, err
+			}
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (olympus.Result, error) {
 				return s.Exec(ctx, in.Command, opts...)
 			})
@@ -297,6 +368,12 @@ func register(s *sdk.Server) {
 
 	addTool(s, "start_run", "Start a command and return an id to poll. Nothing is written down; the id is the whole handle.",
 		func(ctx context.Context, ol *olympus.Olympus, in commandParams) (startedRun, []olympus.Warning, error) {
+			if in.Throwaway {
+				// A throwaway session is killed the moment the run returns,
+				// leaving nothing to poll (behavior §6.10).
+				return startedRun{}, nil, backend.Errorf(backend.CodeUsage,
+					"a detached run needs a target: a throwaway session is killed when the run returns, leaving nothing to poll")
+			}
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (startedRun, error) {
 				job, err := s.Start(ctx, in.Command)
 				if err != nil {
@@ -342,6 +419,9 @@ func register(s *sdk.Server) {
 			var opts []olympus.ViewOption
 			if in.NoMouse {
 				opts = append(opts, olympus.WithoutMouse())
+			}
+			if in.Name != "" {
+				opts = append(opts, olympus.WithViewName(in.Name))
 			}
 			view, err := ol.CreateView(ctx, in.Base, opts...)
 			return view, nil, err

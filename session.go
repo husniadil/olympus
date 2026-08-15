@@ -161,29 +161,46 @@ func (s *Session) Submit(ctx context.Context) error {
 }
 
 // A SendOption configures a verified send.
-type SendOption func(*engine.Delivery)
+type SendOption func(*sendConfig)
+
+type sendConfig struct {
+	delivery engine.Delivery
+	submit   bool
+}
+
+// WithoutSubmit confirms the text landed but leaves it unsubmitted.
+//
+// Verifying and submitting are independent: a caller may want the input line
+// filled and left for a human, or for a terminator whose timing it controls
+// itself.
+func WithoutSubmit() SendOption {
+	return func(c *sendConfig) { c.submit = false }
+}
 
 // VerifyBudget sets ONE attempt's window. A verified send spends it twice, so
 // the worst case before failing is double this.
 func VerifyBudget(d time.Duration) SendOption {
-	return func(v *engine.Delivery) { v.Budget = d }
+	return func(c *sendConfig) { c.delivery.Budget = d }
 }
 
 // Send delivers text, waits until it is observed on screen, and only then
 // submits it — holding the lock across all three (behavior §11.2).
 func (s *Session) Send(ctx context.Context, text string, opts ...SendOption) error {
-	delivery := engine.Delivery{
-		Backend:  s.ol.backend,
-		Locks:    s.ol.locks,
-		Key:      s.key(),
-		LockWait: s.ol.lockWait,
-		Budget:   DefaultVerifyBudget,
-		Poll:     DefaultVerifyPoll,
+	cfg := sendConfig{
+		delivery: engine.Delivery{
+			Backend:  s.ol.backend,
+			Locks:    s.ol.locks,
+			Key:      s.key(),
+			LockWait: s.ol.lockWait,
+			Budget:   DefaultVerifyBudget,
+			Poll:     DefaultVerifyPoll,
+		},
+		submit: true,
 	}
 	for _, opt := range opts {
-		opt(&delivery)
+		opt(&cfg)
 	}
-	return delivery.VerifiedSubmit(ctx, s.name, text)
+	return cfg.delivery.Verified(ctx, s.name, text, cfg.submit)
 }
 
 // SendAtomic delivers text and submits it as one caller-visible unit.

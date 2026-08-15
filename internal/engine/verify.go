@@ -42,9 +42,22 @@ type Delivery struct {
 // subsequent write whose correctness depends on the observed state still
 // holding. Here it does.
 func (d Delivery) VerifiedSubmit(ctx context.Context, target, text string) error {
+	return d.Verified(ctx, target, text, true)
+}
+
+// Verified delivers and confirms text, submitting only if asked.
+//
+// Verifying WITHOUT submitting is a real use: filling an input line and leaving
+// it for a human, or for a later terminator whose timing the caller controls.
+// The lock still spans the whole call — with submit it must, and without it
+// there is nothing to gain by releasing early.
+func (d Delivery) Verified(ctx context.Context, target, text string, submit bool) error {
 	return WithLock(ctx, d.Locks, d.Key, d.LockWait, func() error {
 		if err := d.deliver(ctx, target, text); err != nil {
 			return err
+		}
+		if !submit {
+			return nil
 		}
 		return d.Backend.Submit(ctx, target)
 	})
