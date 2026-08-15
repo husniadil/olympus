@@ -241,10 +241,16 @@ func (t *Tmux) Panes(ctx context.Context, target string) ([]backend.Pane, error)
 
 	out, err := t.run(ctx, nil, args...)
 	if err != nil {
-		if isNoServer(err) {
+		// Only the UNTARGETED listing collapses an absent server into an empty
+		// result. Asked about one named session, absence is that session's
+		// absence and must be reported as not-found naming it (§12.3) — an
+		// empty list there says "that session has no panes", which is a
+		// different and false answer, and a caller branching on success takes
+		// the wrong path with no error to notice.
+		if target == "" && isNoServer(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, named(target, err)
 	}
 
 	var panes []backend.Pane

@@ -71,3 +71,26 @@ func TestAttachAddressesItsServerAndRefusesAViewer(t *testing.T) {
 		t.Errorf("attaching to an absent session reports %v, want SESSION_NOT_FOUND", backend.CodeOf(err))
 	}
 }
+
+// §0.1: input the backend rejects is USAGE, not UNEXPECTED.
+//
+// The two say opposite things to a program. UNEXPECTED means something went
+// wrong and retrying will not help; USAGE means one corrected argument fixes
+// it. meja rejects a session name that is entirely numeric — a rule tmux and
+// zmx do not have, so the same call succeeds on them — and Olympus was
+// reporting that as UNEXPECTED, telling a caller their input was fine and
+// something else had broken.
+func TestARejectedNameIsUsage(t *testing.T) {
+	requireMeja(t)
+	b, _ := newBackend(t)
+
+	_, err := b.Create(context.Background(), backend.CreateSpec{Name: "1", Dir: t.TempDir()})
+	if backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("a name meja rejects reports %v, want USAGE: %v", backend.CodeOf(err), err)
+	}
+	// The reason has to survive: a usage error that does not say what was wrong
+	// with the argument leaves the caller to guess which of its rules was hit.
+	if err == nil || !strings.Contains(err.Error(), "numeric") {
+		t.Errorf("the message loses meja's reason: %v", err)
+	}
+}

@@ -714,3 +714,44 @@ func TestABackendThatDropsARequestSaysSo(t *testing.T) {
 		})
 	}
 }
+
+// §12.3: a target-addressed operation resolves an absent SERVER into an absent
+// SESSION, naming the target. An untargeted listing resolves it into an empty
+// list, because "nothing to find here" is the honest answer to "what is there".
+//
+// The two halves must not be confused, and one backend confused them: asked for
+// one named session's panes on a server that was not running, tmux answered
+// ok:true with an empty list while meja and zmx answered not-found. A caller
+// checking `if olympus panes X` was told that session has no panes rather than
+// that it does not exist, and took the success branch.
+func TestAColdServerIsEmptyUntargetedAndNotFoundTargeted(t *testing.T) {
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			// Deliberately nothing created: the handle points at a scope whose
+			// server has never been started.
+			ol := l.open(t)
+			ctx := context.Background()
+
+			all, err := ol.Panes(ctx, "")
+			if err != nil {
+				t.Errorf("listing every pane on a cold server errored: %v", err)
+			}
+			if len(all) != 0 {
+				t.Errorf("a cold server reported %d panes", len(all))
+			}
+
+			if _, err := ol.Panes(ctx, "ghost"); olympus.CodeOf(err) != backend.CodeSessionNotFound {
+				t.Errorf("panes of a named session on a cold server reports %v, want SESSION_NOT_FOUND",
+					olympus.CodeOf(err))
+			}
+
+			sessions, err := ol.Sessions(ctx)
+			if err != nil {
+				t.Errorf("listing sessions on a cold server errored: %v", err)
+			}
+			if len(sessions) != 0 {
+				t.Errorf("a cold server reported %d sessions", len(sessions))
+			}
+		})
+	}
+}

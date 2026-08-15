@@ -1515,6 +1515,18 @@ Concurrent writers to one session MUST serialize through an advisory,
   makes two unrelated sessions share a lock. The visible symptom is not merely
   over-serialization — it is a `CONFLICT` raised against a caller about a
   session it never touched.
+- **The lock file is never removed, and that is deliberate.** Unlinking it on
+  release races another process that has the same path open and is about to
+  lock the now-unlinked inode: both would then hold a lock on different inodes
+  and run at once, which is the exact failure the lock exists to prevent. So
+  releasing closes the descriptor and leaves the file.
+
+  The cost is accumulation: one empty file per distinct (backend, scope,
+  session) triple, for the life of the temporary directory. It is bounded by
+  how many distinct sessions a machine addresses between reboots, the files are
+  zero bytes, and a system that clears its temporary directory clears them.
+  Recorded here because the accumulation looks like a leak, and the obvious fix
+  for it reintroduces the race.
 - **Advisory only.** `flock` is cooperative: only other Olympus processes going
   through the same path observe it. A human typing in a raw `tmux attach`, or any
   non-Olympus writer, is unaffected and can still race.

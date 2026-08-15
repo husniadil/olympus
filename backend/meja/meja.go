@@ -100,6 +100,20 @@ func classify(text string, err error) error {
 		return backend.Wrapf(backend.CodeBackendUnavailable, err, "%s", trim(text))
 	case strings.Contains(lower, "unknown command"), strings.Contains(lower, "unsupported"):
 		return backend.Wrapf(backend.CodeUnsupported, err, "%s", trim(text))
+	case strings.Contains(lower, " must be "), strings.Contains(lower, " must not "),
+		strings.Contains(lower, "requires a "):
+		// meja's input-validation family, and it is one family: every rejection
+		// it spells this way is a caller's argument it will not take — a
+		// session name that is entirely numeric, a resize amount that is not
+		// positive, a buffer name with a newline in it.
+		//
+		// USAGE and not UNEXPECTED because the two say opposite things to a
+		// program. UNEXPECTED means retrying will not help and nothing the
+		// caller controls is at fault; here one corrected argument fixes it,
+		// which is exactly what §0.1 reserves usage-class for. It matters most
+		// where backends disagree: a name meja refuses is one tmux and zmx
+		// accept, so the caller really is being told about their input.
+		return backend.Wrapf(backend.CodeUsage, err, "%s", trim(text))
 	}
 	return backend.Wrapf(backend.CodeUnexpected, err, "%s", trim(text))
 }
