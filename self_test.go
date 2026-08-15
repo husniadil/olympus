@@ -153,6 +153,7 @@ func TestSelfReportsNestingRatherThanGuessing(t *testing.T) {
 // on a terminal wraps at the pane's width, and reassembling it would be testing
 // the terminal rather than the answer.
 func TestSelfFromInsideARealSession(t *testing.T) {
+	t.Parallel()
 	binary := buildOlympus(t)
 
 	for _, l := range legs(t) {

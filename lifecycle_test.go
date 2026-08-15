@@ -15,6 +15,7 @@ import (
 // Create means "this must not already exist". Ensure cannot express that, and
 // checking afterwards by reading the outcome is a race rather than a check.
 func TestCreateFailsWhenTheNameIsTaken(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -44,6 +45,7 @@ func TestCreateFailsWhenTheNameIsTaken(t *testing.T) {
 
 // §6.10: a run with no target gets a session of its own, killed afterwards.
 func TestRunOnceUsesAThrowawaySessionAndCleansUp(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -92,6 +94,7 @@ func TestRunOnceUsesAThrowawaySessionAndCleansUp(t *testing.T) {
 // A failing throwaway still cleans up: on failure and timeout alike, or the
 // leak happens exactly when nobody is watching.
 func TestAFailingRunOnceStillCleansUp(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)

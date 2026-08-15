@@ -148,6 +148,7 @@ func warmUp(t *testing.T, s *olympus.Session) {
 // Session is ensure-semantics: create, reuse, or replace-if-dead, with no
 // separate create-versus-open decision for a caller to get wrong.
 func TestSessionCreatesThenReuses(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -175,6 +176,7 @@ func TestSessionCreatesThenReuses(t *testing.T) {
 }
 
 func TestExecReturnsOutputAndTheCommandsOwnExitCode(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			s := session(t, l.open(t))
@@ -205,6 +207,7 @@ func TestExecReturnsOutputAndTheCommandsOwnExitCode(t *testing.T) {
 }
 
 func TestSendVerifiesBeforeSubmitting(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			s := session(t, l.open(t))
@@ -224,6 +227,7 @@ func TestSendVerifiesBeforeSubmitting(t *testing.T) {
 // absent target — collapsing absent into an error would destroy the distinction
 // between "definitely gone" and "could not ask".
 func TestInfoAnswersAbsentWithoutErroring(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -245,6 +249,7 @@ func TestInfoAnswersAbsentWithoutErroring(t *testing.T) {
 }
 
 func TestInfoOnALiveSessionCarriesItsRows(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -270,6 +275,7 @@ func TestInfoOnALiveSessionCarriesItsRows(t *testing.T) {
 // §0.8: an operation that means materially less on this backend says so once,
 // through the result. It is not an error — the answer is real, just narrower.
 func TestDegradedOperationsDiscloseThemselves(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -304,6 +310,7 @@ func TestDegradedOperationsDiscloseThemselves(t *testing.T) {
 }
 
 func TestStopReportsHowTheSessionEnded(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -356,6 +363,7 @@ func TestStopReportsHowTheSessionEnded(t *testing.T) {
 // The resolved backend, never the requested one, is what a caller must be able
 // to see — sessions are backend-scoped and never migrate.
 func TestTheResolvedBackendIsObservable(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -370,6 +378,7 @@ func TestTheResolvedBackendIsObservable(t *testing.T) {
 }
 
 func TestOpeningAnAbsentSessionIsNotFound(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -384,6 +393,7 @@ func TestOpeningAnAbsentSessionIsNotFound(t *testing.T) {
 // The diagnostic must work when nothing is installed — that is the case it
 // exists to explain — so it reports rather than failing.
 func TestDiagnoseAlwaysReports(t *testing.T) {
+	t.Parallel()
 	got := olympus.Diagnose(context.Background())
 	if len(got.Backends) == 0 {
 		t.Fatal("the diagnostic listed no backends")
@@ -407,6 +417,7 @@ func TestDiagnoseAlwaysReports(t *testing.T) {
 }
 
 func TestDiagnoseNamesTheResolvedBackendAndWhy(t *testing.T) {
+	t.Parallel()
 	got := olympus.Diagnose(context.Background())
 	if got.Resolved.Problem != "" {
 		t.Skipf("no backend resolves on this machine: %s", got.Resolved.Problem)
@@ -424,6 +435,7 @@ func TestDiagnoseNamesTheResolvedBackendAndWhy(t *testing.T) {
 // and never mentions it turns "my config is being ignored" into an unanswerable
 // question — which is the exact failure `doctor` exists to prevent.
 func TestDiagnoseDisclosesWhatItPins(t *testing.T) {
+	t.Parallel()
 	diagnosis := olympus.Diagnose(context.Background())
 
 	for _, report := range diagnosis.Backends {
@@ -559,6 +571,7 @@ func TestDiagnoseDoesNotMistakeAMatchingConfigForOwnership(t *testing.T) {
 // and a program halfway through work can render identically — so the answer has
 // to come from the program itself.
 func TestWaitingForASessionToReportAStatus(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -603,6 +616,7 @@ func TestWaitingForASessionToReportAStatus(t *testing.T) {
 // session's own name. A caller that reads an id out of `panes` must be able to
 // hand it straight back as a target without knowing which backend it came from.
 func TestAPaneIDAddressesItsSession(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -632,3 +646,12 @@ func TestAPaneIDAddressesItsSession(t *testing.T) {
 		})
 	}
 }
+
+// Why these tests may run in parallel at all: every leg opens its own server —
+// a socket name, socket path or directory keyed on an atomic counter — so no
+// two tests address the same multiplexer, and nothing they create is visible to
+// each other. That isolation is required anyway by §2.9, which exists to keep
+// tests off the operator's live servers; parallelism is what it also buys.
+//
+// The exceptions are the tests that call t.Setenv, which Go forbids alongside
+// t.Parallel because the process environment is shared. Those stay sequential.

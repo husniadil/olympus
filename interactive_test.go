@@ -33,6 +33,7 @@ func requirePython(t *testing.T) string {
 // A REPL is driven with type/send and read with wait — not with run, whose
 // sentinel protocol is shell syntax (§6.5).
 func TestDrivingAPythonREPL(t *testing.T) {
+	t.Parallel()
 	python := requirePython(t)
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
@@ -84,6 +85,7 @@ func TestDrivingAPythonREPL(t *testing.T) {
 // indistinguishable at this layer from a command that took too long, and that
 // is the documented outcome rather than a bug to fix.
 func TestRunningACommandInAREPLTimesOutRatherThanLying(t *testing.T) {
+	t.Parallel()
 	python := requirePython(t)
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
@@ -116,6 +118,7 @@ func TestRunningACommandInAREPLTimesOutRatherThanLying(t *testing.T) {
 // would mean a program can be started and never observed — which is only
 // acceptable if a human is already watching the session live.
 func TestAFullScreenApplicationIsVisible(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -156,6 +159,7 @@ func TestAFullScreenApplicationIsVisible(t *testing.T) {
 // be honoured. Dropping it silently would hand back less than was asked for
 // with nothing saying so.
 func TestHistoryAgainstAFullScreenApplicationWarns(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -203,6 +207,7 @@ func TestHistoryAgainstAFullScreenApplicationWarns(t *testing.T) {
 // makes every anchored pattern silently never match, while a plain substring
 // still works — which is what makes that bug so easy to ship unnoticed.
 func TestWaitMatchesPerLine(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			s := session(t, l.open(t))
@@ -227,6 +232,7 @@ func TestWaitMatchesPerLine(t *testing.T) {
 // WaitFor reports the line that matched, so a caller does not have to run the
 // match again to find out which line it was.
 func TestWaitForReportsTheMatchedLine(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			s := session(t, l.open(t))
@@ -256,6 +262,7 @@ func TestWaitForReportsTheMatchedLine(t *testing.T) {
 // Pasting and submitting is one operation with the retry discipline, not two
 // calls a caller has to sequence themselves.
 func TestPasteAndSubmitExecutesTheFinalLine(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			s := session(t, l.open(t))
@@ -279,6 +286,7 @@ func TestPasteAndSubmitExecutesTheFinalLine(t *testing.T) {
 // the editor was invisible through the door, and Ctrl-X was not a key Olympus
 // could press.
 func TestDrivingAFullScreenEditor(t *testing.T) {
+	t.Parallel()
 	editor, err := exec.LookPath("nano")
 	if err != nil {
 		t.Skip("nano is not installed, so the editor leg cannot run")

@@ -13,6 +13,7 @@ import (
 // one twice: it is one round trip, and the door's alt-screen rule needs to see
 // them together.
 func TestCaptureReadsSeveralTargetsAtOnce(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)
@@ -63,6 +64,7 @@ func TestCaptureReadsSeveralTargetsAtOnce(t *testing.T) {
 // Listing every pane is a question in its own right: a pane id is the only
 // handle some callers hold, and resolving one means seeing them all.
 func TestPanesListsEveryPaneOrJustOneSessions(t *testing.T) {
+	t.Parallel()
 	for _, l := range legs(t) {
 		t.Run(l.name, func(t *testing.T) {
 			ol := l.open(t)

@@ -101,6 +101,17 @@ func Run(t *testing.T, cfg Config) {
 	t.Helper()
 	for _, c := range Cases() {
 		t.Run(c.Name, func(t *testing.T) {
+			// Cases run concurrently. Each one builds its own backend through
+			// cfg.New, which §2.9 already requires to be a server nobody else
+			// addresses — so no two cases can see each other's sessions, and the
+			// isolation that keeps tests off the operator's servers is the same
+			// property that makes this safe.
+			//
+			// A case cannot break it by reaching for the environment either: it
+			// is handed a Reporter rather than a *testing.T, so t.Setenv — the
+			// one thing Go forbids alongside parallelism — is not available to
+			// it.
+			t.Parallel()
 			c.run(t, cfg)
 		})
 	}

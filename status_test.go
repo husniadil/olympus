@@ -20,6 +20,7 @@ import (
 // writes a status onto a completely different backend and the waiter times out
 // against a session that never hears anything.
 func TestAProcessInsideASessionReportsItsOwnStatus(t *testing.T) {
+	t.Parallel()
 	binary := buildOlympus(t)
 
 	for _, l := range legs(t) {
