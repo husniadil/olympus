@@ -8,6 +8,7 @@ type Name string
 const (
 	Tmux Name = "tmux"
 	Zmx  Name = "zmx"
+	Meja Name = "meja"
 )
 
 // A Liveness classifies whether a row's session is alive, produced by the
