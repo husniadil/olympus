@@ -1207,9 +1207,27 @@ listing and swapped for its owning session's name before the call proceeds. Any
 other target passes through unchanged. Resolution MUST live in **one** shared
 place every operation calls, never duplicated per operation.
 
-If the pane id matches no live pane, resolution itself fails and the operation
+If the pane id matches no listed pane, resolution itself fails and the operation
 returns not-found **naming the pane id**, not a resolved session name — there was
-never a session to name, since resolution never happened.
+never a session to name, since resolution never happened. A corpse pane (§2.7)
+is a listed pane and MUST still resolve: resolution answers which session owns a
+pane, not whether that session is healthy, and collapsing the two would turn
+every died-session question into not-found before the caller's own death
+handling could report it properly.
+
+A pane id can match **more than one row**. A base session and its views share
+the same underlying pane (§3.4), so resolution MUST select the base — the
+earliest `created_at` — and not merely the first match. Resolving to a view
+means operating on the wrong session, and killing one leaves the real session
+running.
+
+Resolution MUST NOT flatten a failed listing into not-found. "Could not ask" and
+"definitely gone" have to stay distinct for the same reason §3.2 gives, so the
+listing error propagates with its own code.
+
+An empty target reaching resolution is `USAGE`. It cannot pass through: an empty
+string compares equal to nothing and would key a write lock of its own, which is
+precisely the mismatch this section exists to prevent.
 
 On zmx there is no pane-id concept, so a `%`-prefixed target is just an unknown
 session name under the ordinary lookup: still not-found, and it MUST NOT crash.
