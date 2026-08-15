@@ -1382,6 +1382,11 @@ Static, subprocess-free backend facts a consumer feature-probes **before** hitti
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
 server environment.
 
+The name is carried on the capability value so it is self-describing in-process,
+but it is **not repeated on the wire**. Every structured shape that reports
+capabilities already names the backend on the row or in the envelope (api §5),
+and a second copy would be a second place for the two to disagree.
+
 Capabilities MUST NOT include whether a session outlives its command. That is a
 property of the **caller's** own wrapper — does the shell it spawned keep running
 after the tracked command exits — not of backend mechanics. Putting it here
