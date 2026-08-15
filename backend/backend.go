@@ -243,8 +243,9 @@ type Backend interface {
 	// CreateView adds a view onto base.
 	//
 	// It is not a side-effect-free read: on a backend that supports it, view
-	// creation mutates SERVER-GLOBAL state (behavior §9.3), which is
-	// self-contained only while Olympus owns the server it is pointed at.
+	// creation defines a server-global key table (behavior §9.3), inert to
+	// every session that does not point at it. A view MUST NOT reconfigure
+	// anything else about the server.
 	CreateView(ctx context.Context, base string, spec ViewSpec) (View, error)
 	// ScrollView scrolls a view by a number of lines, negative for back into
 	// history.

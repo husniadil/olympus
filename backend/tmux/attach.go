@@ -25,7 +25,18 @@ func (t *Tmux) Attach(ctx context.Context, target string, spec backend.AttachSpe
 		return backend.Attachment{}, backend.Errorf(backend.CodeBackendUnavailable, "cannot reach tmux to attach %s", target)
 	}
 
-	args := []string{"-L", t.socket, "attach-session", "-t", sessionTarget(target)}
+	// -T declares this CLIENT's terminal features, and is a global flag, so it
+	// sits ahead of the command.
+	//
+	// tmux strips OSC 8 hyperlinks for any client whose terminal has not
+	// declared the capability, and a headless PTY client never answers tmux's
+	// runtime probe — so without this they vanish silently, with no error
+	// anywhere. Declared per client rather than through the terminal-features
+	// SERVER option, which has no per-session form: editing it would change how
+	// tmux renders for every other client of that server, including the
+	// operator's own sessions when Olympus is pointed at a server they already
+	// run (§9.6). A real terminal answers the probe and needs nothing from us.
+	args := append(t.addressing(), "-T", "hyperlinks", "attach-session", "-t", sessionTarget(target))
 	// Without -u the CLIENT — not the pane's programs — sanitizes every
 	// non-ASCII byte to "_" before it reaches the consumer. The pane is fine;
 	// the stream is not. This is additional to the LANG default: LANG is a belt

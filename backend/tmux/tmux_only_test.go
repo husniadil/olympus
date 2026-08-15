@@ -506,7 +506,7 @@ func TestTheSameCommandWithACorpseRequestedStaysListed(t *testing.T) {
 	}
 }
 
-// §9.3: view creation is not a side-effect-free read. It appends to a
+// §9.3: view creation is not a side-effect-free read. It defines a
 // server-global option and defines a server-global key table, and both have to
 // be right or the view is unusable in ways nothing reports.
 func TestCreatingAViewSetsUpItsReadOnlyPosture(t *testing.T) {
@@ -554,30 +554,6 @@ func TestCreatingAViewSetsUpItsReadOnlyPosture(t *testing.T) {
 		if !strings.Contains(string(bindings), want) {
 			t.Errorf("the pass-through table has no %s binding, so scrolling a view does nothing:\n%s", want, bindings)
 		}
-	}
-}
-
-// The hyperlink opt-in appends to an ARRAY option, so a second view must not
-// grow it. Repeated creation is the ordinary case, not an edge one.
-func TestTheHyperlinkOptInIsIdempotent(t *testing.T) {
-	b := newBackend(t)
-	ctx := context.Background()
-	base := create(t, b, backend.CreateSpec{Name: "oly-videm"})
-
-	socket := socketOf(t, b)
-	count := func() int {
-		t.Helper()
-		out, _ := exec.Command("tmux", "-S", socket, "show-options", "-g", "terminal-features").Output()
-		return strings.Count(string(out), "hyperlinks")
-	}
-
-	for i := 0; i < 3; i++ {
-		if _, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-videm-" + itoa(i)}); err != nil {
-			t.Fatalf("creating view %d: %v", i, err)
-		}
-	}
-	if got := count(); got != 1 {
-		t.Errorf("the hyperlink feature appears %d times after three views, want 1 — the option grows on every creation", got)
 	}
 }
 
@@ -893,4 +869,83 @@ func serverOption(t *testing.T, b backend.Backend, name string) string {
 		t.Fatalf("show-options %s: %v", name, err)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// §17.2: a socket NAME and a socket PATH are different servers. Attach builds
+// its own argv rather than going through run(), so it is the one place that can
+// disagree with every other verb about which server it is talking to — and a
+// disagreement here hands the operator's terminal to a session on the wrong
+// server, or fails to find one that plainly exists.
+func TestAttachAddressesTheSameServerAsEveryOtherVerb(t *testing.T) {
+	requireTmux(t)
+
+	dir, err := os.MkdirTemp(os.TempDir(), "olya")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "s.sock")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
+
+	b := tmux.New(tmux.WithSocketPath(socket))
+	name := create(t, b, backend.CreateSpec{Name: "reachable", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	att, err := b.Attach(context.Background(), name, backend.AttachSpec{Role: backend.RoleController})
+	if err != nil {
+		t.Fatalf("preparing an attach: %v", err)
+	}
+	args := strings.Join(att.Cmd.Args, " ")
+	if !strings.Contains(args, "-S "+socket) {
+		t.Errorf("attach argv does not address the path-addressed server it was configured with:\n  %s", args)
+	}
+	if strings.Contains(args, "-L ") {
+		t.Errorf("attach argv falls back to a socket NAME, which is a different server entirely:\n  %s", args)
+	}
+}
+
+// §9.6: creating a view MUST NOT reconfigure the server.
+//
+// terminal-features is a SERVER option — it has no per-session form — so
+// appending to it changes how tmux renders to every client of that server,
+// including the operator's own sessions when they point Olympus at a server
+// they already run. Olympus pins what it discloses (§17.5) and nothing else;
+// silently editing an option nobody asked about is the opposite of that.
+//
+// The feature is needed only by Olympus's OWN client: a real terminal answers
+// tmux's runtime probe, while a headless PTY client never does. So it belongs
+// on that client, where tmux's -T flag puts it, and not on the server.
+func TestCreatingAViewLeavesTheServersOptionsAlone(t *testing.T) {
+	requireTmux(t)
+
+	b := newBackend(t)
+	base := create(t, b, backend.CreateSpec{Name: "oly-hl-base", Dir: t.TempDir(), Cols: 80, Rows: 24})
+	before := serverOption(t, b, "terminal-features")
+
+	if _, err := b.CreateView(context.Background(), base, backend.ViewSpec{Name: "oly-hl-view"}); err != nil {
+		t.Fatalf("CreateView: %v", err)
+	}
+
+	if after := serverOption(t, b, "terminal-features"); after != before {
+		t.Errorf("creating a view rewrote a server option every other client of this server also reads:\n  before: %s\n  after:  %s", before, after)
+	}
+}
+
+// The other half: dropping the server-wide edit must not drop the capability.
+// A headless client never answers tmux's feature probe, so without a declared
+// feature every OSC 8 hyperlink is stripped on its way out — silently, with no
+// error anywhere.
+func TestAttachDeclaresHyperlinksForItsOwnClient(t *testing.T) {
+	requireTmux(t)
+
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-hl-attach", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	att, err := b.Attach(context.Background(), name, backend.AttachSpec{Role: backend.RoleController})
+	if err != nil {
+		t.Fatalf("preparing an attach: %v", err)
+	}
+	args := strings.Join(att.Cmd.Args, " ")
+	if !strings.Contains(args, "-T hyperlinks") {
+		t.Errorf("the attach argv declares no hyperlinks feature, so tmux will strip every OSC 8 sequence on its way to this client:\n  %s", args)
+	}
 }

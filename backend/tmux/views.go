@@ -19,10 +19,6 @@ const ViewPrefix = "olympus-view-"
 // §17.1). It is server-global rather than scoped to the view's session.
 const passthroughTable = "olympus-passthrough"
 
-// hyperlinkFeature is the terminal-features entry that keeps OSC 8 hyperlinks
-// from being stripped.
-const hyperlinkFeature = "xterm-256color:hyperlinks"
-
 // CreateView adds a grouped session onto an existing one (behavior §9).
 //
 // The group is keyed on the base's immutable session ID, never on its name
@@ -31,10 +27,12 @@ const hyperlinkFeature = "xterm-256color:hyperlinks"
 // dead base's group name can outlive it inside a stale view — grouping by name
 // then silently joins the wrong window set.
 //
-// This mutates SERVER-GLOBAL state (§9.3). That is self-contained while Olympus
-// owns the socket, which is the default; pointed at an operator's real tmux
-// server, the same mutations land there permanently and are visible to every
-// other client until that server is killed.
+// This defines a server-global key table (§9.3). It is inert to every session
+// that does not point at it, which is what keeps a view from changing what the
+// operator's own sessions do when Olympus is aimed at a server they already
+// run. Nothing else about that server is reconfigured — in particular not
+// terminal-features, which has no per-session form and would alter rendering
+// for every client of it.
 func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpec) (backend.View, error) {
 	if spec.Name == "" {
 		return backend.View{}, backend.Errorf(backend.CodeUsage, "a view needs a name")
@@ -75,10 +73,6 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 	fail := func(err error) (backend.View, error) {
 		_, _ = t.run(context.WithoutCancel(ctx), nil, "kill-session", "-t", sessionTarget(spec.Name))
 		return backend.View{}, err
-	}
-
-	if err := t.enableHyperlinks(ctx); err != nil {
-		return fail(err)
 	}
 
 	mouse := "off"
@@ -134,30 +128,6 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 		return fail(err)
 	}
 	return backend.View{Name: spec.Name, Base: base, ID: viewID}, nil
-}
-
-// enableHyperlinks opts the terminal into OSC 8 passthrough, idempotently.
-//
-// tmux strips OSC 8 hyperlink sequences for clients whose declared terminal
-// lacks the hyperlinks capability, and a headless PTY client never answers
-// tmux's runtime feature probe — so without this, hyperlinks silently vanish
-// for every consumer, with no error anywhere.
-//
-// The read before the append is what makes it idempotent: the option is an
-// array and a second view would otherwise grow it on every creation.
-func (t *Tmux) enableHyperlinks(ctx context.Context) error {
-	current, err := t.run(ctx, nil, "show-options", "-g", "terminal-features")
-	if err != nil {
-		// Deliberately not ignored. If this read failed silently the guard
-		// below would see an empty string and append unconditionally, which is
-		// exactly the unbounded growth it exists to prevent.
-		return err
-	}
-	if strings.Contains(current, hyperlinkFeature) {
-		return nil
-	}
-	_, err = t.run(ctx, nil, "set-option", "-ga", "terminal-features", ","+hyperlinkFeature)
-	return err
 }
 
 // ScrollView scrolls a view into its history, leaving the base untouched.

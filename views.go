@@ -53,8 +53,9 @@ func WithViewName(name string) ViewOption {
 // rather than branching on the error.
 //
 // On a backend that does support views this is NOT a side-effect-free read: it
-// mutates server-global state (behavior §9.3), which stays self-contained only
-// while Olympus owns the server it is pointed at.
+// defines a server-global key table (behavior §9.3). That table is inert to
+// every session not pointing at it, so it does not change what an operator's
+// own sessions do on a server Olympus is merely aimed at.
 func (o *Olympus) CreateView(ctx context.Context, base string, opts ...ViewOption) (backend.View, error) {
 	resolved, err := o.resolveTarget(ctx, base)
 	if err != nil {

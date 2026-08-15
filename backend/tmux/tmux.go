@@ -472,15 +472,25 @@ func atoi(s string) int {
 	return n
 }
 
+// addressing is how every tmux invocation names the server it means.
+//
+// One helper, used by run() and by the attach path alike: attach builds its own
+// argv, so a second copy of this rule is a second place to get it wrong, and
+// getting it wrong there hands the operator's terminal to a session on a
+// different server (§17.2).
+//
+// -S takes a path verbatim; -L takes a name tmux resolves itself. Passing both
+// would let tmux pick, which is not a decision to leave to it.
+func (t *Tmux) addressing() []string {
+	if t.socketPath != "" {
+		return []string{"-S", t.socketPath}
+	}
+	return []string{"-L", t.socket}
+}
+
 // run invokes the tmux client and maps its failure into the error vocabulary.
 func (t *Tmux) run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	// -S takes a path verbatim; -L takes a name tmux resolves itself. Passing
-	// both would let tmux pick, which is not a decision to leave to it.
-	addressing := []string{"-L", t.socket}
-	if t.socketPath != "" {
-		addressing = []string{"-S", t.socketPath}
-	}
-	full := append(addressing, args...)
+	full := append(t.addressing(), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
 	cmd.Stdin = stdin
 	cmd.Env = clientEnv()

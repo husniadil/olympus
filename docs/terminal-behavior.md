@@ -1270,24 +1270,41 @@ member, so copy-mode state and scroll position are shared too. Scrolling one vie
 moves the shared scroll position for the base and all sibling views. There is no
 independent viewport per view.
 
-### 9.3 Creating a view mutates SERVER-GLOBAL state
+### 9.3 Creating a view, and what it MUST NOT reconfigure
 
-View creation is not a side-effect-free read. It:
+View creation is not a side-effect-free read: it defines a key table via
+`bind-key -T`, which tmux scopes to the server rather than to the new session.
 
-- appends to `terminal-features` (the OSC 8 hyperlink passthrough entry), which
-  MUST be idempotent — a second view must not duplicate the entry; and
-- defines a key table via `bind-key -T`, itself server-global rather than scoped
-  to the new session.
+That mutation is **inert by construction**. A named key table applies only to
+sessions whose `key-table` option points at it, so a server gains an entry no
+other session consults. Olympus MUST keep it that way — a view MUST NOT rebind
+anything in tmux's own `root` or `prefix` tables, where it would change what the
+operator's existing sessions do.
 
-This is self-contained when Olympus owns the tmux socket it is pointed at, the
-default for the tmux backend (§17.2). Pointed at an operator's real running tmux
-server, the same mutations land there permanently, visible to every other client,
-until the server is killed. State this plainly at every door.
+**A view MUST NOT touch `terminal-features`.** It is a server option with no
+per-session form, so appending to it changes how tmux renders for *every* client
+of that server — including the operator's own sessions, permanently, whenever
+Olympus is pointed at a server they already run. Olympus pins only what it
+discloses (§17.5), and this was neither disclosed nor necessary.
 
-**Why the hyperlink entry is needed**: tmux strips OSC 8 hyperlink escape
-sequences for clients whose declared terminal lacks the `hyperlinks` capability,
-and a headless PTY client never answers tmux's runtime feature probe. Without the
-explicit opt-in, hyperlinks silently vanish for every consumer, with no error.
+**The hyperlink capability belongs to the client instead.** tmux strips OSC 8
+hyperlink escape sequences for any client whose terminal has not declared the
+`hyperlinks` capability, and a headless PTY client never answers tmux's runtime
+probe — so without a declaration they vanish for that client with no error
+anywhere. A real terminal answers the probe and needs nothing. So the attach path
+MUST declare the feature for its own client with tmux's `-T` flag, which is
+global and therefore precedes the command:
+
+```
+tmux -S <socket> -T hyperlinks attach-session -t =<name>
+```
+
+Measured: `#{client_termfeatures}` reports `hyperlinks` for a client started this
+way and omits it otherwise, while the server's `terminal-features` is unchanged.
+
+Scoping the declaration to the client is strictly better than the server option
+it replaces — it reaches exactly the clients that need it, is not shared with
+anyone, and disappears when the client does.
 
 ### 9.4 Focusing a view moves the BASE's active pane
 
