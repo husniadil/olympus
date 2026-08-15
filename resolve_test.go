@@ -188,3 +188,40 @@ func TestMejaIsSelectableAndFallsBackLast(t *testing.T) {
 		t.Errorf("with only meja installed, resolution is %+v", chosen)
 	}
 }
+
+// §0.3: with nothing chosen, the order is zmx, then tmux, then meja — and each
+// step down is taken only because the one above it is absent.
+//
+// Tested as a walk down the whole chain rather than at its ends. The ends
+// already passed before meja existed; what a third backend puts at risk is the
+// MIDDLE, where two candidates are available at once and only one is correct.
+// An ordering nobody asserts is one a later change can reverse in silence.
+func TestFallbackWalksTheChainInOrder(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		available installedFunc
+		want      backend.Name
+		reason    Reason
+	}{
+		{"everything installed", installed(backend.Zmx, backend.Tmux, backend.Meja), backend.Zmx, ReasonDefault},
+		{"no zmx", installed(backend.Tmux, backend.Meja), backend.Tmux, ReasonFallback},
+		{"no zmx and no tmux", installed(backend.Meja), backend.Meja, ReasonFallback},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := resolve("", "", c.available)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			if got.Backend != c.want {
+				t.Errorf("resolved %q, want %q", got.Backend, c.want)
+			}
+			// The reason is half the answer. A fallback that reports itself as
+			// the default hides a substitution the caller has to know about:
+			// sessions are backend-scoped, so one made under a fallback is
+			// invisible once the preferred backend comes back (§0.4).
+			if got.Reason != c.reason {
+				t.Errorf("reason %q, want %q", got.Reason, c.reason)
+			}
+		})
+	}
+}
