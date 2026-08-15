@@ -250,7 +250,9 @@ func (a *App) exitStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "exit-status <target> <marker>",
 		Short: "Read a caller-supplied completion marker off the screen",
-		Long: "Read a caller-supplied completion marker off the screen, for the wrapper pattern `cmd; echo MARKER:$?`." +
+		Long: "Read a caller-supplied completion marker off the screen, for the wrapper pattern `cmd; echo DONE:$?`." +
+			"\n\nThe marker is the whole prefix, separator included: for that wrapper it is `DONE:`, not `DONE`. The exit code is the token immediately after it, and Olympus skips no separator of its own — it has no opinion on the format." +
+			"\n\nGetting that wrong fails silently, which is why it is said here: an unmatched marker reports not-found, and not-found legitimately means the command has not finished yet." +
 			"\n\nThe marker is always yours to choose and there is deliberately no default: a fixed one would collide with ordinary output or with stale scrollback." +
 			scriptsNote,
 		Args: cobra.ExactArgs(2),

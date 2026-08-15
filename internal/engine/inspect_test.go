@@ -97,3 +97,26 @@ func TestNonZeroExitCodes(t *testing.T) {
 		}
 	}
 }
+
+// The contract the documentation kept getting wrong: the marker is the whole
+// prefix, and Olympus skips no separator of its own.
+//
+// Pinned from both sides. A caller who passes "DONE" while echoing "DONE:0"
+// must NOT match — because if that ever started matching, Olympus would have
+// acquired an opinion about the format §14 promises it has none of. And the
+// documented spelling must match, or the wrapper pattern in the docs is a
+// pattern that does not work.
+func TestTheMarkerIsTheWholePrefixSeparatorIncluded(t *testing.T) {
+	const line = "building\nDONE:0\n"
+
+	if _, found, err := engine.ExitMarker(line, "DONE"); err != nil {
+		t.Fatalf("ExitMarker: %v", err)
+	} else if found {
+		t.Error("a marker without its separator matched, so Olympus is skipping one for the caller")
+	}
+
+	code, found, err := engine.ExitMarker(line, "DONE:")
+	if err != nil || !found || code != 0 {
+		t.Errorf("the documented spelling did not match: code=%d found=%v err=%v", code, found, err)
+	}
+}

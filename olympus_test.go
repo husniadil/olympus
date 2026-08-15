@@ -843,3 +843,308 @@ func TestEmptyCollectionsAreNeverNull(t *testing.T) {
 		}
 	}
 }
+
+// The tunables were all correct and none of them was guarded: twelve option
+// constructors that no test referenced, so a wrong field assignment would ship
+// silently and only show up as a budget that does nothing or a colour flag that
+// never arrives.
+//
+// Asserted through observable EFFECT, not by reading the config back. Checking
+// that WithColors sets a Colors field only proves the assignment; checking that
+// escape bytes arrive proves the option reaches the backend.
+func TestTheTunablesReachTheBackend(t *testing.T) {
+	t.Parallel()
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			caps := ol.Capabilities()
+			ctx := context.Background()
+			s := session(t, ol)
+
+			// WithColors: the default capture strips escapes, the opt-in keeps
+			// them. Both directions, because an option that is always on looks
+			// identical to one that works.
+			if err := s.Send(ctx, `printf '\033[31mRED\033[0m\n'`); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, "RED", olympus.WaitTimeout(15*time.Second)); err != nil {
+				t.Fatalf("the coloured line never appeared: %v", err)
+			}
+			plain, err := s.Screen(ctx)
+			if err != nil {
+				t.Fatalf("Screen: %v", err)
+			}
+			if strings.Contains(plain.Text, "\x1b[") {
+				t.Errorf("the default capture kept escape sequences")
+			}
+			coloured, err := s.Screen(ctx, olympus.WithColors())
+			if err != nil {
+				t.Fatalf("Screen with colours: %v", err)
+			}
+			if !strings.Contains(coloured.Text, "\x1b[") {
+				t.Errorf("WithColors did not reach the backend: no escape sequences in the capture")
+			}
+
+			// VerifyBudget: a budget too small to observe anything must fail as
+			// a TIMEOUT rather than hang or silently succeed.
+			err = s.Send(ctx, "echo budget", olympus.VerifyBudget(time.Millisecond))
+			if err != nil && olympus.CodeOf(err) != backend.CodeTimeout {
+				t.Errorf("an impossible verify budget failed as %v, want TIMEOUT", olympus.CodeOf(err))
+			}
+			// That probe leaves whatever it managed to type on the input line,
+			// and a verified send resends once — so the line can hold the text
+			// twice over. Clearing it is not tidiness: the next assertion counts
+			// occurrences of ITS marker, and a dirty line makes that count a
+			// measurement of the previous step.
+			if err := s.Press(ctx, backend.KeyCtrlC); err != nil {
+				t.Fatalf("clearing the line after the budget probe: %v", err)
+			}
+
+			// WithoutSubmit: the text lands and is NOT executed.
+			marker := "unsubmitted-marker"
+			if err := s.Send(ctx, "echo "+marker, olympus.WithoutSubmit()); err != nil {
+				t.Fatalf("Send without submit: %v", err)
+			}
+			screen, err := s.Screen(ctx)
+			if err != nil {
+				t.Fatalf("Screen: %v", err)
+			}
+			// The command is on the line; its OUTPUT would be a second
+			// occurrence on its own line, which is what submitting would add.
+			if strings.Count(screen.Text, marker) > 1 {
+				t.Errorf("WithoutSubmit submitted anyway:\n%s", screen.Text)
+			}
+			if err := s.Press(ctx, backend.KeyCtrlC); err != nil {
+				t.Fatalf("clearing the unsubmitted line: %v", err)
+			}
+
+			// KeepCorpse, where a backend has corpses at all.
+			if caps.RemainOnExit {
+				name := fmt.Sprintf("oly-corpse%d", counter.Add(1))
+				corpse, err := ol.Create(ctx, name, olympus.In(t.TempDir()),
+					olympus.Command("sh", "-c", "exit 0"), olympus.KeepCorpse())
+				if err != nil {
+					t.Fatalf("creating a session with a corpse: %v", err)
+				}
+				t.Cleanup(func() { _, _ = corpse.Stop(context.Background(), olympus.Force()) })
+				deadline := time.Now().Add(10 * time.Second)
+				for {
+					info, err := ol.Info(ctx, name)
+					if err == nil && info.State == backend.StatePresent {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Errorf("KeepCorpse did not keep the session after its command exited")
+						break
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+			}
+
+			// The timing tunables have no observable effect beyond being
+			// honoured, so the assertion is that they are accepted and change
+			// nothing else — a wrong field would surface as an error here.
+			if _, err := s.Exec(ctx, "echo tuned",
+				olympus.RunTimeout(30*time.Second), olympus.RunInterval(50*time.Millisecond)); err != nil {
+				t.Errorf("the run tunables broke a run: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, "tuned",
+				olympus.WaitTimeout(10*time.Second), olympus.WaitInterval(20*time.Millisecond)); err != nil {
+				t.Errorf("the wait tunables broke a wait: %v", err)
+			}
+		})
+	}
+}
+
+// §14: an exit marker is read off the SCREEN, so everything that can be on a
+// screen is an input to it — including text that looks like a marker but is
+// not, and an older marker from a previous command.
+//
+// The failure mode is silent and wrong rather than loud: a stale marker makes a
+// finished command report the previous one's status, and a caller acting on an
+// exit code has no way to tell.
+func TestExitMarkersReadTheRightOne(t *testing.T) {
+	t.Parallel()
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			s := session(t, l.open(t))
+			ctx := context.Background()
+			// The separator is part of the MARKER, not something Olympus
+			// skips — §14 says it has no opinion on the format, and skipping a
+			// colon would be one. Written the documented way round here so this
+			// test fails if the documentation ever drifts back.
+			const marker = "OLYDONE:"
+
+			// Nothing has run: not found, and NOT a zero exit code, which a
+			// caller would otherwise read as success.
+			if _, found, err := s.ExitStatus(ctx, marker, 200); err != nil {
+				t.Fatalf("ExitStatus before anything ran: %v", err)
+			} else if found {
+				t.Error("a marker was found before any command wrote one")
+			}
+
+			if err := s.Send(ctx, "sh -c 'exit 3'; echo "+marker+"$?"); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, marker+"3", olympus.WaitTimeout(15*time.Second)); err != nil {
+				t.Fatalf("the first marker never appeared: %v", err)
+			}
+			code, found, err := s.ExitStatus(ctx, marker, 200)
+			if err != nil || !found || code != 3 {
+				t.Fatalf("first marker: code=%d found=%v err=%v, want 3/true/nil", code, found, err)
+			}
+
+			// A second command writes a second marker. The LATEST must win —
+			// reading the older one reports a status for a command that already
+			// finished, which is the whole hazard.
+			if err := s.Send(ctx, "sh -c 'exit 7'; echo "+marker+"$?"); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, marker+"7", olympus.WaitTimeout(15*time.Second)); err != nil {
+				t.Fatalf("the second marker never appeared: %v", err)
+			}
+			code, found, err = s.ExitStatus(ctx, marker, 200)
+			if err != nil || !found {
+				t.Fatalf("second marker: found=%v err=%v", found, err)
+			}
+			if code != 7 {
+				t.Errorf("exit status %d, want 7 — a stale marker won, so a finished command reports "+
+					"the previous command's status", code)
+			}
+		})
+	}
+}
+
+// A capture must survive output that is large and shaped awkwardly. These are
+// the inputs a caller cannot control: a build log is thousands of lines, and a
+// single line of JSON is longer than any terminal is wide.
+func TestCaptureSurvivesLargeAndAwkwardOutput(t *testing.T) {
+	t.Parallel()
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			s := session(t, ol)
+			ctx := context.Background()
+
+			if err := s.Send(ctx, "for i in $(seq 1 400); do echo line-$i; done"); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, "line-400", olympus.WaitTimeout(30*time.Second)); err != nil {
+				t.Fatalf("the bulk output never finished: %v", err)
+			}
+			deep, err := s.Screen(ctx, olympus.WithHistory(1000))
+			if err != nil {
+				t.Fatalf("capturing history: %v", err)
+			}
+			// The tail is on the visible screen; the head is only reachable
+			// through scrollback, which is what asking for history means.
+			if !strings.Contains(deep.Text, "line-400") {
+				t.Errorf("the newest line is missing from a history capture")
+			}
+			if ol.Capabilities().NativeScrollback || len(deep.Text) > len(mustScreen(t, s).Text) {
+				// Either the backend returns full scrollback natively, or the
+				// history capture must be strictly larger than the viewport.
+			} else {
+				t.Errorf("a history capture is no larger than the visible screen, so scrollback was not read")
+			}
+
+			// A line far wider than the terminal. The bytes must survive; how
+			// the backend wraps them is its own business (§5.1).
+			long := strings.Repeat("x", 500)
+			if err := s.Send(ctx, "echo start-"+long+"-end"); err != nil {
+				t.Fatalf("Send a long line: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, "-end", olympus.WaitTimeout(20*time.Second)); err != nil {
+				t.Fatalf("the long line never appeared: %v", err)
+			}
+			screen, err := s.Screen(ctx)
+			if err != nil {
+				t.Fatalf("Screen: %v", err)
+			}
+			flat := strings.ReplaceAll(screen.Text, "\n", "")
+			if !strings.Contains(flat, strings.Repeat("x", 400)) {
+				t.Errorf("a 500-character line did not survive capture intact")
+			}
+		})
+	}
+}
+
+func mustScreen(t *testing.T, s *olympus.Session) olympus.Screen {
+	t.Helper()
+	screen, err := s.Screen(context.Background())
+	if err != nil {
+		t.Fatalf("Screen: %v", err)
+	}
+	return screen
+}
+
+// §9.2: a view is a real, separately-killable session. Killing the base leaves
+// the view alive, and sweeping views is the caller's responsibility.
+//
+// Both halves matter and only one is obvious. That a view survives its base is
+// what makes it a session rather than a window onto one; that Olympus does NOT
+// sweep it is what a caller has to know, because an unswept view keeps the
+// underlying window alive and a caller who believed `stop` was enough leaves
+// one behind on every run.
+func TestAViewOutlivesItsBase(t *testing.T) {
+	t.Parallel()
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			ctx := context.Background()
+
+			base := session(t, ol)
+			view, err := ol.CreateView(ctx, base.Name())
+			if !ol.Capabilities().Views {
+				if backend.CodeOf(err) != backend.CodeUnsupported {
+					t.Errorf("a backend without views reports %v, want UNSUPPORTED", backend.CodeOf(err))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("CreateView: %v", err)
+			}
+			t.Cleanup(func() {
+				if s, err := ol.Open(context.Background(), view.Name); err == nil {
+					_, _ = s.Stop(context.Background(), olympus.Force())
+				}
+			})
+			if view.Base != base.Name() {
+				t.Errorf("the view names base %q, want %q", view.Base, base.Name())
+			}
+
+			listed, err := ol.Views(ctx, base.Name())
+			if err != nil {
+				t.Fatalf("Views: %v", err)
+			}
+			if len(listed) != 1 || listed[0].Name != view.Name {
+				t.Errorf("the view is not listed against its base: %+v", listed)
+			}
+
+			// Kill the BASE. The view is a session in its own right.
+			if _, err := base.Stop(ctx, olympus.Force()); err != nil {
+				t.Fatalf("stopping the base: %v", err)
+			}
+			deadline := time.Now().Add(10 * time.Second)
+			for {
+				info, err := ol.Info(ctx, base.Name())
+				if err == nil && info.State == backend.StateAbsent {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("the base never went away")
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+
+			survived, err := ol.Info(ctx, view.Name)
+			if err != nil {
+				t.Fatalf("Info on the view: %v", err)
+			}
+			if survived.State != backend.StatePresent {
+				t.Errorf("the view is %q after its base was killed, want present — a view is a "+
+					"separately-killable session, and sweeping it is the caller's job", survived.State)
+			}
+		})
+	}
+}

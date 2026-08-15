@@ -1764,14 +1764,24 @@ misattributes a consumer-side design choice to the backend.
 
 ## 14. Exit-marker inspection
 
-Parsing a caller-supplied `<marker>:<exit code>` echo out of a session that
-outlives its command (the wrapper pattern `echo output; cmd; echo MARKER:$?;
-sleep N`).
+Parsing a caller-supplied completion echo out of a session that outlives its
+command (the wrapper pattern `echo output; cmd; echo DONE:$?; sleep N`).
 
 The marker format is **caller-supplied**, always. Olympus has no opinion on it,
 and there MUST NOT be a default marker: a fixed default invites collision with
 ordinary program output or stale scrollback, and weakens the caller-controlled
 uniqueness the design assumes.
+
+**The marker is the whole prefix, separator included.** For the wrapper above,
+the marker is `DONE:` — not `DONE`. Olympus takes the exit code from the token
+immediately after the marker string and does not skip a separator of its own,
+because skipping one would be an opinion about the format it has just promised
+not to have.
+
+This is worth stating because getting it wrong fails **silently**: a marker that
+never matches is reported as not-found, which is a legitimate answer meaning
+"that command has not finished", so a reaper waiting on it simply never fires.
+A caller passing `DONE` while echoing `DONE:$?` waits forever and sees no error.
 
 **The exit code is the leading whitespace-delimited token after the marker prefix,
 not the whole rest of the line.** After a TUI process exits, the wrapper's echo

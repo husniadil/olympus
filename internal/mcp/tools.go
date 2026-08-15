@@ -160,7 +160,7 @@ type pollParams struct {
 
 type markerParams struct {
 	Target string `json:"target" jsonschema:"the session to address"`
-	Marker string `json:"marker" jsonschema:"the completion marker to look for; there is deliberately no default"`
+	Marker string `json:"marker" jsonschema:"the completion marker to look for, separator included — for the wrapper 'cmd; echo DONE:$?' the marker is 'DONE:', not 'DONE'; there is deliberately no default"`
 	Lines  int    `json:"lines,omitempty" jsonschema:"scrollback window to search; ignored where scrollback is native"`
 }
 
@@ -466,7 +466,7 @@ func register(s *sdk.Server) {
 			return result, result.Warnings, err
 		})
 
-	addTool(s, "exit_status", "Read a caller-supplied completion marker off the screen. The marker is always yours to choose; there is no default.",
+	addTool(s, "exit_status", "Read a caller-supplied completion marker off the screen, for the wrapper pattern `cmd; echo DONE:$?`. The marker is the whole prefix, separator included — `DONE:`, not `DONE` — and the exit code is the token immediately after it; Olympus skips no separator of its own. The marker is always yours to choose; there is no default. An unmatched marker reports not-found, which legitimately means the command has not finished, so a wrong marker waits forever without erroring.",
 		func(ctx context.Context, ol *olympus.Olympus, in markerParams) (markerResult, []olympus.Warning, error) {
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (markerResult, error) {
 				code, found, err := s.ExitStatus(ctx, in.Marker, in.Lines)
