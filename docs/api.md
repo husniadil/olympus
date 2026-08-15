@@ -314,9 +314,11 @@ for those.
   "resolved": { "backend": "zmx", "reason": "default", "socket_or_dir": "/tmp/zmx-501" },
   "backends": [
     { "name": "zmx", "installed": true, "version": "0.6.0", "below_floor": false,
-      "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false, "server_env": false } },
+      "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
+                        "server_env": false, "tracks_alt_screen": false } },
     { "name": "tmux", "installed": true, "version": "3.7b", "below_floor": false,
-      "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true, "server_env": true } }
+      "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
+                        "server_env": true, "tracks_alt_screen": true } }
   ],
   "install_hints": []
 }

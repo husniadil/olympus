@@ -2,7 +2,6 @@ package backendtest
 
 import (
 	"strings"
-	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -69,27 +68,30 @@ func injectionCases() []Case {
 			},
 		},
 		{
-			Name: "§4 named keys reach the session as keypresses",
+			Name: "§4 named keys are translated and arrive as keypresses",
 			Fn: func(e *Env) {
-				// Interrupt-by-key is the observable case: the shell has to
-				// receive a keypress, not the two characters "C" and "-c".
+				// Deliberately NOT Ctrl-C. Interrupt-by-key looks like the
+				// obvious observable and is not backend-neutral: on a backend
+				// whose send path generates no terminal signal, 0x03 arrives
+				// as a byte and interrupts nothing, so the case would be
+				// asserting a tmux property rather than the key vocabulary
+				// (§2.8.1, cause 1). Interrupting is covered on its own terms
+				// by the §2.8.1 cases, against each backend's declaration.
+				//
+				// What is under test here is translation: the session has to
+				// receive a keypress, not the five characters "enter".
 				target := e.StartShell()
 				e.Warm(target)
 
-				if err := e.Backend.Type(e.Ctx(), target, "sleep 30"); err != nil {
+				if err := e.Backend.Type(e.Ctx(), target, `printf 'keyed-%d\n' 6`); err != nil {
 					e.T.Fatalf("typing: %v", err)
 				}
-				if err := e.Backend.Submit(e.Ctx(), target); err != nil {
-					e.T.Fatalf("submitting: %v", err)
-				}
-				time.Sleep(e.budgets.Settle)
+				e.Never(target, "keyed-6")
 
-				if err := e.Backend.Press(e.Ctx(), target, backend.KeyCtrlC); err != nil {
+				if err := e.Backend.Press(e.Ctx(), target, backend.KeyEnter); err != nil {
 					e.T.Fatalf("pressing: %v", err)
 				}
-				if !e.shellRuns(target, "keyed") {
-					e.T.Errorf("the shell did not become responsive, so the key did not arrive as a keypress")
-				}
+				e.WaitFor(target, "keyed-6")
 			},
 		},
 		{

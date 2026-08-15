@@ -121,4 +121,10 @@ type Capabilities struct {
 	Views            bool `json:"views"`
 	RemainOnExit     bool `json:"remain_on_exit"`
 	ServerEnv        bool `json:"server_env"`
+	// TracksAltScreen reports whether capture metadata's alt-screen flag
+	// means anything on this backend. Without it a caller cannot tell "this
+	// pane is not on the alternate screen" from "this backend does not
+	// track that", and an empty capture is ambiguous in exactly the way the
+	// flag exists to prevent (behavior §5.3).
+	TracksAltScreen bool `json:"tracks_alt_screen"`
 }

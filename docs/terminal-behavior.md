@@ -500,6 +500,14 @@ and deadness are different questions.
 
 There is nothing to find; nothing went wrong asking.
 
+**A listing is eventually consistent after a kill.** zmx keeps reporting a
+just-killed session for a fraction of a second while it tears the socket down,
+and reports it with `err=Unexpected` — which §3.2 classifies as `unknown`, not
+`gone`. That is the tri-state working as designed: the row is genuinely
+indeterminate during that window, and a consumer that reaped on it would be
+finalizing on doubt. Nothing may require the row to have vanished the instant a
+kill returns; what is required is that the listing converges.
+
 ### 3.4 Pane metadata divergences
 
 These fields exist on both backends with genuinely different meanings, and MUST
@@ -1426,7 +1434,14 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
-server environment.
+server environment, alt-screen tracking.
+
+**Alt-screen tracking is a capability because the flag alone is ambiguous.** §5.3
+gives the door a rule — skip the capture where the alt-screen flag is true — and
+a backend that never sets the flag is indistinguishable from one whose panes
+simply are not on the alternate screen. Without a capability to branch on, a
+caller cannot tell "not on the alt screen" from "not tracked", which is exactly
+the ambiguity the flag exists to remove.
 
 The name is carried on the capability value so it is self-describing in-process,
 but it is **not repeated on the wire**. Every structured shape that reports

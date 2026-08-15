@@ -42,13 +42,29 @@ func captureCases() []Case {
 				e.WaitFor(target, "ln-200")
 
 				visible := e.Screen(target).Text
-				if strings.Contains(visible, "ln-1\n") {
-					e.T.Fatalf("the first line is still visible on a 24-row screen, so nothing scrolled off and this case proves nothing")
-				}
-
 				withHistory, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{HistoryLines: 500})
 				if err != nil {
 					e.T.Fatalf("capturing with history: %v", err)
+				}
+
+				if e.Backend.Capabilities().NativeScrollback {
+					// A backend whose capture is already full scrollback has
+					// no separate viewport mode to opt into, so BOTH states
+					// must return byte-identical output. Asserting that is the
+					// regression guard §5.2 asks for: a backend that started
+					// honouring the request would be silently changing what
+					// every existing caller gets back.
+					if visible != withHistory.Text {
+						e.T.Errorf("this backend reports native scrollback, so requesting history must be a no-op, but the two captures differ")
+					}
+					if !strings.Contains(visible, "ln-1\n") {
+						e.T.Errorf("a native-scrollback capture does not contain the first line")
+					}
+					return
+				}
+
+				if strings.Contains(visible, "ln-1\n") {
+					e.T.Fatalf("the first line is still visible on a 24-row screen, so nothing scrolled off and this case proves nothing")
 				}
 				if !strings.Contains(withHistory.Text, "ln-1\n") {
 					e.T.Errorf("a capture with history does not contain the scrolled-off first line")
@@ -73,6 +89,22 @@ func captureCases() []Case {
 				// not this one. Asserting it here would require every backend
 				// to implement a policy that belongs one layer up.
 				target := e.StartCommand("sh", "-c", `printf '\033[?1049h'; sleep 30`)
+
+				if !e.Backend.Capabilities().TracksAltScreen {
+					// Not tracking it is an honest answer, not an
+					// unsupported-class error: the caller asked a question this
+					// backend answers with "not tracked". The call must still
+					// succeed, with zero metadata and no subprocess run to
+					// check (§5.3).
+					capture, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{})
+					if err != nil {
+						e.T.Fatalf("capturing succeeded nowhere: %v", err)
+					}
+					if capture.Meta.AltScreen {
+						e.T.Errorf("this backend declares it does not track alt-screen, but reported the flag set")
+					}
+					return
+				}
 
 				deadline := time.Now().Add(e.budgets.Screen)
 				for {

@@ -1,6 +1,10 @@
 package backendtest
 
-import "github.com/husniadil/olympus/backend"
+import (
+	"time"
+
+	"github.com/husniadil/olympus/backend"
+)
 
 func listingCases() []Case {
 	return []Case{
@@ -29,8 +33,23 @@ func listingCases() []Case {
 				if err := e.Backend.Kill(e.Ctx(), target); err != nil {
 					e.T.Fatalf("killing: %v", err)
 				}
-				if got := len(e.sessions()); got != 0 {
-					e.T.Errorf("listing returned %d sessions after the only one was killed, want none", got)
+
+				// Polled, not asserted once. A backend may keep reporting a
+				// just-killed session for a moment while it tears the socket
+				// down, and during that window §3.2 requires the row to be
+				// classified unknown rather than gone — so a consumer must not
+				// reap on it, and this case must not demand it have vanished
+				// yet either. What is required is that the listing converges.
+				deadline := time.Now().Add(e.budgets.Screen)
+				for {
+					if len(e.sessions()) == 0 {
+						return
+					}
+					if time.Now().After(deadline) {
+						e.T.Errorf("the listing still reports a session after the only one was killed, so it is not tracking reality")
+						return
+					}
+					time.Sleep(e.budgets.Poll)
 				}
 			},
 		},

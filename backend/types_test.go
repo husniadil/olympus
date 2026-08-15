@@ -75,7 +75,8 @@ func TestCapabilitiesMarshalToTheSpecShape(t *testing.T) {
 		Views:            false,
 		RemainOnExit:     false,
 		ServerEnv:        false,
-	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false}`)
+		TracksAltScreen:  false,
+	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false,"tracks_alt_screen":false}`)
 }
 
 // The tri-states are the reason several of these types exist at all. Their wire

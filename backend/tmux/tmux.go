@@ -56,6 +56,7 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		Views:            true,
 		RemainOnExit:     true,
 		ServerEnv:        true,
+		TracksAltScreen:  true,
 	}
 }
 
