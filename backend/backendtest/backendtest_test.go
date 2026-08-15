@@ -135,9 +135,10 @@ func TestEveryCaseFailsAgainstABackendThatDoesNothing(t *testing.T) {
 	configs := map[string]Config{
 		"without optional capabilities": inertConfig(backend.Capabilities{}),
 		"with optional capabilities": inertConfig(backend.Capabilities{
-			Views:           true,
-			ServerEnv:       true,
-			TracksAltScreen: true,
+			Views:                true,
+			ServerEnv:            true,
+			TracksAltScreen:      true,
+			RendersCurrentScreen: true,
 		}),
 	}
 

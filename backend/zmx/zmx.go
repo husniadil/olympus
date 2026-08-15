@@ -81,7 +81,12 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		Views:            false,
 		RemainOnExit:     false,
 		ServerEnv:        false,
-		TracksAltScreen:  false,
+		// history returns the output the session has EMITTED, not a rendered
+		// grid. A program that repaints in place — an editor drawing a prompt
+		// over its shortcut bar — is therefore not reliably readable as it
+		// currently appears (§5.2).
+		RendersCurrentScreen: false,
+		TracksAltScreen:      false,
 	}
 }
 
@@ -358,7 +363,7 @@ func (z *Zmx) Paste(ctx context.Context, target, text string) error {
 func (z *Zmx) Press(ctx context.Context, target string, keys ...backend.Key) error {
 	var payload strings.Builder
 	for _, k := range keys {
-		seq, ok := keySequences[k]
+		seq, ok := keySequence(k)
 		if !ok {
 			return backend.Errorf(backend.CodeUsage, "unknown key %q", string(k))
 		}

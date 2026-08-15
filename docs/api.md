@@ -321,10 +321,12 @@ for those.
   "backends": [
     { "name": "zmx", "installed": true, "version": "0.6.0", "below_floor": false,
       "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
-                        "server_env": false, "tracks_alt_screen": false } },
+                        "server_env": false, "renders_current_screen": false,
+                        "tracks_alt_screen": false } },
     { "name": "tmux", "installed": true, "version": "3.7b", "below_floor": false,
       "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
-                        "server_env": true, "tracks_alt_screen": true } }
+                        "server_env": true, "renders_current_screen": true,
+                        "tracks_alt_screen": true } }
   ],
   "install_hints": []
 }

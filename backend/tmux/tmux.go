@@ -56,7 +56,10 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		Views:            true,
 		RemainOnExit:     true,
 		ServerEnv:        true,
-		TracksAltScreen:  true,
+		// capture-pane renders the pane's current grid, so a full-screen
+		// program can be read as it looks now.
+		RendersCurrentScreen: true,
+		TracksAltScreen:      true,
 	}
 }
 
@@ -308,7 +311,7 @@ func (t *Tmux) inject(ctx context.Context, target, text string, bracketed bool) 
 func (t *Tmux) Press(ctx context.Context, target string, keys ...backend.Key) error {
 	args := []string{"send-keys", "-t", paneTarget(target)}
 	for _, k := range keys {
-		name, ok := keyNames[k]
+		name, ok := keyName(k)
 		if !ok {
 			// Input the caller could have fixed by changing one argument,
 			// which §12 makes the definition of a usage error.

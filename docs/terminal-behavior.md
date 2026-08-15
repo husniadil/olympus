@@ -720,6 +720,18 @@ History **is** a documented no-op on zmx, whose history command already returns
 full scrollback with no separate viewport mode to opt into. Both flag states MUST
 return byte-identical output, regression-guarded.
 
+**A capture here is emitted OUTPUT, not a rendered grid**, and that is the
+sharpest limitation in this document for anyone driving a full-screen program.
+tmux's `capture-pane` reports the pane's current grid, so an editor's save
+prompt drawn over its shortcut bar is visible the moment it appears. zmx's
+history reports what the session has written, so a program that repaints IN
+PLACE — cursor addressing, overwrite — keeps showing an earlier frame: every
+byte is there, but not as it currently looks.
+
+Commands that simply produce output are unaffected. Full-screen programs are the
+whole of the difference, and `renders_current_screen` (§13) is the capability a
+caller feature-probes before deciding it can drive one.
+
 **Trailing whitespace does not survive identically across backends.** tmux
 preserves a row's padding and the trailing space of an unterminated prompt; zmx
 normalizes it away, so a REPL prompt captured as `>>> ` on one comes back as
@@ -1495,7 +1507,15 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
-server environment, alt-screen tracking.
+server environment, current-screen rendering, alt-screen tracking.
+
+**Current-screen rendering decides whether a full-screen program can be driven
+at all**, which makes it the most consequential entry here. A backend that
+returns emitted output rather than a rendered grid shows an editor's first frame
+indefinitely, so a caller reading a menu would be acting on a screen that is no
+longer there. It is a capability rather than a degraded-operation warning
+because the caller's whole approach changes: with it, drive the program; without
+it, do not try.
 
 **Alt-screen tracking is a capability because the flag alone is ambiguous.** §5.3
 gives the door a rule — skip the capture where the alt-screen flag is true — and

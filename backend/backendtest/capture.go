@@ -165,6 +165,44 @@ func captureCases() []Case {
 			},
 		},
 		{
+			Name: "§5.2 a backend claiming to render the current screen shows an in-place repaint",
+			Fn: func(e *Env) {
+				// The claim is what decides whether a caller can drive a
+				// full-screen program, so it is checked rather than trusted: a
+				// backend that returns emitted output shows the first frame
+				// forever, and a caller reading a menu would act on a screen
+				// that is no longer there.
+				//
+				// The probe repaints IN PLACE — home the cursor, clear, write
+				// a new frame — which is exactly what an editor does and what
+				// emitted-output capture cannot represent.
+				target := e.StartCommand("sh", "-c",
+					`printf 'FRAME-ONE'; sleep 1; printf '\033[H\033[2JFRAME-TWO'; sleep 30`)
+
+				if !e.Backend.Capabilities().RendersCurrentScreen {
+					return
+				}
+
+				deadline := time.Now().Add(e.budgets.Screen)
+				for {
+					capture, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{})
+					if err != nil {
+						e.T.Fatalf("capturing: %v", err)
+					}
+					// The second frame replaced the first: a rendered grid
+					// shows only what is on screen now.
+					if strings.Contains(capture.Text, "FRAME-TWO") && !strings.Contains(capture.Text, "FRAME-ONE") {
+						return
+					}
+					if time.Now().After(deadline) {
+						e.T.Errorf("this backend claims to render the current screen, but a repaint left the old frame visible:\n%s", capture.Text)
+						return
+					}
+					time.Sleep(e.budgets.Poll)
+				}
+			},
+		},
+		{
 			Name: "§5.5 metadata for an absent session is not-found",
 			Fn: func(e *Env) {
 				if _, err := e.Backend.ScreenMeta(e.Ctx(), e.Name()); err == nil {

@@ -121,6 +121,20 @@ type Capabilities struct {
 	Views            bool `json:"views"`
 	RemainOnExit     bool `json:"remain_on_exit"`
 	ServerEnv        bool `json:"server_env"`
+	// RendersCurrentScreen reports whether a capture returns the pane's
+	// CURRENT rendered grid, or merely the output it has emitted.
+	//
+	// This is the capability that decides whether a full-screen program can be
+	// driven. A backend that renders the grid shows the frame as it looks now,
+	// so a caller can read a menu, a prompt or a cursor position and respond to
+	// it. A backend that returns emitted scrollback shows what was written,
+	// which for a program that repaints IN PLACE — moving the cursor and
+	// overwriting — can be an old frame indefinitely: the text is all there,
+	// but not as it currently appears.
+	//
+	// Output-producing commands are unaffected either way. Full-screen programs
+	// are the whole of the difference.
+	RendersCurrentScreen bool `json:"renders_current_screen"`
 	// TracksAltScreen reports whether capture metadata's alt-screen flag
 	// means anything on this backend. Without it a caller cannot tell "this
 	// pane is not on the alternate screen" from "this backend does not

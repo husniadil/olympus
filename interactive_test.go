@@ -3,12 +3,15 @@ package olympus_test
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/husniadil/olympus"
+	"github.com/husniadil/olympus/backend"
 )
 
 // Driving something interactive is the whole point of a real terminal, and it
@@ -263,6 +266,108 @@ func TestPasteAndSubmitExecutesTheFinalLine(t *testing.T) {
 			}
 			if _, err := s.WaitFor(ctx, `pasted-5`, olympus.WaitTimeout(10*time.Second)); err != nil {
 				t.Errorf("the pasted line was never executed: %v", err)
+			}
+		})
+	}
+}
+
+// Driving a real full-screen editor, end to end: open it, type, save, quit, and
+// check the file on disk.
+//
+// This is the case the whole alt-screen and key-vocabulary work exists for, and
+// it is worth an integration test because every part of it failed at least once:
+// the editor was invisible through the door, and Ctrl-X was not a key Olympus
+// could press.
+func TestDrivingAFullScreenEditor(t *testing.T) {
+	editor, err := exec.LookPath("nano")
+	if err != nil {
+		t.Skip("nano is not installed, so the editor leg cannot run")
+	}
+
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			if !ol.Capabilities().RendersCurrentScreen {
+				// A backend that returns emitted output rather than the
+				// current grid cannot show an in-place repaint, so an editor's
+				// save prompt is never observable. That is a documented
+				// limitation (§5.2), not a failure to report here.
+				t.Skip("this backend does not render the current screen, so a full-screen program cannot be driven by reading it")
+			}
+			ctx := context.Background()
+
+			work := t.TempDir()
+			file := filepath.Join(work, "note.txt")
+			if err := os.WriteFile(file, []byte("hello from a file\n"), 0o600); err != nil {
+				t.Fatalf("writing the file: %v", err)
+			}
+
+			name := fmt.Sprintf("oly-o%d", counter.Add(1))
+			s, err := ol.Session(ctx, name, olympus.In(work))
+			if err != nil {
+				t.Fatalf("Session: %v", err)
+			}
+			t.Cleanup(func() { _, _ = s.Stop(ctx, olympus.Force()) })
+			warmUp(t, s)
+
+			// Launched INSIDE the shell rather than as the session's command,
+			// so the shell is still there to come back to.
+			if err := s.Send(ctx, editor+" note.txt"); err != nil {
+				t.Fatalf("opening the editor: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, `GNU nano`, olympus.WaitTimeout(20*time.Second)); err != nil {
+				t.Fatalf("the editor never appeared — a caller cannot see it: %v", err)
+			}
+
+			// Type never submits, which is what puts text in a full-screen
+			// program rather than at a shell prompt.
+			if err := s.Type(ctx, "EDITED-BY-OLYMPUS"); err != nil {
+				t.Fatalf("typing into the editor: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, `EDITED-BY-OLYMPUS`, olympus.WaitTimeout(15*time.Second)); err != nil {
+				t.Fatalf("the typed text never reached the editor: %v", err)
+			}
+
+			// Write out, confirm the filename, exit. None of these are
+			// reachable without the full control range.
+			for _, step := range []struct {
+				key  backend.Key
+				want string
+			}{
+				// The exact wording is nano's, and was read off a real one
+				// rather than guessed: it says "Write to File", not the
+				// "File Name to Write" older versions used.
+				{"c-o", `Write to File`},
+				{"enter", `GNU nano`},
+			} {
+				if err := s.Press(ctx, step.key); err != nil {
+					t.Fatalf("pressing %s: %v", step.key, err)
+				}
+				if _, err := s.WaitFor(ctx, step.want, olympus.WaitTimeout(15*time.Second)); err != nil {
+					t.Fatalf("after %s, the editor did not show %q: %v", step.key, step.want, err)
+				}
+			}
+			if err := s.Press(ctx, "c-x"); err != nil {
+				t.Fatalf("pressing c-x: %v", err)
+			}
+
+			// The shell comes back, which proves the editor really exited
+			// rather than the keys landing somewhere harmless.
+			if err := s.Send(ctx, `printf 'after-editor-%d\n' 1`); err != nil {
+				t.Fatalf("sending to the shell: %v", err)
+			}
+			if _, err := s.WaitFor(ctx, `after-editor-1`, olympus.WaitTimeout(20*time.Second)); err != nil {
+				t.Fatalf("the shell did not resume after the editor exited: %v", err)
+			}
+
+			// And the edit is on disk: the keys did what they looked like they
+			// did, rather than merely painting convincingly.
+			saved, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatalf("reading the file back: %v", err)
+			}
+			if !strings.Contains(string(saved), "EDITED-BY-OLYMPUS") {
+				t.Errorf("the file on disk does not contain the edit: %q", saved)
 			}
 		})
 	}

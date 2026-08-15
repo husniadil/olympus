@@ -135,6 +135,7 @@ func capabilityRows() []capabilityRow {
 		{"views", func(c backend.Capabilities) bool { return c.Views }},
 		{"remain-on-exit", func(c backend.Capabilities) bool { return c.RemainOnExit }},
 		{"server environment", func(c backend.Capabilities) bool { return c.ServerEnv }},
+		{"renders current screen", func(c backend.Capabilities) bool { return c.RendersCurrentScreen }},
 		{"alt-screen tracking", func(c backend.Capabilities) bool { return c.TracksAltScreen }},
 	}
 }
