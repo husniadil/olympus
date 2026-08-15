@@ -359,7 +359,8 @@ for those.
 
 ```json
 {
-  "resolved": { "backend": "zmx", "reason": "default", "socket_or_dir": "/tmp/zmx-501" },
+  "resolved": { "backend": "zmx", "reason": "default", "socket_or_dir": "/tmp/zmx-501",
+                "pinned": false },
   "backends": [
     { "name": "zmx", "installed": true, "version": "0.6.0", "below_floor": false,
       "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
@@ -375,14 +376,20 @@ for those.
 }
 ```
 
-`managed_options` is every option Olympus pins on servers it drives, overriding
-the operator's own configuration. A private socket is not a private
+`managed_options` is every option Olympus pins on servers **it starts**,
+overriding the operator's own configuration. `resolved.pinned` says whether the
+server answering right now is one of them, and `resolved.effective_options`
+reports what those options are actually set to there — which on a server Olympus
+merely found is whatever that server was given, and is the only thing that
+decides how a run behaves. A private socket is not a private
 configuration — tmux fixes a server's settings at boot from `tmux.conf`, so the
 operator's file reaches Olympus's sessions — and these two are pinned back
 because the run protocol's exit marker and the meaning of a capture's line count
 depend on them. Nothing cosmetic is pinned: keybindings, prefix and theme are
-left alone. It is omitted for backends that have no configuration file, rather
-than reported empty. Behavior spec §17.5 has the measurements and the rule.
+left alone, and nothing at all is pinned on a server that was already running:
+`set-option -g` reaches every session on a server, so a caller who named one
+session would otherwise have all the operator's others changed with it. Behavior
+spec §17.5 has the measurements and the rule.
 
 `reason` names the resolution rule that applied (`flag`, `env`, `default`,
 `fallback`), satisfying the disclosure requirement of behavior spec §0.4.

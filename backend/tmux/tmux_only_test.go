@@ -949,3 +949,51 @@ func TestAttachDeclaresHyperlinksForItsOwnClient(t *testing.T) {
 		t.Errorf("the attach argv declares no hyperlinks feature, so tmux will strip every OSC 8 sequence on its way to this client:\n  %s", args)
 	}
 }
+
+// §17.5: Olympus configures only servers it STARTS.
+//
+// Pinning an option with `set-option -g` reaches every session on that server,
+// including sessions Olympus was never asked about. On a server the operator
+// already runs, a caller who asked us to drive one session would have the
+// scrollback of all their others silently changed underneath them — an effect
+// far outside the target they named (§0.4). Disclosure explains an action; it
+// does not change who bears it.
+func TestAPreExistingServerIsNotReconfigured(t *testing.T) {
+	requireTmux(t)
+
+	b, socket := backendOnAHostileServer(t, "set -g history-limit 7")
+
+	// Somebody else's server, already running with their settings, before
+	// Olympus touches it at all.
+	if err := exec.Command("tmux", "-S", socket, "new-session", "-d", "-s", "theirs").Run(); err != nil {
+		t.Fatalf("starting the operator's server: %v", err)
+	}
+
+	create(t, b, backend.CreateSpec{Name: "ours", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	if got := serverOption(t, b, "history-limit"); got != "7" {
+		t.Errorf("history-limit is %q, want the operator's 7 — Olympus rewrote a server it did not start, changing every session on it", got)
+	}
+}
+
+// The other side of the same rule: on a server Olympus starts, there is no one
+// else to disturb, and the pins are what make the run protocol and capture
+// depth mean the same thing on every machine.
+func TestAServerOlympusStartsIsStillPinned(t *testing.T) {
+	requireTmux(t)
+
+	b, _ := backendOnAHostileServer(t, "set -g history-limit 7")
+	create(t, b, backend.CreateSpec{Name: "ours", Dir: t.TempDir(), Cols: 80, Rows: 24})
+
+	if got := serverOption(t, b, "history-limit"); got != itoa(tmux.HistoryLimit) {
+		t.Errorf("history-limit is %q, want the pinned %d on a server Olympus started", got, tmux.HistoryLimit)
+	}
+}
+
+// backendOnAHostileServer is backendUnderHostileConfig, plus the socket, for
+// tests that need to start the server themselves first.
+func backendOnAHostileServer(t *testing.T, conf string) (backend.Backend, string) {
+	t.Helper()
+	b := backendUnderHostileConfig(t, conf)
+	return b, socketOf(t, b)
+}

@@ -416,3 +416,108 @@ func TestDiagnoseDisclosesWhatItPins(t *testing.T) {
 		}
 	}
 }
+
+// §17.5: Olympus configures only servers it starts, so a caller pointed at one
+// somebody else runs is subject to that server's settings — including a
+// default-command that can make a run report the wrong exit code. Nothing else
+// discloses this: the pins simply do not happen, silently and correctly.
+//
+// So the diagnostic MUST distinguish the two cases and report what is actually
+// in effect, not merely what Olympus would have pinned.
+func TestDiagnoseSeparatesAServerItStartedFromOneItFound(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+
+	dir, err := os.MkdirTemp(os.TempDir(), "olyd")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "s.sock")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
+
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".tmux.conf"), []byte("set -g history-limit 7\n"), 0o600); err != nil {
+		t.Fatalf("writing the operator's config: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	opts := []olympus.Option{olympus.WithBackend("tmux"), olympus.WithSocketPath(socket)}
+	ctx := context.Background()
+
+	// Somebody else's server, started with their settings.
+	if err := exec.Command("tmux", "-S", socket, "new-session", "-d", "-s", "theirs").Run(); err != nil {
+		t.Fatalf("starting the operator's server: %v", err)
+	}
+
+	found := olympus.Diagnose(ctx, opts...).Resolved
+	if found.Pinned {
+		t.Errorf("doctor claims Olympus configured a server it merely found")
+	}
+	if found.Effective["history-limit"] != "7" {
+		t.Errorf("doctor reports history-limit %q, want the operator's 7 that is actually in effect: %v",
+			found.Effective["history-limit"], found.Effective)
+	}
+
+	// Now one Olympus starts for itself.
+	_ = exec.Command("tmux", "-S", socket, "kill-server").Run()
+	ol, err := olympus.Open(opts...)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = ol.Close() })
+	if _, err := ol.Create(ctx, "ours", olympus.In(t.TempDir())); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	started := olympus.Diagnose(ctx, opts...).Resolved
+	if !started.Pinned {
+		t.Errorf("doctor does not recognise a server Olympus started as configured: %+v", started)
+	}
+	if started.Effective["history-limit"] == "7" {
+		t.Errorf("doctor reports the operator's history-limit on a server Olympus started and pinned: %v", started.Effective)
+	}
+}
+
+// Ownership cannot be inferred from the values. An operator whose own config
+// happens to match what Olympus pins — and 50000 is an ordinary thing to set —
+// would have their server reported as one Olympus started and configured,
+// which is the single fact this report exists to establish.
+//
+// So a server Olympus starts is MARKED, in the same chain that starts it. A
+// server it merely finds never receives the mark, because that chain never runs
+// there (§17.5).
+func TestDiagnoseDoesNotMistakeAMatchingConfigForOwnership(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+
+	dir, err := os.MkdirTemp(os.TempDir(), "olym")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "s.sock")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
+
+	home := t.TempDir()
+	// Exactly what Olympus would pin, set by somebody else.
+	conf := "set -g history-limit 50000\nset -g default-command \"\"\n"
+	if err := os.WriteFile(filepath.Join(home, ".tmux.conf"), []byte(conf), 0o600); err != nil {
+		t.Fatalf("writing the operator's config: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	if err := exec.Command("tmux", "-S", socket, "new-session", "-d", "-s", "theirs").Run(); err != nil {
+		t.Fatalf("starting the operator's server: %v", err)
+	}
+
+	resolved := olympus.Diagnose(context.Background(),
+		olympus.WithBackend("tmux"), olympus.WithSocketPath(socket)).Resolved
+	if resolved.Pinned {
+		t.Error("doctor reports a server Olympus never touched as one it started and configured, because the operator's own settings happened to match")
+	}
+}

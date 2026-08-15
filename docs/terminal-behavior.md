@@ -1813,6 +1813,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | tmux socket | `olympus` (default, overridable by name or path) | §17.2 |
 | tmux buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1) |
 | tmux key table | `olympus-passthrough` | view scroll bindings (§9.3) |
+| tmux server marker | `@olympus_managed` | records a server Olympus started (§17.5) |
 | view session | `olympus-view-<base>-<nonce>` | grouped views (§9) |
 | throwaway run session | `olympus-run-<pid>-<nonce>` | §6.10 |
 | run sentinels | `OLY_S_<id>` / `OLY_D_<id>_<code>_` | §6.1 |
@@ -1929,16 +1930,29 @@ Two options are different, because Olympus's own correctness rests on them:
   variable `_` set", so the real exit status is replaced by a `1` and the
   closing delimiter disappears. A caller is then told a command that failed
   with 3 succeeded, or the marker never parses and the run reports a timeout
-  for a command that finished. An operator's configuration file MUST NOT be
-  able to cause that.
+  for a command that finished.
 - **`history-limit`** decides what a capture of N lines can actually return
   (§5.2). Unpinned, the same request reads a different depth on every machine,
   and a truncated history is indistinguishable from a short session.
 
-Olympus therefore MUST pin exactly these two on servers it drives, and MUST NOT
-pin anything cosmetic. `default-command` is pinned to empty, which restores
-tmux's own behaviour — the operator's login shell — so what is removed is only
-a config file's ability to substitute a *different* shell behind Olympus's back.
+#### Olympus configures only servers it STARTS
+
+Both options are set with `set-option -g`, which reaches **every session on the
+server**. On a server the operator already runs, a caller who asked Olympus to
+drive one session would have all their other sessions changed underneath them —
+an effect well outside the target they named (§0.4). Disclosure explains an
+action; it does not change who bears it.
+
+So: Olympus MUST pin these on a server it is starting, and MUST NOT pin them on
+one that is already running. The test is simply whether anything is listening
+before the create runs. No state has to be kept to remember the decision — a
+second create on Olympus's own server finds it already up and skips the pins,
+which is correct, because the first create's pins are server-global and still in
+force.
+
+`default-command` is pinned to empty, which restores tmux's own behaviour — the
+operator's login shell — so what is removed is only a config file's ability to
+substitute a *different* shell behind Olympus's back.
 
 `default-shell` is deliberately NOT pinned. tmux has no notion of a
 non-interactive pane, so pinning it would hand a human who attaches a bare `sh`
@@ -1955,17 +1969,45 @@ that measures as working while fixing nothing.
 
 They MUST be applied as options rather than through tmux's `-f`. Configuration
 is per-server and fixed at boot, so `-f` is silently ignored on a server that is
-already running; chained options apply to whichever server answers. `-f` also
-cannot reproduce tmux's own configuration search order, which prefers the XDG
-location over `~/.tmux.conf` — replacing the file would mean re-implementing
-that order and getting it wrong on some machine.
+already running. `-f` also cannot reproduce tmux's own configuration search
+order, which prefers the XDG location over `~/.tmux.conf` — replacing the file
+would mean re-implementing that order and getting it wrong on some machine.
 
-**What this does not cover.** Hooks and plugins in the operator's configuration
-run when the server boots, before any Olympus command can intervene. A
-`session-created` hook therefore executes in Olympus's sessions, and a plugin
-manager loads into Olympus's server. Only replacing the configuration file
-outright would prevent it, at the cost above. Callers needing that isolation
-MUST boot the server themselves with `-f`, on a socket of their own.
+#### Ownership MUST be recorded, never inferred
+
+A server Olympus starts MUST be marked, with `@olympus_managed` on the server
+scope, in the same chain that starts it. A server Olympus merely finds never
+receives the mark, because that chain never runs there.
+
+Inferring ownership by comparing the pinned VALUES is wrong, and fails on the
+most likely case rather than an exotic one: an operator who sets a large
+`history-limit` themselves — an entirely ordinary thing to set — would have a
+server Olympus never touched reported as one Olympus started and configured.
+The mark is a user option, which tmux stores and never acts on, so a server that
+carries it behaves no differently for having it.
+
+**There is a race.** A server can be started by somebody else between Olympus's
+check and its `new-session`, and the pins would then land on theirs. The window
+is narrow and the outcome is no worse than applying them unconditionally, which
+is what the rule replaces — but it is recorded here rather than left to be
+discovered.
+
+#### What this does not cover
+
+Hooks and plugins in the operator's configuration run when the server boots,
+before any Olympus command can intervene. A `session-created` hook therefore
+executes in Olympus's sessions, and a plugin manager loads into Olympus's
+server. Only replacing the configuration file outright would prevent it, at the
+cost above. Callers needing that isolation MUST boot the server themselves with
+`-f`, on a socket of their own.
+
+On a server Olympus did not start, `history-limit` is whatever that server was
+given, and `default-command` may name a shell the run protocol cannot read an
+exit code through. Neither is corrected, and both are **reported**: `doctor`
+states whether the answering server was started by Olympus and what the two
+options are actually set to — not what Olympus would have pinned. That
+distinction is the whole point of the report, since only the effective values
+decide how a run behaves.
 
 **Pinning MUST be disclosed** (§0.6). A tool that silently overrides a line in
 somebody's `tmux.conf` turns "my configuration is being ignored" into an

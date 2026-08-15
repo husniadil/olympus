@@ -51,6 +51,17 @@ type ResolvedReport struct {
 	Backend backend.Name `json:"backend"`
 	Reason  Reason       `json:"reason"`
 	Scope   string       `json:"socket_or_dir"`
+	// Pinned says whether Olympus configured the server answering right now.
+	//
+	// False means a server somebody else started. Olympus configures only
+	// servers it starts, because pinning reaches every session on a server and
+	// would change ones the caller never asked about (§17.5) — so on a found
+	// server the settings below are whatever that server was given, and a
+	// default-command among them can make a run report the wrong exit code.
+	Pinned bool `json:"pinned"`
+	// Effective is what the managed options are actually set to right now, as
+	// opposed to what Olympus would pin. It is empty when no server is running.
+	Effective map[string]string `json:"effective_options,omitempty"`
 	// Problem explains why nothing resolved, when nothing did.
 	Problem string `json:"problem,omitempty"`
 }
@@ -103,12 +114,13 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		diagnosis.Resolved.Problem = err.Error()
 		return diagnosis
 	}
-	_, scope := buildBackend(resolution.Backend, cfg)
+	b, scope := buildBackend(resolution.Backend, cfg)
 	diagnosis.Resolved = ResolvedReport{
 		Backend: resolution.Backend,
 		Reason:  resolution.Reason,
 		Scope:   scope,
 	}
+	diagnosis.Resolved.Effective, diagnosis.Resolved.Pinned = effectiveOf(ctx, b)
 	return diagnosis
 }
 
@@ -150,6 +162,29 @@ func managedOf(name backend.Name) map[string]string {
 		pinned[option[0]] = option[1]
 	}
 	return pinned
+}
+
+// effectiveOf reads what the managed options are actually set to, and whether
+// they are Olympus's own values.
+//
+// Read rather than assumed: the whole point of the distinction is that on a
+// server Olympus did not start, what Olympus WOULD pin and what is in force are
+// different things, and only the second one decides how a run behaves.
+func effectiveOf(ctx context.Context, b backend.Backend) (map[string]string, bool) {
+	reader, ok := b.(interface {
+		EffectiveOptions(context.Context) (map[string]string, bool, error)
+	})
+	if !ok {
+		return nil, false
+	}
+	effective, pinned, err := reader.EffectiveOptions(ctx)
+	if err != nil {
+		// A diagnostic that fails when the environment is broken is useless at
+		// the moment it is most needed. No server running is the ordinary case
+		// here, not an error worth reporting as one.
+		return nil, false
+	}
+	return effective, pinned
 }
 
 // isolationOf states the posture in the user's terms. The two are opposite and

@@ -40,8 +40,10 @@ All notable changes to this project are documented here. The format follows
   replied to. Being outside one is an answer, not a failure, and nested sessions
   report the ambiguity rather than guessing which is inner.
 - Managed tmux options: `default-command` and `history-limit` are pinned on
-  servers Olympus drives, ahead of the pane that reads them, and disclosed by
-  `doctor` in both output modes. A private socket is not a private
+  servers Olympus **starts**, ahead of the pane that reads them, and disclosed by
+  `doctor` in both output modes. A server that was already running is left
+  exactly as it is — `set-option -g` reaches every session on it — and `doctor`
+  reports which case applies and what is actually in effect. A private socket is not a private
   configuration, and an operator's `default-command` was measurably corrupting
   the run protocol's exit marker.
 - Views: the read-only posture and wheel bindings, with the base probed before

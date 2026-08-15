@@ -476,3 +476,17 @@ func TestDoctorTellsAHumanWhatItOverrides(t *testing.T) {
 		t.Errorf("doctor's human output never mentions the options it pins:\n%s", got.stdout)
 	}
 }
+
+// §17.5: the reader who needs this is the one wondering why a run reported a
+// wrong exit code, or why their scrollback is shorter than they asked for. On a
+// server Olympus did not start, the answer is that Olympus deliberately left it
+// alone — which is invisible unless said.
+func TestDoctorDistinguishesAServerItStartedFromOneItFound(t *testing.T) {
+	got := run(t, "doctor")
+	if got.code != 0 {
+		t.Fatalf("exit %d, want 0", got.code)
+	}
+	if !strings.Contains(got.stdout, "only servers it starts") {
+		t.Errorf("doctor never says that Olympus configures only servers it starts:\n%s", got.stdout)
+	}
+}

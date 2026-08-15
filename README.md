@@ -167,6 +167,12 @@ shell that writes a run's exit marker, and `history-limit`, which decides what a
 capture of N lines can return. `olympus doctor` names both under *what Olympus
 overrides in your tmux config*. Nothing cosmetic is touched.
 
+That applies only to servers Olympus starts. Point it at a tmux server you were
+already running and it changes nothing there at all: those options are global to
+a server, so pinning them would alter every session on it, including the ones
+you never asked Olympus about. `doctor` says which case you are in and what the
+options are actually set to.
+
 You can put the tmux socket wherever you like with `--socket-path`, rather than
 letting tmux choose the directory:
 

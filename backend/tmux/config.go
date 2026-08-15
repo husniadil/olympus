@@ -1,6 +1,22 @@
 package tmux
 
-import "strconv"
+import (
+	"context"
+	"strconv"
+	"strings"
+)
+
+// markerOption records that Olympus started this server.
+//
+// Ownership cannot be inferred from the pinned VALUES: an operator whose own
+// config happens to set the same ones — and a large history-limit is an
+// ordinary thing to set — would be reported as owning nothing they own. The
+// mark is written in the same chain that starts the server, so a server Olympus
+// merely finds never receives it: that chain never runs there.
+//
+// It is a user option, which tmux stores and never acts on, so a server that
+// somehow does carry it behaves no differently for having it.
+const markerOption = "@olympus_managed"
 
 // HistoryLimit is the scrollback depth Olympus pins on servers it drives.
 //
@@ -47,6 +63,49 @@ func ManagedOptions() [][]string {
 	}
 }
 
+// ServerRunning reports whether anything is listening on this backend's socket.
+//
+// It is how Create decides whether the server about to answer is one Olympus is
+// starting, and so whether it may configure it at all (§17.5).
+func (t *Tmux) ServerRunning(ctx context.Context) bool {
+	// Any command that must reach the server will do; list-sessions is chosen
+	// because a server with no sessions still answers it, and a missing one
+	// gives the message isNoServer already knows how to read.
+	if _, err := t.run(ctx, nil, "list-sessions", "-F", ""); err != nil {
+		return !isNoServer(err)
+	}
+	return true
+}
+
+// EffectiveOptions reports what the managed options are set to on the server
+// answering right now, and whether every one of them already carries Olympus's
+// own value.
+//
+// The second return is how a diagnostic tells a server Olympus started from one
+// it merely found, without Olympus having to remember which it did — the values
+// themselves are the record.
+func (t *Tmux) EffectiveOptions(ctx context.Context) (map[string]string, bool, error) {
+	if !t.ServerRunning(ctx) {
+		return nil, false, nil
+	}
+	mark, err := t.run(ctx, nil, "show-options", "-sqv", markerOption)
+	if err != nil {
+		return nil, false, err
+	}
+	pinned := strings.TrimSpace(mark) == "1"
+
+	effective := map[string]string{}
+	for _, option := range ManagedOptions() {
+		value, err := t.run(ctx, nil, "show-options", "-gqv", option[0])
+		if err != nil {
+			return nil, false, err
+		}
+		value = strings.TrimSpace(value)
+		effective[option[0]] = value
+	}
+	return effective, pinned, nil
+}
+
 // pinManagedOptions returns the argv prefix that applies them, for chaining
 // AHEAD of the command whose behaviour depends on them.
 //
@@ -60,7 +119,9 @@ func ManagedOptions() [][]string {
 // per-server and fixed at boot, so -f is silently ignored on a server that is
 // already running, while these apply to whichever server answers.
 func pinManagedOptions() []string {
-	var args []string
+	// The mark goes on the SERVER scope, alongside the options themselves, so
+	// it lives exactly as long as the server it describes.
+	args := []string{"set-option", "-s", markerOption, "1"}
 	for _, option := range ManagedOptions() {
 		if len(args) > 0 {
 			args = append(args, ";")

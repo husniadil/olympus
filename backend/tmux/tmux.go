@@ -107,10 +107,23 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 		return backend.Session{}, backend.Errorf(backend.CodeUsage, "a session needs a name")
 	}
 
-	// Ahead of new-session, in the SAME invocation: a pane reads these when it
-	// spawns, so applying them afterwards would configure the next session and
-	// leave this one misconfigured (§17.5).
-	args := append(pinManagedOptions(), "new-session", "-d", "-s", spec.Name)
+	// Olympus configures only servers it STARTS (§17.5). Pinning reaches every
+	// session on the server, so on one the operator already runs it would
+	// change sessions nobody asked us about — an effect well outside the target
+	// we were given (§0.4). A server that is not up yet is one this very
+	// invocation brings up, and there is nobody else on it to disturb.
+	//
+	// No marker is needed to remember the decision: our own second Create finds
+	// the server already up and skips the pins, which is correct because the
+	// first Create's pins are server-global and still in force.
+	var args []string
+	if !t.ServerRunning(ctx) {
+		// Ahead of new-session, in the SAME invocation: a pane reads these when
+		// it spawns, so applying them afterwards would configure the next
+		// session and leave this one misconfigured (§17.5).
+		args = pinManagedOptions()
+	}
+	args = append(args, "new-session", "-d", "-s", spec.Name)
 	if spec.Dir != "" {
 		args = append(args, "-c", spec.Dir)
 	}

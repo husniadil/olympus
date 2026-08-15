@@ -130,6 +130,32 @@ func writeDiagnosis(w io.Writer, d olympus.Diagnosis) {
 			fmt.Fprintf(w, "  %s = %s\n", key, value)
 		}
 		fmt.Fprintln(w, "  everything else in your config is left alone, including keybindings and theme")
+		fmt.Fprintln(w, "  applied to only servers it starts, never to one that was already running")
+	}
+
+	// The distinction only exists once a server is answering, and it is the
+	// difference between "these values are ours" and "these values are whatever
+	// this server was given" (§17.5).
+	if len(d.Resolved.Effective) > 0 {
+		keys := make([]string, 0, len(d.Resolved.Effective))
+		for key := range d.Resolved.Effective {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		fmt.Fprintln(w, "\nTHE SERVER ANSWERING NOW")
+		if d.Resolved.Pinned {
+			fmt.Fprintln(w, "  started and configured by Olympus")
+		} else {
+			fmt.Fprintln(w, "  already running before Olympus reached it, so it is left as it is")
+			fmt.Fprintln(w, "  a run's exit code depends on the shell below being POSIX-compatible")
+		}
+		for _, key := range keys {
+			value := d.Resolved.Effective[key]
+			if value == "" {
+				value = `"" (this server's own default shell)`
+			}
+			fmt.Fprintf(w, "  %s = %s\n", key, value)
+		}
 	}
 
 	if len(d.InstallHints) > 0 {
