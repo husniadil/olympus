@@ -303,7 +303,7 @@ func TestAnOperationFailureIsAToolErrorNotAProtocolError(t *testing.T) {
 
 	response := w.call("tools/call", map[string]any{
 		"name":      "capture",
-		"arguments": map[string]any{"target": "oly-never-existed"},
+		"arguments": map[string]any{"targets": []string{"oly-never-existed"}},
 		"_meta":     modernMeta(modernVersion),
 	})
 

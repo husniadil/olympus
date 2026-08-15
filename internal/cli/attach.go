@@ -13,6 +13,7 @@ import (
 func (a *App) attachCmd() *cobra.Command {
 	var viewer bool
 	var keepOthers bool
+	var cols, rows int
 
 	cmd := &cobra.Command{
 		Use:   "attach <target>",
@@ -30,6 +31,9 @@ func (a *App) attachCmd() *cobra.Command {
 				}
 				if keepOthers {
 					opts = append(opts, olympus.KeepOtherClients())
+				}
+				if cols > 0 && rows > 0 {
+					opts = append(opts, olympus.AttachSize(cols, rows))
 				}
 
 				in, _ := a.In.(*os.File)
@@ -50,5 +54,7 @@ func (a *App) attachCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&viewer, "viewer", false, "attach read-only: no input, and no resizing")
 	cmd.Flags().BoolVar(&keepOthers, "keep-others", false, "co-attach instead of displacing other clients")
+	cmd.Flags().IntVar(&cols, "cols", 0, "initial width, for a caller whose stdin is not a terminal")
+	cmd.Flags().IntVar(&rows, "rows", 0, "initial height, for a caller whose stdin is not a terminal")
 	return cmd
 }

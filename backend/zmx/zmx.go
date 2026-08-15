@@ -449,12 +449,25 @@ func (z *Zmx) Screen(ctx context.Context, target string, opts backend.ScreenOpts
 	return backend.Capture{Text: out}, nil
 }
 
+// ScreenMeta is always the zero value here, with no subprocess run to check.
+//
+// That is an honest answer — "not tracked" — rather than an unsupported-class
+// error: the caller asked a question this backend can answer negatively. The
+// tracks_alt_screen capability is what tells a caller the zero is a genuine
+// "no" rather than a real observation (behavior §5.3, §13).
+func (z *Zmx) ScreenMeta(ctx context.Context, target string) (backend.ScreenMeta, error) {
+	if err := z.requirePresent(ctx, target); err != nil {
+		return backend.ScreenMeta{}, err
+	}
+	return backend.ScreenMeta{}, nil
+}
+
 func (z *Zmx) ServerEnv(ctx context.Context, key string) (string, bool, error) {
 	return "", false, backend.Errorf(backend.CodeUnsupported,
 		"zmx has no server environment: there is no shared server whose environment could be read")
 }
 
-func (z *Zmx) CreateView(ctx context.Context, base, name string) (backend.View, error) {
+func (z *Zmx) CreateView(ctx context.Context, base string, spec backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, backend.Errorf(backend.CodeUnsupported, "zmx has no views")
 }
 

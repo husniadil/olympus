@@ -31,7 +31,7 @@ func viewCases() []Case {
 				base := e.StartShell()
 				name := fmt.Sprintf("olympus-view-%s-%d", base, time.Now().UnixNano()%10000)
 
-				view, err := e.Backend.CreateView(e.Ctx(), base, name)
+				view, err := e.Backend.CreateView(e.Ctx(), base, backend.ViewSpec{Name: name, Mouse: true})
 				if !e.Backend.Capabilities().Views {
 					if err == nil {
 						e.T.Fatalf("a backend that does not advertise views created one anyway")
@@ -72,7 +72,7 @@ func viewCases() []Case {
 				}
 				base := e.StartShell()
 				name := fmt.Sprintf("olympus-view-%s-%d", base, time.Now().UnixNano()%10000)
-				view, err := e.Backend.CreateView(e.Ctx(), base, name)
+				view, err := e.Backend.CreateView(e.Ctx(), base, backend.ViewSpec{Name: name, Mouse: true})
 				if err != nil {
 					e.T.Fatalf("creating a view: %v", err)
 				}

@@ -38,10 +38,13 @@ func (inert) SendAtomic(context.Context, string, string) error      { return nil
 func (inert) Screen(context.Context, string, backend.ScreenOpts) (backend.Capture, error) {
 	return backend.Capture{}, nil
 }
+func (inert) ScreenMeta(context.Context, string) (backend.ScreenMeta, error) {
+	return backend.ScreenMeta{}, nil
+}
 func (inert) Attach(context.Context, string, backend.AttachSpec) (backend.Attachment, error) {
 	return backend.Attachment{}, nil
 }
-func (inert) CreateView(context.Context, string, string) (backend.View, error) {
+func (inert) CreateView(context.Context, string, backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, nil
 }
 func (inert) ScrollView(context.Context, string, int) error           { return nil }

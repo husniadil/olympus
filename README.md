@@ -57,7 +57,8 @@ thing.
 olympus start build --dir /repo
 olympus send build 'make test'        # types it, confirms it landed, submits it
 olympus wait build '\$ $'             # block until the prompt comes back
-olympus screen build --history 500
+olympus screen build api docs         # several sessions in one call
+olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
 ```
 

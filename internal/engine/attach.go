@@ -53,7 +53,7 @@ type AttachIO struct {
 // The exit code follows the CLIENT's, not Olympus's vocabulary: once the
 // presence gate has passed, this hands off, and an attach exiting 3 is not
 // necessarily not-found (behavior §12.1).
-func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, role backend.Role, superseded <-chan struct{}) (int, error) {
+func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spec backend.AttachSpec, superseded <-chan struct{}) (int, error) {
 	// The view session, or whatever else the backend created for this attach,
 	// is reaped unconditionally. A client can exit on its own — its base died,
 	// it was killed out from under us — with no explicit close ever running,
@@ -79,7 +79,15 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, rol
 	}
 	defer tty.Close()
 
-	stopResizing := startResizing(tty, io, role)
+	// An explicit size applies when there is no window to inherit one from.
+	// With a terminal on stdin the inherited size is the truth and wins; with
+	// a pipe there is no other source, so a caller that knows how big its
+	// consumer is has to be able to say so.
+	if spec.Cols > 0 && spec.Rows > 0 && (io.In == nil || !isTerminal(io.In.Fd())) {
+		_ = pty.Setsize(tty, &pty.Winsize{Cols: uint16(spec.Cols), Rows: uint16(spec.Rows)})
+	}
+
+	stopResizing := startResizing(tty, io, spec.Role)
 	defer stopResizing()
 
 	go func() {
@@ -113,7 +121,7 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, rol
 
 	// Inward: the operator's keystrokes, minus any in-band control lines.
 	go func() {
-		if role == backend.RoleViewer {
+		if spec.Role == backend.RoleViewer {
 			// A viewer drops input entirely. On a backend with one shared PTY
 			// per session, a viewer's keystrokes would land in everyone's
 			// session (behavior §8.7).

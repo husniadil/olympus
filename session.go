@@ -3,6 +3,7 @@ package olympus
 import (
 	"context"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
@@ -130,6 +131,28 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 	})
 }
 
+// PasteAndSubmit pastes text and then submits the final line.
+//
+// The two are one critical section, and the terminator is retried once. Once
+// text is sitting in the input line, a failed terminator does not merely fail
+// visibly — it leaves that text there, where the NEXT injection silently
+// concatenates onto it and corrupts both (behavior §4.4).
+func (s *Session) PasteAndSubmit(ctx context.Context, text string) error {
+	return engine.WithLock(ctx, s.ol.locks, s.key(), s.ol.lockWait, func() error {
+		if err := s.ol.backend.Paste(ctx, s.name, text); err != nil {
+			return err
+		}
+		if err := s.ol.backend.Submit(ctx, s.name); err == nil {
+			return nil
+		}
+		if err := s.ol.backend.Submit(ctx, s.name); err != nil {
+			return backend.Wrapf(backend.CodeTimeout, err,
+				"text was pasted into %s but not submitted, and is still sitting in the input line", s.name)
+		}
+		return nil
+	})
+}
+
 // Submit sends the terminator alone.
 func (s *Session) Submit(ctx context.Context) error {
 	return engine.WithLock(ctx, s.ol.locks, s.key(), s.ol.lockWait, func() error {
@@ -137,17 +160,30 @@ func (s *Session) Submit(ctx context.Context) error {
 	})
 }
 
+// A SendOption configures a verified send.
+type SendOption func(*engine.Delivery)
+
+// VerifyBudget sets ONE attempt's window. A verified send spends it twice, so
+// the worst case before failing is double this.
+func VerifyBudget(d time.Duration) SendOption {
+	return func(v *engine.Delivery) { v.Budget = d }
+}
+
 // Send delivers text, waits until it is observed on screen, and only then
 // submits it — holding the lock across all three (behavior §11.2).
-func (s *Session) Send(ctx context.Context, text string) error {
-	return engine.Delivery{
+func (s *Session) Send(ctx context.Context, text string, opts ...SendOption) error {
+	delivery := engine.Delivery{
 		Backend:  s.ol.backend,
 		Locks:    s.ol.locks,
 		Key:      s.key(),
 		LockWait: s.ol.lockWait,
 		Budget:   DefaultVerifyBudget,
 		Poll:     DefaultVerifyPoll,
-	}.VerifiedSubmit(ctx, s.name, text)
+	}
+	for _, opt := range opts {
+		opt(&delivery)
+	}
+	return delivery.VerifiedSubmit(ctx, s.name, text)
 }
 
 // SendAtomic delivers text and submits it as one caller-visible unit.
@@ -169,9 +205,14 @@ func (s *Session) SendAtomic(ctx context.Context, text string) error {
 
 // A Screen is a capture and what the text itself could not carry.
 type Screen struct {
-	Text     string             `json:"text"`
-	Meta     backend.ScreenMeta `json:"meta"`
-	Warnings []Warning          `json:"-"`
+	Text string             `json:"text"`
+	Meta backend.ScreenMeta `json:"meta"`
+	// Line is the first line that matched, on a result from WaitFor. A caller
+	// waiting on a pattern almost always wants the line rather than the whole
+	// screen, and finding it again themselves means re-implementing the match.
+	Line     string    `json:"line,omitempty"`
+	Matched  bool      `json:"matched,omitempty"`
+	Warnings []Warning `json:"-"`
 }
 
 // A ScreenOption configures Screen.
@@ -225,6 +266,13 @@ func WaitTimeout(d time.Duration) WaitOption {
 	return func(c *waitConfig) { c.timeout = d }
 }
 
+// WaitInterval sets how often the screen is re-read while waiting. A shorter
+// interval catches output that is overwritten quickly; a longer one costs the
+// backend less on a session nobody is in a hurry about.
+func WaitInterval(d time.Duration) WaitOption {
+	return func(c *waitConfig) { c.poll = d }
+}
+
 // WaitFor blocks until the session's screen matches a regular expression, and
 // returns the screen that matched.
 func (s *Session) WaitFor(ctx context.Context, pattern string, opts ...WaitOption) (Screen, error) {
@@ -246,6 +294,8 @@ func (s *Session) WaitFor(ctx context.Context, pattern string, opts ...WaitOptio
 		if err == nil {
 			last = screen
 			if expression.MatchString(screen.Text) {
+				screen.Matched = true
+				screen.Line = firstMatchingLine(expression, screen.Text)
 				return screen, nil
 			}
 		}
@@ -267,22 +317,41 @@ type Result struct {
 	Output   string `json:"output"`
 }
 
+// A RunOption configures Exec and Start.
+type RunOption func(*engine.Runner)
+
+// RunTimeout bounds how long a run waits for its command.
+func RunTimeout(d time.Duration) RunOption {
+	return func(r *engine.Runner) { r.Timeout = d }
+}
+
+// RunInterval sets how often a run checks for its completion marker.
+func RunInterval(d time.Duration) RunOption {
+	return func(r *engine.Runner) { r.Poll = d }
+}
+
+// PollWindow sets how deep into scrollback a detached poll looks for the
+// completion marker. It is ignored where scrollback depth is the backend's own.
+func PollWindow(lines int) RunOption {
+	return func(r *engine.Runner) { r.Window = lines }
+}
+
 // Exec runs a command and waits for it to finish.
 //
 // A non-zero exit code is a RESULT, not an error: whether the protocol worked
 // and what the command's own status was are two independent outcomes, and
 // conflating them makes an ordinary failing command look like Olympus broke
 // (behavior §12.1).
-func (s *Session) Exec(ctx context.Context, command string) (Result, error) {
-	result, err := s.runner().Exec(ctx, s.name, command)
+func (s *Session) Exec(ctx context.Context, command string, opts ...RunOption) (Result, error) {
+	result, err := s.runner(opts...).Exec(ctx, s.name, command)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{ExitCode: result.ExitCode, Output: result.Output}, nil
 }
 
-func (s *Session) runner() engine.Runner {
-	return engine.Runner{
+func (s *Session) runner(opts ...RunOption) engine.Runner {
+	r := engine.Runner{
 		Backend:  s.ol.backend,
 		Locks:    s.ol.locks,
 		Key:      s.key(),
@@ -290,6 +359,24 @@ func (s *Session) runner() engine.Runner {
 		Timeout:  DefaultRunTimeout,
 		Poll:     DefaultRunPoll,
 	}
+	for _, opt := range opts {
+		opt(&r)
+	}
+	return r
+}
+
+// firstMatchingLine returns the first line a pattern matches, so a caller does
+// not have to re-run the match to find out which line it was.
+func firstMatchingLine(expression *regexp.Regexp, screen string) string {
+	for _, line := range strings.Split(screen, "\n") {
+		if expression.MatchString(line) {
+			return line
+		}
+	}
+	// The pattern matched the screen but no single line, which happens when it
+	// spans a newline. The screen already carries it; there is no one line to
+	// name.
+	return ""
 }
 
 // A Job is a detached run.
@@ -308,8 +395,8 @@ type Job struct {
 func (j *Job) ID() string { return j.id }
 
 // Start injects a command and returns without waiting.
-func (s *Session) Start(ctx context.Context, command string) (*Job, error) {
-	id, err := s.runner().Start(ctx, s.name, command)
+func (s *Session) Start(ctx context.Context, command string, opts ...RunOption) (*Job, error) {
+	id, err := s.runner(opts...).Start(ctx, s.name, command)
 	if err != nil {
 		return nil, err
 	}
@@ -335,14 +422,14 @@ type PollResult struct {
 // about the backend: a target that never existed and one that vanished are
 // indistinguishable from a read-only vantage point, so both answer died
 // (behavior §6.8).
-func (j *Job) Poll(ctx context.Context) (PollResult, error) {
-	return j.session.Poll(ctx, j.id)
+func (j *Job) Poll(ctx context.Context, opts ...RunOption) (PollResult, error) {
+	return j.session.Poll(ctx, j.id, opts...)
 }
 
 // Poll reports on a detached run by id, for a caller resuming from nothing but
 // the pair.
-func (s *Session) Poll(ctx context.Context, id string) (PollResult, error) {
-	got, err := s.runner().PollRun(ctx, s.name, id)
+func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollResult, error) {
+	got, err := s.runner(opts...).PollRun(ctx, s.name, id)
 	if err != nil {
 		return PollResult{}, err
 	}
@@ -360,8 +447,11 @@ func (s *Session) Poll(ctx context.Context, id string) (PollResult, error) {
 // The marker is always caller-supplied and there is deliberately no default: a
 // fixed one would collide with ordinary output or stale scrollback, and weaken
 // the caller-controlled uniqueness the design assumes (behavior §14).
-func (s *Session) ExitStatus(ctx context.Context, marker string) (int, bool, error) {
-	screen, err := s.Screen(ctx, WithHistory(engine.DetachedWindow))
+func (s *Session) ExitStatus(ctx context.Context, marker string, lines int) (int, bool, error) {
+	if lines <= 0 {
+		lines = engine.DetachedWindow
+	}
+	screen, err := s.Screen(ctx, WithHistory(lines))
 	if err != nil {
 		return 0, false, err
 	}
@@ -381,6 +471,17 @@ type StopOption func(*engine.KillPolicy)
 // Force skips the graceful attempt entirely.
 func Force() StopOption {
 	return func(p *engine.KillPolicy) { p.Presses = 0; p.Timeout = 0 }
+}
+
+// Presses sets how many interrupts to send before waiting.
+func Presses(n int) StopOption {
+	return func(p *engine.KillPolicy) { p.Presses = n }
+}
+
+// InterruptTimeout bounds the POLL phase only, so total wall time is
+// presses*gap plus this.
+func InterruptTimeout(d time.Duration) StopOption {
+	return func(p *engine.KillPolicy) { p.Timeout = d }
 }
 
 // Stop ends a session, trying to interrupt it before forcing.

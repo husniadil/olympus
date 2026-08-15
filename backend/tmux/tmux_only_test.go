@@ -344,7 +344,7 @@ func TestViewsGroupByIDSoTheBaseStaysAddressableByName(t *testing.T) {
 	base := create(t, b, backend.CreateSpec{Name: "oly-base"})
 	warm(t, b, base)
 
-	if _, err := b.CreateView(ctx, base, "olympus-view-oly-base-a1b2"); err != nil {
+	if _, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-base-a1b2", Mouse: true}); err != nil {
 		t.Fatalf("creating a view: %v", err)
 	}
 
@@ -500,5 +500,172 @@ func TestTheSameCommandWithACorpseRequestedStaysListed(t *testing.T) {
 	t.Cleanup(func() { _ = b.Kill(context.Background(), "oly-corpse-kept") })
 	if row.Liveness != backend.LivenessPresent {
 		t.Errorf("liveness %q, want %q — a requested corpse must keep the session listed", row.Liveness, backend.LivenessPresent)
+	}
+}
+
+// §9.3: view creation is not a side-effect-free read. It appends to a
+// server-global option and defines a server-global key table, and both have to
+// be right or the view is unusable in ways nothing reports.
+func TestCreatingAViewSetsUpItsReadOnlyPosture(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-vbase"})
+
+	view, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-vbase-aa11", Mouse: true})
+	if err != nil {
+		t.Fatalf("creating a view: %v", err)
+	}
+
+	socket := socketOf(t, b)
+	// Read back through the WINDOW target. A bare session target is resolved
+	// against group names first, and a view is in a group — so "=name" answers
+	// "no such session" for a session that plainly exists (§9.1, §10).
+	option := func(name string) string {
+		t.Helper()
+		out, err := exec.Command("tmux", "-L", socket, "show-options", "-t", "="+view.Name+":", name).Output()
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	// A view is for reading: no status bar, and no prefix so the multiplexer's
+	// own key passes through to the pane instead of being captured.
+	if got := option("status"); !strings.Contains(got, "off") {
+		t.Errorf("the view's status bar is %q, want off", got)
+	}
+	if got := option("prefix"); !strings.Contains(got, "None") {
+		t.Errorf("the view's prefix is %q, want None", got)
+	}
+	if got := option("key-table"); !strings.Contains(got, "olympus-passthrough") {
+		t.Errorf("the view's key table is %q, want the reserved pass-through table", got)
+	}
+
+	// The empty pass-through table strips tmux's own mouse bindings, so the
+	// wheel would do nothing at all without these being re-added.
+	bindings, err := exec.Command("tmux", "-L", socket, "list-keys", "-T", "olympus-passthrough").Output()
+	if err != nil {
+		t.Fatalf("listing the pass-through table: %v", err)
+	}
+	for _, want := range []string{"WheelUpPane", "WheelDownPane"} {
+		if !strings.Contains(string(bindings), want) {
+			t.Errorf("the pass-through table has no %s binding, so scrolling a view does nothing:\n%s", want, bindings)
+		}
+	}
+}
+
+// The hyperlink opt-in appends to an ARRAY option, so a second view must not
+// grow it. Repeated creation is the ordinary case, not an edge one.
+func TestTheHyperlinkOptInIsIdempotent(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-videm"})
+
+	socket := socketOf(t, b)
+	count := func() int {
+		t.Helper()
+		out, _ := exec.Command("tmux", "-L", socket, "show-options", "-g", "terminal-features").Output()
+		return strings.Count(string(out), "hyperlinks")
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-videm-" + itoa(i)}); err != nil {
+			t.Fatalf("creating view %d: %v", i, err)
+		}
+	}
+	if got := count(); got != 1 {
+		t.Errorf("the hyperlink feature appears %d times after three views, want 1 — the option grows on every creation", got)
+	}
+}
+
+// tmux's `new-session -t` SUCCEEDS against a base that does not exist: it
+// simply starts a brand-new group under that name. Without probing first, a
+// typo'd base silently produces an orphan session and reports success.
+func TestCreatingAViewOnAnAbsentBaseIsNotFound(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	create(t, b, backend.CreateSpec{Name: "oly-vanchor"})
+
+	_, err := b.CreateView(ctx, "oly-no-such-base", backend.ViewSpec{Name: "olympus-view-orphan-1"})
+	if backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Fatalf("creating a view on an absent base is %q, want %q", backend.CodeOf(err), backend.CodeSessionNotFound)
+	}
+
+	// And it must not have left the orphan behind.
+	sessions, err := b.Sessions(ctx)
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	for _, s := range sessions {
+		if s.Name == "olympus-view-orphan-1" || s.Name == "oly-no-such-base" {
+			t.Errorf("an orphan session %q was created for an absent base", s.Name)
+		}
+	}
+}
+
+// A failure partway through the setup must not leave a half-configured view: a
+// session with no status bar, no prefix and no key table is worse than none.
+func TestAViewIsScrollableAfterCreation(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-vscroll"})
+	warm(t, b, base)
+
+	view, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-vscroll-b2", Mouse: true})
+	if err != nil {
+		t.Fatalf("creating a view: %v", err)
+	}
+	if err := b.ScrollView(ctx, view.Name, 5); err != nil {
+		t.Errorf("scrolling the view: %v", err)
+	}
+	// Back toward the live tail.
+	if err := b.ScrollView(ctx, view.Name, -5); err != nil {
+		t.Errorf("scrolling the view back: %v", err)
+	}
+	// Zero is a no-op success rather than an error.
+	if err := b.ScrollView(ctx, view.Name, 0); err != nil {
+		t.Errorf("scrolling by zero: %v", err)
+	}
+}
+
+// §9.5: the base of a group is its oldest member, decided by creation time.
+//
+// NOT by list order. tmux lists sessions sorted by NAME, and the reserved view
+// prefix sorts before most session names — so an implementation that took the
+// first row as the base reported every group with the base and the view
+// swapped, which is what this reproduces.
+func TestAViewIsNeverMistakenForItsBase(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	// A base whose name sorts AFTER its view's, which is the ordinary case for
+	// the reserved prefix and the one that used to break.
+	base := create(t, b, backend.CreateSpec{Name: "zzz-base"})
+
+	view, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "aaa-view-of-zzz"})
+	if err != nil {
+		t.Fatalf("creating a view: %v", err)
+	}
+
+	views, err := b.Views(ctx, "")
+	if err != nil {
+		t.Fatalf("listing views: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("listing views returned %d, want 1: %+v", len(views), views)
+	}
+	if views[0].Name != view.Name {
+		t.Errorf("the view is named %q, want %q — the base was reported as the view", views[0].Name, view.Name)
+	}
+	if views[0].Base != base {
+		t.Errorf("the view's base is %q, want %q — the two are swapped", views[0].Base, base)
+	}
+
+	// Filtering by base must find it too, which it cannot if they are swapped.
+	filtered, err := b.Views(ctx, base)
+	if err != nil {
+		t.Fatalf("listing views of the base: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Errorf("listing views of %s returned %d, want 1", base, len(filtered))
 	}
 }

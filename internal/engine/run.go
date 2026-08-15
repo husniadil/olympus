@@ -58,6 +58,11 @@ type Runner struct {
 	LockWait time.Duration
 	Timeout  time.Duration
 	Poll     time.Duration
+	// Window is the detached path's one-shot capture depth. Zero takes
+	// DetachedWindow. It is a fixed request rather than a growing loop: if
+	// scrollback has pushed the marker past it, poll reports pending and the
+	// remedy is re-polling with a larger one (behavior §6.7).
+	Window int
 }
 
 // Exec runs a command and waits for it to finish.
@@ -150,7 +155,11 @@ func (r Runner) inject(ctx context.Context, target, command string) (Markers, er
 func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, error) {
 	markers := NewMarkers(id)
 
-	capture, err := r.capture(ctx, target, DetachedWindow)
+	window := r.Window
+	if window <= 0 {
+		window = DetachedWindow
+	}
+	capture, err := r.capture(ctx, target, window)
 	if err == nil {
 		if result, ok := markers.Parse(capture); ok {
 			code := result.ExitCode

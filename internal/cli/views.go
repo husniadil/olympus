@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
 )
 
@@ -24,10 +25,14 @@ func (a *App) viewCmd() *cobra.Command {
 }
 
 func (a *App) viewCreateCmd() *cobra.Command {
-	return &cobra.Command{
+	var noMouse bool
+	var name string
+	cmd := &cobra.Command{
 		Use:   "create <base>",
 		Short: "Create a view onto a session",
-		Args:  cobra.ExactArgs(1),
+		Long: "Create an independently-scrollable view onto a session." +
+			"\n\nThis is NOT a side-effect-free read: on a backend that supports views it mutates server-global state. That is self-contained while Olympus owns the server, which is the default — pointed at your own running server, the changes land there until it is killed.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ol, err := a.open()
 			if err != nil {
@@ -35,7 +40,15 @@ func (a *App) viewCreateCmd() *cobra.Command {
 			}
 			defer ol.Close()
 
-			view, err := ol.CreateView(cmd.Context(), args[0])
+			var opts []olympus.ViewOption
+			if noMouse {
+				opts = append(opts, olympus.WithoutMouse())
+			}
+			if name != "" {
+				opts = append(opts, olympus.WithViewName(name))
+			}
+
+			view, err := ol.CreateView(cmd.Context(), args[0], opts...)
 			if err != nil {
 				return err
 			}
@@ -44,6 +57,9 @@ func (a *App) viewCreateCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&noMouse, "no-mouse", false, "do not enable wheel scrolling into the view's history")
+	cmd.Flags().StringVar(&name, "name", "", "view session name (default olympus-view-<base>-<nonce>)")
+	return cmd
 }
 
 func (a *App) viewScrollCmd() *cobra.Command {

@@ -384,6 +384,12 @@ func (t *Tmux) Screen(ctx context.Context, target string, opts backend.ScreenOpt
 	return backend.Capture{Text: out, Meta: meta}, nil
 }
 
+// ScreenMeta reports capture metadata without capturing (behavior §5.3).
+func (t *Tmux) ScreenMeta(ctx context.Context, target string) (backend.ScreenMeta, error) {
+	meta, err := t.screenMeta(ctx, target)
+	return meta, named(target, err)
+}
+
 func (t *Tmux) screenMeta(ctx context.Context, target string) (backend.ScreenMeta, error) {
 	out, err := t.run(ctx, nil, "list-panes", "-t", paneTarget(target), "-F", "#{alternate_on}\x1f#{scroll_position}")
 	if err != nil {

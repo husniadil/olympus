@@ -266,7 +266,7 @@ func TestAttachReturnsTheClientsOwnExitCode(t *testing.T) {
 	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "exit 6")}
 
 	code, err := engine.Attach(context.Background(), attachment,
-		engine.AttachIO{Out: os.NewFile(0, os.DevNull)}, backend.RoleController, nil)
+		engine.AttachIO{Out: os.NewFile(0, os.DevNull)}, backend.AttachSpec{Role: backend.RoleController}, nil)
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestASpontaneousExitStillReaps(t *testing.T) {
 	}
 
 	if _, err := engine.Attach(context.Background(), attachment,
-		engine.AttachIO{Out: os.NewFile(0, os.DevNull)}, backend.RoleController, nil); err != nil {
+		engine.AttachIO{Out: os.NewFile(0, os.DevNull)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
 	if !reaped {

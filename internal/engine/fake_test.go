@@ -14,6 +14,7 @@ type fakeBackend struct {
 	mu sync.Mutex
 
 	screen   string
+	meta     backend.ScreenMeta
 	caps     backend.Capabilities
 	sessions []backend.Session
 	panes    []backend.Pane
@@ -156,11 +157,17 @@ func (f *fakeBackend) Screen(context.Context, string, backend.ScreenOpts) (backe
 	return backend.Capture{Text: f.screen}, nil
 }
 
+func (f *fakeBackend) ScreenMeta(context.Context, string) (backend.ScreenMeta, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.meta, nil
+}
+
 func (f *fakeBackend) Attach(context.Context, string, backend.AttachSpec) (backend.Attachment, error) {
 	return backend.Attachment{}, backend.Errorf(backend.CodeUnsupported, "the fake does not attach")
 }
 
-func (f *fakeBackend) CreateView(context.Context, string, string) (backend.View, error) {
+func (f *fakeBackend) CreateView(context.Context, string, backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, backend.Errorf(backend.CodeUnsupported, "the fake has no views")
 }
 

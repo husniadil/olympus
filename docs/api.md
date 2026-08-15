@@ -22,16 +22,19 @@ same operation.
 | Operation | CLI | MCP tool | Go |
 |---|---|---|---|
 | create-or-reuse a session | `start` | `start_session` | `Session` |
+| create a session, failing if taken | `new` | `new_session` | `Create` |
 | list sessions | `ls` | `list_sessions` | `Sessions` |
+| list panes | `panes` | `list_panes` | `Panes` |
 | kill a session | `stop` | `stop_session` | `Stop` |
 | session detail / presence | `info` | `session_info` | `Info` |
 | type literal text | `type` | `type_text` | `Type` |
 | send named keys | `key` | `send_keys` | `Press` |
 | paste multi-line text | `paste` | `paste_text` | `Paste` |
-| read the screen | `screen` | `capture` | `Screen` |
+| read the screen | `screen` | `capture` | `Screen`, `Capture` |
 | wait for a pattern | `wait` | `wait_for` | `WaitFor` |
 | follow output live | `watch` | *(none — streaming)* | `Watch` |
 | run a command | `run` | `run_command` | `Exec` |
+| run in a throwaway session | `run` (no target) | *(none — needs a target)* | `RunOnce` |
 | start a detached run | `run --detach` | `start_run` | `Start` |
 | poll a detached run | `poll` | `poll_run` | `Job.Poll` |
 | attach a terminal | `attach` | *(none — interactive)* | `Attach` |
@@ -40,6 +43,7 @@ same operation.
 | scroll a view | `view scroll` | `scroll_view` | `ScrollView` |
 | list views | `view ls` | `list_views` | `Views` |
 | read a server env key | `server-env` | `server_env` | `ServerEnv` |
+| what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
 | environment diagnosis | `doctor` | `doctor` | `Diagnose` |
 | version | `version` | `version` | `Version` |
 
@@ -257,7 +261,7 @@ only on `start`, and is `created` | `reused` | `reaped`.
 `current_path` and `current_command` carry different meanings per backend
 (behavior spec §3.4) and trigger warnings on zmx per §0.8.
 
-**Screen** (`screen`):
+**Screen** (`screen`): one or more targets in a single call.
 
 ```json
 {
@@ -267,7 +271,8 @@ only on `start`, and is `created` | `reused` | `reaped`.
 ```
 
 An alt-screen target returns `""` with `alt_screen: true` — the flag is what
-makes empty mean *skipped by design* (behavior spec §5.3).
+makes empty mean *skipped by design* (behavior spec §5.3). Both maps are always
+objects, never `null`, including on the zero value a failure returns.
 
 **Presence** (`info`): `info` carries the tri-state presence answer and **MUST NOT
 error on an absent target**:

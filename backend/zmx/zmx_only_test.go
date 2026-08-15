@@ -211,7 +211,10 @@ func TestOperationsWithNoConceptHereAnswerUnsupported(t *testing.T) {
 	name := startShell(t, b, "oly-unsup")
 
 	cases := map[string]error{
-		"create a view": func() error { _, err := b.CreateView(ctx, name, "olympus-view-x-1"); return err }(),
+		"create a view": func() error {
+			_, err := b.CreateView(ctx, name, backend.ViewSpec{Name: "olympus-view-x-1"})
+			return err
+		}(),
 		"scroll a view": b.ScrollView(ctx, name, 1),
 		"list views":    func() error { _, err := b.Views(ctx, name); return err }(),
 		"read server environment": func() error {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -13,22 +14,35 @@ import (
 
 func (a *App) runCmd() *cobra.Command {
 	var detach bool
+	var timeout time.Duration
 	cmd := &cobra.Command{
-		Use:   "run <target> <command>",
+		Use:   "run [target] <command>",
 		Short: "Run a command in a session and wait for it to finish",
 		Long: strings.TrimSpace(`
 Run a command in a session and wait for it to finish.
+
+With no target, the command runs in a throwaway session created for it and
+killed afterwards — on success, failure and timeout alike.
 
 EXIT CODE: without --json this exits with the COMMAND's own exit code, so it
 composes in a pipeline exactly like running the command directly. Genuine
 infrastructure failures still use Olympus's own codes. With --json it exits 0
 for any successful run and the command's status is in data.exit_code instead.`) +
 			scriptsNote,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var opts []olympus.RunOption
+			if timeout > 0 {
+				opts = append(opts, olympus.RunTimeout(timeout))
+			}
+
+			if len(args) == 1 {
+				return a.runThrowaway(cmd, args[0], detach)
+			}
+
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
 				if detach {
-					job, err := s.Start(cmd.Context(), args[1])
+					job, err := s.Start(cmd.Context(), args[1], opts...)
 					if err != nil {
 						return err
 					}
@@ -37,7 +51,7 @@ for any successful run and the command's status is in data.exit_code instead.`) 
 					})
 				}
 
-				result, err := s.Exec(cmd.Context(), args[1])
+				result, err := s.Exec(cmd.Context(), args[1], opts...)
 				if err != nil {
 					return err
 				}
@@ -65,11 +79,46 @@ for any successful run and the command's status is in data.exit_code instead.`) 
 		},
 	}
 	cmd.Flags().BoolVar(&detach, "detach", false, "start the command and return an id to poll instead of waiting")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "how long to wait for the command (default 60s)")
 	return cmd
 }
 
+// runThrowaway runs a command in a session made for it and killed afterwards.
+func (a *App) runThrowaway(cmd *cobra.Command, command string, detach bool) error {
+	if detach {
+		// There would be nothing left to poll: the session is killed the
+		// moment the run returns (behavior §6.10).
+		return backend.Errorf(backend.CodeUsage,
+			"a detached run needs a target: a throwaway session is killed when the run returns, leaving nothing to poll")
+	}
+
+	ol, err := a.open()
+	if err != nil {
+		return err
+	}
+	defer ol.Close()
+
+	result, warnings, err := ol.RunOnce(cmd.Context(), command)
+	if err != nil {
+		return err
+	}
+	if err := a.emit(result, warnings, func(w io.Writer) {
+		fmt.Fprint(w, result.Output)
+		if result.Output != "" && !strings.HasSuffix(result.Output, "\n") {
+			fmt.Fprintln(w)
+		}
+	}); err != nil {
+		return err
+	}
+	if !a.json && result.ExitCode != 0 {
+		return &exitCodeError{code: exitCode(result.ExitCode)}
+	}
+	return nil
+}
+
 func (a *App) pollCmd() *cobra.Command {
-	return &cobra.Command{
+	var lines int
+	cmd := &cobra.Command{
 		// Top-level, not a subcommand of run. Making it `run poll <target> <id>`
 		// would reserve "poll" as a session name: a session literally named
 		// poll becomes unaddressable by run, because subcommand resolution
@@ -108,7 +157,11 @@ and both read as pending. Bounding how long you wait is yours to do.`) +
 				return err
 			}
 
-			result, err := s.Poll(cmd.Context(), args[1])
+			var opts []olympus.RunOption
+			if lines > 0 {
+				opts = append(opts, olympus.PollWindow(lines))
+			}
+			result, err := s.Poll(cmd.Context(), args[1], opts...)
 			if err != nil {
 				return err
 			}
@@ -128,4 +181,6 @@ and both read as pending. Bounding how long you wait is yours to do.`) +
 			})
 		},
 	}
+	cmd.Flags().IntVar(&lines, "lines", 0, "scrollback window to search for the completion marker (default 10000; ignored where scrollback is native)")
+	return cmd
 }

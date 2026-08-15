@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -114,6 +115,8 @@ func (a *App) lsCmd() *cobra.Command {
 
 func (a *App) stopCmd() *cobra.Command {
 	var force bool
+	var presses int
+	var interruptTimeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "stop <target>",
 		Short: "End a session, interrupting it before forcing",
@@ -132,6 +135,12 @@ func (a *App) stopCmd() *cobra.Command {
 			if force {
 				opts = append(opts, olympus.Force())
 			}
+			if presses > 0 {
+				opts = append(opts, olympus.Presses(presses))
+			}
+			if interruptTimeout > 0 {
+				opts = append(opts, olympus.InterruptTimeout(interruptTimeout))
+			}
 			stopped, err := ol.Stop(cmd.Context(), args[0], opts...)
 			if err != nil {
 				return err
@@ -142,6 +151,8 @@ func (a *App) stopCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "skip the graceful attempt entirely")
+	cmd.Flags().IntVar(&presses, "presses", 0, "interrupts to send before waiting (default 1)")
+	cmd.Flags().DurationVar(&interruptTimeout, "interrupt-timeout", 0, "how long to wait for the interrupt to work before forcing (default 2s)")
 	return cmd
 }
 

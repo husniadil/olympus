@@ -59,6 +59,7 @@ func (a *App) typeCmd() *cobra.Command {
 
 func (a *App) sendCmd() *cobra.Command {
 	var atomic bool
+	var timeout time.Duration
 	cmd := &cobra.Command{
 		Use:   "send <target> <text>",
 		Short: "Deliver text, confirm it landed, then submit it",
@@ -72,7 +73,11 @@ func (a *App) sendCmd() *cobra.Command {
 				if atomic {
 					err = s.SendAtomic(cmd.Context(), args[1])
 				} else {
-					err = s.Send(cmd.Context(), args[1])
+					var opts []olympus.SendOption
+					if timeout > 0 {
+						opts = append(opts, olympus.VerifyBudget(timeout))
+					}
+					err = s.Send(cmd.Context(), args[1], opts...)
 				}
 				if err != nil {
 					return err
@@ -82,6 +87,7 @@ func (a *App) sendCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&atomic, "atomic", false, "deliver and submit as one unit, without verifying")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "per-attempt verify budget, spent twice (default 5s)")
 	return cmd
 }
 
@@ -109,7 +115,8 @@ func (a *App) keyCmd() *cobra.Command {
 }
 
 func (a *App) pasteCmd() *cobra.Command {
-	return &cobra.Command{
+	var submit bool
+	cmd := &cobra.Command{
 		Use:   "paste <target> [text]",
 		Short: "Place multi-line text in the input line without submitting the last line",
 		Long: "Place multi-line text in the input line. Pass - to read the text from stdin." +
@@ -129,46 +136,65 @@ func (a *App) pasteCmd() *cobra.Command {
 				text = string(read)
 			}
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
-				if err := s.Paste(cmd.Context(), text); err != nil {
+				var err error
+				if submit {
+					err = s.PasteAndSubmit(cmd.Context(), text)
+				} else {
+					err = s.Paste(cmd.Context(), text)
+				}
+				if err != nil {
 					return err
 				}
-				return a.emit(map[string]any{"target": s.Name(), "bytes": len(text)}, nil, nil)
+				return a.emit(map[string]any{"target": s.Name(), "bytes": len(text), "submitted": submit}, nil, nil)
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&submit, "enter", false, "submit the final line afterwards, retrying the terminator once")
+	return cmd
 }
 
 func (a *App) screenCmd() *cobra.Command {
 	var colors bool
 	var history int
 	cmd := &cobra.Command{
-		Use:   "screen <target>",
-		Short: "Read a session's screen",
-		Long: "Read a session's screen." +
-			"\n\nAn empty capture with alt_screen set means the pane is on the alternate screen and was skipped by design, not that there was nothing there." +
+		Use:   "screen <target>...",
+		Short: "Read the screen of one or more sessions",
+		Long: "Read the screen of one or more sessions, in a single call." +
+			"\n\nA target on the alternate screen is SKIPPED rather than captured: it has no scrollback, so a capture would only re-report a grid a live viewer already mirrors. Its screen comes back empty with meta.alt_screen set, and that flag is what distinguishes skipped-by-design from nothing-there." +
 			scriptsNote,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
-				var opts []olympus.ScreenOption
-				if colors {
-					opts = append(opts, olympus.WithColors())
-				}
-				if history > 0 {
-					opts = append(opts, olympus.WithHistory(history))
-				}
-				screen, err := s.Screen(cmd.Context(), opts...)
-				if err != nil {
-					return err
-				}
-				return a.emit(screen, screen.Warnings, func(w io.Writer) {
-					// The captured text goes to stdout verbatim: it is the
-					// payload, not a rendering of one.
-					fmt.Fprint(w, screen.Text)
-					if !strings.HasSuffix(screen.Text, "\n") && screen.Text != "" {
+			ol, err := a.open()
+			if err != nil {
+				return err
+			}
+			defer ol.Close()
+
+			var opts []olympus.ScreenOption
+			if colors {
+				opts = append(opts, olympus.WithColors())
+			}
+			if history > 0 {
+				opts = append(opts, olympus.WithHistory(history))
+			}
+
+			captured, err := ol.Capture(cmd.Context(), args, opts...)
+			if err != nil {
+				return err
+			}
+			return a.emit(captured, captured.Warnings, func(w io.Writer) {
+				for _, target := range args {
+					text := captured.Screens[target]
+					// Only labelled when there is more than one, so piping a
+					// single screen stays byte-for-byte the screen.
+					if len(args) > 1 {
+						fmt.Fprintf(w, "=== %s ===\n", target)
+					}
+					fmt.Fprint(w, text)
+					if text != "" && !strings.HasSuffix(text, "\n") {
 						fmt.Fprintln(w)
 					}
-				})
+				}
 			})
 		},
 	}
@@ -178,33 +204,45 @@ func (a *App) screenCmd() *cobra.Command {
 }
 
 func (a *App) waitCmd() *cobra.Command {
-	var timeout time.Duration
+	var timeout, interval time.Duration
 	cmd := &cobra.Command{
 		Use:   "wait <target> <pattern>",
 		Short: "Block until a regular expression appears on the screen",
-		Args:  cobra.ExactArgs(2),
+		Long: "Block until a regular expression appears on the screen." +
+			"\n\nThe matched line is reported alongside the screen, so a caller does not have to run the match again to find out which line it was." +
+			scriptsNote,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
 				var opts []olympus.WaitOption
 				if timeout > 0 {
 					opts = append(opts, olympus.WaitTimeout(timeout))
 				}
+				if interval > 0 {
+					opts = append(opts, olympus.WaitInterval(interval))
+				}
 				screen, err := s.WaitFor(cmd.Context(), args[1], opts...)
 				if err != nil {
 					return err
 				}
 				return a.emit(screen, screen.Warnings, func(w io.Writer) {
+					if screen.Line != "" {
+						fmt.Fprintln(w, screen.Line)
+						return
+					}
 					fmt.Fprint(w, screen.Text)
 				})
 			})
 		},
 	}
 	cmd.Flags().DurationVar(&timeout, "timeout", 0, "how long to wait (default 30s)")
+	cmd.Flags().DurationVar(&interval, "interval", 0, "how often to re-read the screen (default 250ms)")
 	return cmd
 }
 
 func (a *App) exitStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var lines int
+	cmd := &cobra.Command{
 		Use:   "exit-status <target> <marker>",
 		Short: "Read a caller-supplied completion marker off the screen",
 		Long: "Read a caller-supplied completion marker off the screen, for the wrapper pattern `cmd; echo MARKER:$?`." +
@@ -213,7 +251,7 @@ func (a *App) exitStatusCmd() *cobra.Command {
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
-				code, found, err := s.ExitStatus(cmd.Context(), args[1])
+				code, found, err := s.ExitStatus(cmd.Context(), args[1], lines)
 				if err != nil {
 					return err
 				}
@@ -231,4 +269,6 @@ func (a *App) exitStatusCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().IntVar(&lines, "lines", 0, "scrollback window to search (default 10000; ignored where scrollback is native)")
+	return cmd
 }

@@ -25,6 +25,12 @@ func AsViewer() AttachOption {
 	return func(s *backend.AttachSpec) { s.Role = backend.RoleViewer }
 }
 
+// AttachSize sets the PTY's initial size, for a caller whose stdin is not a
+// terminal and therefore carries no window to inherit one from.
+func AttachSize(cols, rows int) AttachOption {
+	return func(s *backend.AttachSpec) { s.Cols, s.Rows = cols, rows }
+}
+
 // KeepOtherClients opts out of displacing prior clients.
 //
 // Superseding is the default, mirroring what attaching to a multiplexer has
@@ -88,5 +94,5 @@ func (s *Session) Attach(ctx context.Context, in, out *os.File, errOut *os.File,
 		}
 	}
 
-	return engine.Attach(ctx, attachment, engine.AttachIO{In: in, Out: out, Err: errOut}, spec.Role, superseded)
+	return engine.Attach(ctx, attachment, engine.AttachIO{In: in, Out: out, Err: errOut}, spec, superseded)
 }

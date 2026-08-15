@@ -17,9 +17,11 @@ import (
 // invisibly if one is renamed (behavior §15.7, api §7).
 var ToolNames = []string{
 	"start_session",
+	"new_session",
 	"list_sessions",
 	"stop_session",
 	"session_info",
+	"list_panes",
 	"type_text",
 	"send_text",
 	"send_keys",
@@ -34,6 +36,7 @@ var ToolNames = []string{
 	"scroll_view",
 	"list_views",
 	"server_env",
+	"capabilities",
 	"doctor",
 	"version",
 }
@@ -65,34 +68,43 @@ type keysParams struct {
 }
 
 type captureParams struct {
-	Target  string `json:"target" jsonschema:"the session to address"`
-	Colors  bool   `json:"colors,omitempty" jsonschema:"keep ANSI escapes in the captured text"`
-	History int    `json:"history,omitempty" jsonschema:"lines of scrollback to include above the visible screen"`
+	Targets []string `json:"targets" jsonschema:"one or more sessions to capture in a single call"`
+	Colors  bool     `json:"colors,omitempty" jsonschema:"keep ANSI escapes in the captured text"`
+	History int      `json:"history,omitempty" jsonschema:"lines of scrollback to include above the visible screen"`
 }
 
 type waitParams struct {
-	Target  string `json:"target" jsonschema:"the session to address"`
-	Pattern string `json:"pattern" jsonschema:"a regular expression to wait for"`
-	Seconds int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
+	Target   string `json:"target" jsonschema:"the session to address"`
+	Pattern  string `json:"pattern" jsonschema:"a regular expression to wait for"`
+	Seconds  int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
+	Interval int    `json:"interval_ms,omitempty" jsonschema:"how often to re-read the screen, in milliseconds"`
+}
+
+type listPaneParams struct {
+	Target string `json:"target,omitempty" jsonschema:"limit to one session; omit for every pane on the backend"`
 }
 
 type commandParams struct {
 	Target  string `json:"target" jsonschema:"the session to address"`
 	Command string `json:"command" jsonschema:"the command to run; must be a single line"`
+	Seconds int    `json:"seconds,omitempty" jsonschema:"how long to wait for the command, in seconds"`
 }
 
 type pollParams struct {
 	Target string `json:"target" jsonschema:"the session the run was started in"`
 	ID     string `json:"id" jsonschema:"the id start_run returned"`
+	Lines  int    `json:"lines,omitempty" jsonschema:"scrollback window to search; ignored where scrollback is native"`
 }
 
 type markerParams struct {
 	Target string `json:"target" jsonschema:"the session to address"`
 	Marker string `json:"marker" jsonschema:"the completion marker to look for; there is deliberately no default"`
+	Lines  int    `json:"lines,omitempty" jsonschema:"scrollback window to search; ignored where scrollback is native"`
 }
 
 type viewParams struct {
-	Base string `json:"base" jsonschema:"the session to look onto"`
+	Base    string `json:"base" jsonschema:"the session to look onto"`
+	NoMouse bool   `json:"no_mouse,omitempty" jsonschema:"do not enable wheel scrolling into the view's history"`
 }
 
 type scrollParams struct {
@@ -212,12 +224,8 @@ func register(s *sdk.Server) {
 			})
 		})
 
-	addTool(s, "capture", "Read a session's screen. An empty capture with alt_screen set means the pane was skipped by design.",
-		func(ctx context.Context, ol *olympus.Olympus, in captureParams) (olympus.Screen, []olympus.Warning, error) {
-			session, err := ol.Open(ctx, in.Target)
-			if err != nil {
-				return olympus.Screen{}, nil, err
-			}
+	addTool(s, "capture", "Read the screens of one or more sessions in a single call. A target on the alternate screen is skipped rather than captured: its screen is empty with meta.alt_screen set, which is what distinguishes skipped-by-design from nothing-there.",
+		func(ctx context.Context, ol *olympus.Olympus, in captureParams) (olympus.Screens, []olympus.Warning, error) {
 			var opts []olympus.ScreenOption
 			if in.Colors {
 				opts = append(opts, olympus.WithColors())
@@ -225,8 +233,38 @@ func register(s *sdk.Server) {
 			if in.History > 0 {
 				opts = append(opts, olympus.WithHistory(in.History))
 			}
-			screen, err := session.Screen(ctx, opts...)
-			return screen, screen.Warnings, err
+			captured, err := ol.Capture(ctx, in.Targets, opts...)
+			return captured, captured.Warnings, err
+		})
+
+	addTool(s, "new_session", "Create a session, failing with a conflict if the name is taken. Use start_session to create-or-reuse; this is for a caller that means the session must not already exist.",
+		func(ctx context.Context, ol *olympus.Olympus, in startParams) (backend.Session, []olympus.Warning, error) {
+			var opts []olympus.SessionOption
+			if in.Dir != "" {
+				opts = append(opts, olympus.In(in.Dir))
+			}
+			if in.Cols > 0 || in.Rows > 0 {
+				opts = append(opts, olympus.Size(in.Cols, in.Rows))
+			}
+			if len(in.Command) > 0 {
+				opts = append(opts, olympus.Command(in.Command...))
+			}
+			session, err := ol.Create(ctx, in.Name, opts...)
+			if err != nil {
+				return backend.Session{}, nil, err
+			}
+			return session.Row(), nil, nil
+		})
+
+	addTool(s, "list_panes", "List panes: every pane on the backend, or one session's. A pane id is not unique across rows once views exist, since a base and its views share the underlying pane.",
+		func(ctx context.Context, ol *olympus.Olympus, in listPaneParams) ([]backend.Pane, []olympus.Warning, error) {
+			panes, err := ol.Panes(ctx, in.Target)
+			return panes, ol.PaneWarnings(), err
+		})
+
+	addTool(s, "capabilities", "Report what the resolved backend can do. Branch on these rather than on an unsupported error.",
+		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) (backend.Capabilities, []olympus.Warning, error) {
+			return ol.Capabilities(), nil, nil
 		})
 
 	addTool(s, "wait_for", "Block until a regular expression appears on the screen.",
@@ -239,14 +277,21 @@ func register(s *sdk.Server) {
 			if in.Seconds > 0 {
 				opts = append(opts, olympus.WaitTimeout(time.Duration(in.Seconds)*time.Second))
 			}
+			if in.Interval > 0 {
+				opts = append(opts, olympus.WaitInterval(time.Duration(in.Interval)*time.Millisecond))
+			}
 			screen, err := session.WaitFor(ctx, in.Pattern, opts...)
 			return screen, screen.Warnings, err
 		})
 
 	addTool(s, "run_command", "Run a command and wait for it. A non-zero exit code is a RESULT in exit_code, not a failure.",
 		func(ctx context.Context, ol *olympus.Olympus, in commandParams) (olympus.Result, []olympus.Warning, error) {
+			var opts []olympus.RunOption
+			if in.Seconds > 0 {
+				opts = append(opts, olympus.RunTimeout(time.Duration(in.Seconds)*time.Second))
+			}
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (olympus.Result, error) {
-				return s.Exec(ctx, in.Command)
+				return s.Exec(ctx, in.Command, opts...)
 			})
 		})
 
@@ -273,14 +318,18 @@ func register(s *sdk.Server) {
 				}
 				return olympus.PollResult{}, nil, err
 			}
-			result, err := session.Poll(ctx, in.ID)
+			var opts []olympus.RunOption
+			if in.Lines > 0 {
+				opts = append(opts, olympus.PollWindow(in.Lines))
+			}
+			result, err := session.Poll(ctx, in.ID, opts...)
 			return result, result.Warnings, err
 		})
 
 	addTool(s, "exit_status", "Read a caller-supplied completion marker off the screen. The marker is always yours to choose; there is no default.",
 		func(ctx context.Context, ol *olympus.Olympus, in markerParams) (markerResult, []olympus.Warning, error) {
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (markerResult, error) {
-				code, found, err := s.ExitStatus(ctx, in.Marker)
+				code, found, err := s.ExitStatus(ctx, in.Marker, in.Lines)
 				if err != nil || !found {
 					return markerResult{Found: false}, err
 				}
@@ -290,7 +339,11 @@ func register(s *sdk.Server) {
 
 	addTool(s, "create_view", "Create an independently-scrollable view onto a session. Not every backend has this concept.",
 		func(ctx context.Context, ol *olympus.Olympus, in viewParams) (backend.View, []olympus.Warning, error) {
-			view, err := ol.CreateView(ctx, in.Base)
+			var opts []olympus.ViewOption
+			if in.NoMouse {
+				opts = append(opts, olympus.WithoutMouse())
+			}
+			view, err := ol.CreateView(ctx, in.Base, opts...)
 			return view, nil, err
 		})
 

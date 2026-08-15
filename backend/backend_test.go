@@ -32,10 +32,13 @@ func (stub) SendAtomic(context.Context, string, string) error      { return nil 
 func (stub) Screen(context.Context, string, backend.ScreenOpts) (backend.Capture, error) {
 	return backend.Capture{}, nil
 }
+func (stub) ScreenMeta(context.Context, string) (backend.ScreenMeta, error) {
+	return backend.ScreenMeta{}, nil
+}
 func (stub) Attach(context.Context, string, backend.AttachSpec) (backend.Attachment, error) {
 	return backend.Attachment{}, nil
 }
-func (stub) CreateView(context.Context, string, string) (backend.View, error) {
+func (stub) CreateView(context.Context, string, backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, nil
 }
 func (stub) ScrollView(context.Context, string, int) error           { return nil }
