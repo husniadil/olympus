@@ -138,6 +138,15 @@ type Capabilities struct {
 	// is not fully characterized and is not worth characterizing: what a caller
 	// needs to know is that control keys cannot be relied on there.
 	ControlKeys bool `json:"control_keys"`
+	// SpawnSizing reports whether a session's size can be chosen when it is
+	// created.
+	//
+	// A capability rather than a warning alone because the caller's approach
+	// changes: with it, ask for the size you need; without it, the session
+	// takes the backend's own and a caller who needs a specific width has to
+	// resize after attaching, or accept whatever it gets. Measured — a 120x40
+	// request becomes 120x40 on tmux and 80x23 on meja.
+	SpawnSizing bool `json:"spawn_sizing"`
 	// SessionStatus reports whether a session can carry an opaque label a
 	// process inside it sets for whoever drives it from outside.
 	//

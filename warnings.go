@@ -27,6 +27,8 @@ const (
 	opCaptureMeta
 	opPollWindow
 	opGracefulKill
+	// opSpawnSize is a create that asked for a size the backend cannot set.
+	opSpawnSize
 )
 
 // degradations lists what silently differs, per backend and operation
@@ -55,6 +57,21 @@ var degradations = map[backend.Name]map[operation][]string{
 		opGracefulKill: {
 			"a session started directly on a command cannot be interrupted and will be force-killed",
 		},
+		opSpawnSize: {
+			"the requested size is ignored: a session takes its size from the client that attaches it",
+		},
+	},
+	// Listed for the SAME gaps zmx declares, because the gap is what a caller
+	// reacts to and it does not become smaller on a different backend. Leaving
+	// these out was the inconsistency: meja's capabilities said alt-screen was
+	// untracked exactly as zmx's did, and only zmx said so at the call.
+	backend.Meja: {
+		opCaptureMeta: {
+			"alt-screen and scroll position are not tracked and are always zero",
+		},
+		opSpawnSize: {
+			"the requested size is ignored: meja sizes a session from its first client",
+		},
 	},
 }
 
@@ -69,4 +86,18 @@ func warn(name backend.Name, op operation) []Warning {
 		out = append(out, Warning{Code: WarningDegraded, Message: message})
 	}
 	return out
+}
+
+// SizeWarnings are the disclosures that apply to asking for a session size.
+//
+// Exposed on the handle rather than returned from Create because a caller often
+// wants to know BEFORE creating anything — the answer is a property of the
+// resolved backend, not of any one session — and because Create already returns
+// a Session rather than a result envelope. Feature-probing Capabilities is the
+// other half: the capability says whether to ask, this says what happened.
+func (o *Olympus) SizeWarnings() []Warning {
+	if o.backend.Capabilities().SpawnSizing {
+		return nil
+	}
+	return warn(o.resolution.Backend, opSpawnSize)
 }

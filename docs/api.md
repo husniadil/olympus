@@ -219,7 +219,7 @@ Both are documented in the affected operation's `--help`, not only here.
 | CLI | Environment | Applies to |
 |---|---|---|
 | `--backend <name>` | `OLYMPUS_BACKEND` | all (`zmx`, `tmux`, `meja`) |
-| `--socket <name>` | — | tmux backend only |
+| `--socket <name>` | `OLYMPUS_SOCKET` | tmux backend only |
 | `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` | tmux and meja backends |
 | `--zmx-dir <dir>` | `ZMX_DIR` | zmx backend only |
 | `--json` | — | all |
@@ -228,6 +228,12 @@ Both are documented in the affected operation's `--help`, not only here.
 
 Precedence is flag over environment over default, per behavior spec §0.1. An
 unknown backend name is `USAGE`, not `UNEXPECTED`.
+
+**An addressing option the resolved backend cannot use is also `USAGE`**, never a
+silent no-op. Each of them exists to isolate — to put a server somewhere the
+caller controls — so dropping one quietly lands the caller on the shared default
+while they believe they are alone on a private one. The message names the option,
+the backend, and what that backend does take.
 
 `ZMX_DIR` is read by the zmx binary itself, so it applies whether or not Olympus
 passes it: setting it in the environment moves every session, which is what
@@ -400,11 +406,13 @@ for those.
     { "name": "zmx", "installed": true, "version": "0.6.0", "below_floor": false,
       "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
                         "server_env": false, "control_keys": false,
-                        "session_status": false, "tracks_alt_screen": false } },
+                        "spawn_sizing": false, "session_status": false,
+                        "tracks_alt_screen": false } },
     { "name": "tmux", "installed": true, "version": "3.7b", "below_floor": false,
       "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
                         "server_env": true, "control_keys": true,
-                        "session_status": true, "tracks_alt_screen": true },
+                        "spawn_sizing": true, "session_status": true,
+                        "tracks_alt_screen": true },
       "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []

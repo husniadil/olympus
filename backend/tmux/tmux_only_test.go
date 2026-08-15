@@ -903,7 +903,7 @@ func TestAttachAddressesTheSameServerAsEveryOtherVerb(t *testing.T) {
 	}
 }
 
-// §9.6: creating a view MUST NOT reconfigure the server.
+// §9.3: creating a view MUST NOT reconfigure the server.
 //
 // terminal-features is a SERVER option — it has no per-session form — so
 // appending to it changes how tmux renders to every client of that server,

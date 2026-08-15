@@ -108,17 +108,26 @@ func WithLockWait(d time.Duration) Option {
 // backend fails with an actionable error at the point the caller can still do
 // something about it (behavior §0.2).
 func Open(opts ...Option) (*Olympus, error) {
-	cfg := config{
+	return open(config{
 		lockWait: lockWaitDefault(),
 		installs: onPath,
 		env:      os.Getenv(BackendEnv),
-	}
+	}, opts...)
+}
+
+// open is Open with its preflight injectable, so the option rules below can be
+// exercised against every combination of installed backends rather than against
+// whatever this machine happens to have.
+func open(cfg config, opts ...Option) (*Olympus, error) {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
 	resolution, err := resolve(cfg.explicit, cfg.env, cfg.installs)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkAddressing(resolution.Backend, cfg); err != nil {
 		return nil, err
 	}
 
@@ -145,7 +154,16 @@ func Open(opts ...Option) (*Olympus, error) {
 			options = append(options, zmx.WithDir(cfg.zmxDir))
 		}
 		o.backend = zmx.New(options...)
+		// Falls back to the environment, and this is load-bearing rather than
+		// tidy: ZMX_DIR is read by the zmx binary ITSELF, so a caller who did
+		// not pass it is still on that daemon. Recording an empty scope would
+		// key the write lock differently from a caller who did pass it, and the
+		// two would then address one daemon under two keys and serialize
+		// against nothing (§11).
 		o.scope = cfg.zmxDir
+		if o.scope == "" {
+			o.scope = os.Getenv(zmxDirEnv)
+		}
 	case backend.Meja:
 		// meja takes the same --socket-path a caller gives tmux: both address
 		// a server by an exact path, and a second option meaning the same

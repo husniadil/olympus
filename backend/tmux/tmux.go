@@ -77,6 +77,7 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		// send-keys delivers the control range, so a full-screen program can
 		// be driven and not merely watched.
 		ControlKeys:     true,
+		SpawnSizing:     true,
 		SessionStatus:   true,
 		TracksAltScreen: true,
 	}

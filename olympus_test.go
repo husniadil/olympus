@@ -286,7 +286,14 @@ func TestDegradedOperationsDiscloseThemselves(t *testing.T) {
 				t.Fatalf("Screen: %v", err)
 			}
 
-			if ol.Backend() == backend.Zmx {
+			// Branched on the CAPABILITY, not on the backend's name. Naming a
+			// backend here made "degraded" and "is zmx" the same statement,
+			// which held only while zmx was the only degraded one — and broke
+			// the moment a third backend shared one of its gaps. What a caller
+			// reacts to is the capability, and so is what this asserts.
+			caps := ol.Capabilities()
+
+			if caps.NativeScrollback {
 				if len(screen.Warnings) == 0 {
 					t.Error("a history request on a backend that ignores it disclosed nothing")
 				}
@@ -302,8 +309,18 @@ func TestDegradedOperationsDiscloseThemselves(t *testing.T) {
 				if !mentioned {
 					t.Errorf("the warnings do not mention the ignored history request: %+v", screen.Warnings)
 				}
-			} else if len(screen.Warnings) != 0 {
-				t.Errorf("a backend that honours the request warned anyway: %+v", screen.Warnings)
+			}
+
+			// Whatever the backend does honour must not produce a warning, and
+			// every warning it does produce must correspond to a capability it
+			// declares false.
+			for _, w := range screen.Warnings {
+				switch {
+				case strings.Contains(w.Message, "history") && !caps.NativeScrollback:
+					t.Errorf("a backend that honours history warned about it: %s", w.Message)
+				case strings.Contains(w.Message, "alt-screen") && caps.TracksAltScreen:
+					t.Errorf("a backend that tracks the alternate screen warned about it: %s", w.Message)
+				}
 			}
 		})
 	}
@@ -655,3 +672,45 @@ func TestAPaneIDAddressesItsSession(t *testing.T) {
 //
 // The exceptions are the tests that call t.Setenv, which Go forbids alongside
 // t.Parallel because the process environment is shared. Those stay sequential.
+
+// §0.8: a backend that cannot honour something a caller asked for MUST say so
+// AT THE CALL, not only in a flag's help text.
+//
+// Two gaps this pins. Every backend whose capabilities say alt-screen is not
+// tracked must warn on a capture, not just zmx — the metadata is equally
+// meaningless on both, and only one was saying so. And a spawn size that a
+// backend drops must be disclosed: measured, a 120x40 request became 80x23 on
+// meja with nothing anywhere reporting it.
+func TestABackendThatDropsARequestSaysSo(t *testing.T) {
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			caps := ol.Capabilities()
+			ctx := context.Background()
+
+			s, err := ol.Create(ctx, fmt.Sprintf("oly-warn%d", counter.Add(1)),
+				olympus.In(t.TempDir()), olympus.Size(120, 40))
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			t.Cleanup(func() { _, _ = s.Stop(context.Background(), olympus.Force()) })
+
+			if !caps.SpawnSizing {
+				if len(ol.SizeWarnings()) == 0 {
+					t.Errorf("%s cannot size a session at spawn and says nothing about it", l.name)
+				}
+			} else if len(ol.SizeWarnings()) != 0 {
+				t.Errorf("%s sizes at spawn but warned anyway: %v", l.name, ol.SizeWarnings())
+			}
+
+			screen, err := s.Screen(ctx)
+			if err != nil {
+				t.Fatalf("Screen: %v", err)
+			}
+			if !caps.TracksAltScreen && len(screen.Warnings) == 0 {
+				t.Errorf("%s does not track the alternate screen and its capture says nothing, "+
+					"so a caller cannot tell an untracked flag from a false one", l.name)
+			}
+		})
+	}
+}

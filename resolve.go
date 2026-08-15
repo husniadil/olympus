@@ -171,3 +171,71 @@ func installHint(name backend.Name) string {
 		return "no install instructions are known"
 	}
 }
+
+// zmxDirEnv is zmx's own directory variable, read by the zmx binary whether or
+// not Olympus passes it (api §4).
+const zmxDirEnv = "ZMX_DIR"
+
+// addressing names each backend's isolation options, in the spelling a caller
+// types them.
+//
+// Kept as data rather than as a switch because it is read twice — to reject the
+// options a backend cannot use, and to say which backend can — and two copies
+// of that list would eventually disagree about one entry.
+var addressing = map[backend.Name][]string{
+	backend.Tmux: {"socket", "socket-path"},
+	backend.Zmx:  {"zmx-dir"},
+	backend.Meja: {"socket-path"},
+}
+
+// checkAddressing rejects an addressing option the resolved backend cannot use.
+//
+// A USAGE error rather than a silent no-op, because every one of these options
+// exists to ISOLATE — to put a server somewhere the caller controls. Dropping
+// one quietly lands them on the shared default while they believe they are
+// alone on a private one, and nothing about the result says otherwise. Measured
+// before this existed: `--backend meja --socket <private>` resolved to meja's
+// default profile and exited 0.
+//
+// It is USAGE and not UNSUPPORTED because one corrected argument fixes it, and
+// §0.1 reserves usage-class for exactly that.
+func checkAddressing(name backend.Name, cfg config) error {
+	set := map[string]string{"socket": cfg.socket, "socket-path": cfg.socketPath, "zmx-dir": cfg.zmxDir}
+	usable := map[string]bool{}
+	for _, option := range addressing[name] {
+		usable[option] = true
+	}
+
+	// Ordered, so the message a caller sees does not depend on map iteration.
+	for _, option := range []string{"socket", "socket-path", "zmx-dir"} {
+		if set[option] == "" || usable[option] {
+			continue
+		}
+		return backend.Errorf(backend.CodeUsage,
+			"--%s does not apply to the %s backend; it addresses %s. %s takes %s",
+			option, name, appliesTo(option), name, strings.Join(dashed(addressing[name]), " or "))
+	}
+	return nil
+}
+
+// appliesTo names the backends an option does address, so the message points at
+// the fix rather than only at the mistake.
+func appliesTo(option string) string {
+	var names []string
+	for _, candidate := range preference {
+		for _, o := range addressing[candidate] {
+			if o == option {
+				names = append(names, string(candidate))
+			}
+		}
+	}
+	return strings.Join(names, " and ")
+}
+
+func dashed(options []string) []string {
+	out := make([]string, 0, len(options))
+	for _, o := range options {
+		out = append(out, "--"+o)
+	}
+	return out
+}

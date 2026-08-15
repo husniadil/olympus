@@ -8,6 +8,7 @@ package meja
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os/exec"
 	"strings"
@@ -77,6 +78,16 @@ func (m *Meja) run(ctx context.Context, stdin io.Reader, args ...string) (string
 // tmux, which says "no server running" on one verb and "error connecting to" on
 // the rest. So there is one string to match per condition rather than a family.
 func classify(text string, err error) error {
+	// The binary itself missing or not executable. Reached only if it vanishes
+	// between the preflight and the call, which is why it is defence rather
+	// than the main path — but the classification still has to be right, since
+	// UNEXPECTED tells a caller retrying will not help when in fact fixing
+	// their PATH will (§12).
+	var execErr *exec.Error
+	if errors.As(err, &execErr) {
+		return backend.Wrapf(backend.CodeBackendUnavailable, err, "meja is not available")
+	}
+
 	lower := strings.ToLower(text)
 	switch {
 	case strings.Contains(lower, "server unavailable"):
@@ -161,8 +172,13 @@ func (m *Meja) Capabilities() backend.Capabilities {
 		// No set-environment/show-environment commands at all.
 		ServerEnv: false,
 		// send-keys accepts tmux's spelling, C-a through C-z included, and
-		// routes them through the attached client that types them.
+		// routes them through the attached client that types them. Measured
+		// against `cat -v` rather than inferred from that: C-a, C-x, C-l,
+		// escape, tab, the arrows and the function keys all arrive.
 		ControlKeys: true,
+		// new-session takes no -x/-y: meja sizes a session from its first
+		// client, so a detached one takes a default (§2.10).
+		SpawnSizing: false,
 		// No option store of any kind — no set-option, no show-options — so
 		// there is nowhere a status could outlive the process that set it.
 		SessionStatus: false,

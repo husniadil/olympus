@@ -225,3 +225,95 @@ func TestFallbackWalksTheChainInOrder(t *testing.T) {
 		})
 	}
 }
+
+// §0.1: an addressing option the resolved backend cannot use is a USAGE error,
+// never a silent no-op.
+//
+// Silence here is dangerous rather than merely untidy. Every one of these
+// options exists to ISOLATE — to put a server somewhere the caller controls —
+// so dropping one lands them on the shared default while they believe they are
+// alone on a private one. Measured before this rule existed: `--backend meja
+// --socket <private>` resolved to meja's default profile and exited 0.
+func TestAnOptionTheBackendCannotUseIsUsage(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		backend string
+		opt     Option
+		names   []string
+	}{
+		{"a zmx directory on tmux", "tmux", WithZmxDir("/tmp/x"), []string{"zmx-dir", "tmux"}},
+		{"a socket name on zmx", "zmx", WithSocket("x"), []string{"socket", "zmx"}},
+		{"a socket path on zmx", "zmx", WithSocketPath("/tmp/x.sock"), []string{"socket-path", "zmx"}},
+		{"a socket name on meja", "meja", WithSocket("x"), []string{"socket", "meja"}},
+		{"a zmx directory on meja", "meja", WithZmxDir("/tmp/x"), []string{"zmx-dir", "meja"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := open(config{
+				explicit: c.backend,
+				installs: func(backend.Name) bool { return true },
+			}, c.opt)
+			if CodeOf(err) != backend.CodeUsage {
+				t.Fatalf("error is %v (%v), want USAGE", err, CodeOf(err))
+			}
+			// The message has to name BOTH the option and the backend, or the
+			// caller is told something is wrong without being told what to
+			// change.
+			for _, want := range c.names {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the message does not name %q: %s", want, err)
+				}
+			}
+		})
+	}
+}
+
+// The same options are accepted where they DO apply, which is what stops the
+// rule above from being a blanket refusal.
+func TestAnOptionTheBackendCanUseIsAccepted(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		backend string
+		opt     Option
+	}{
+		{"a socket name on tmux", "tmux", WithSocket("x")},
+		{"a socket path on tmux", "tmux", WithSocketPath("/tmp/x.sock")},
+		{"a socket path on meja", "meja", WithSocketPath("/tmp/x.sock")},
+		{"a zmx directory on zmx", "zmx", WithZmxDir("/tmp/x")},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ol, err := open(config{
+				explicit: c.backend,
+				installs: func(backend.Name) bool { return true },
+			}, c.opt)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			_ = ol.Close()
+		})
+	}
+}
+
+// §11: the write lock keys on the backend's scope, so two doors pointed at the
+// same zmx daemon must compute the same one.
+//
+// They did not. Open recorded only what a caller passed, while the diagnostic
+// fell back to ZMX_DIR — so a CLI run with --zmx-dir and an MCP server with
+// ZMX_DIR exported addressed one daemon under two different keys and serialized
+// against nothing.
+func TestZmxScopeFallsBackToTheEnvironmentSoLockKeysAgree(t *testing.T) {
+	t.Setenv("ZMX_DIR", "/tmp/oly-shared-daemon")
+
+	passed, err := open(config{explicit: "zmx", installs: func(backend.Name) bool { return true }},
+		WithZmxDir("/tmp/oly-shared-daemon"))
+	if err != nil {
+		t.Fatalf("open with the directory passed: %v", err)
+	}
+	inherited, err := open(config{explicit: "zmx", installs: func(backend.Name) bool { return true }})
+	if err != nil {
+		t.Fatalf("open with the directory inherited: %v", err)
+	}
+	if passed.lockKey("s") != inherited.lockKey("s") {
+		t.Errorf("the same daemon is locked under two keys:\n  passed:    %+v\n  inherited: %+v",
+			passed.lockKey("s"), inherited.lockKey("s"))
+	}
+}

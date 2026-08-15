@@ -3,8 +3,6 @@ package tmux
 import (
 	"context"
 	"strings"
-
-	"github.com/husniadil/olympus/backend"
 )
 
 // statusOption is where a session's status lives.
@@ -51,5 +49,3 @@ var _ interface {
 	SetStatus(context.Context, string, string) error
 	Status(context.Context, string) (string, error)
 } = (*Tmux)(nil)
-
-var _ = backend.StatePresent

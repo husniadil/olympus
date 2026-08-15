@@ -129,6 +129,12 @@ later, further from the cause.
 
 ### 0.8 Degraded operations MUST announce themselves
 
+A warning belongs to the GAP, not to the backend that first had it. Where two
+backends share a capability's false value they MUST both warn: a caller reacts
+to the gap, and it does not become smaller on a different backend. Listing the
+warnings for one and not the other is how a second backend's identical
+limitation becomes invisible.
+
 Some operations succeed on the resolved backend while meaning materially less
 than they do on the other. These are not errors — they return something real —
 but a caller unaware of the difference draws a wrong conclusion from a successful
@@ -1669,7 +1675,15 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
-server environment, control keys, session status, alt-screen tracking.
+server environment, control keys, spawn sizing, session status, alt-screen
+tracking.
+
+**Spawn sizing is a capability because the size is silently lost otherwise.** A
+backend that sizes a session from the client that attaches it cannot honour a
+size chosen at creation, and a request for one succeeds while producing
+something else — measured, 120x40 becomes 120x40 on tmux and 80x23 on meja. Both
+halves of §0.8 apply: the capability says whether to ask, and a degraded-operation
+warning says what happened when a caller asked anyway.
 
 **Control-key delivery decides whether a full-screen program can be DRIVEN**,
 which makes it the most consequential entry here. Without it a caller can open

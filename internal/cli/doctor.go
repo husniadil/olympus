@@ -189,6 +189,7 @@ func capabilityRows() []capabilityRow {
 		{"remain-on-exit", func(c backend.Capabilities) bool { return c.RemainOnExit }},
 		{"server environment", func(c backend.Capabilities) bool { return c.ServerEnv }},
 		{"control keys", func(c backend.Capabilities) bool { return c.ControlKeys }},
+		{"spawn sizing", func(c backend.Capabilities) bool { return c.SpawnSizing }},
 		{"session status", func(c backend.Capabilities) bool { return c.SessionStatus }},
 		{"alt-screen tracking", func(c backend.Capabilities) bool { return c.TracksAltScreen }},
 	}

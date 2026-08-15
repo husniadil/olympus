@@ -88,6 +88,8 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		// No per-session metadata of any kind: zmx has no option, label or
 		// annotation command, so there is nowhere a status could outlive the
 		// process that set it.
+		// zmx sizes a session from the client that attaches it.
+		SpawnSizing:     false,
 		SessionStatus:   false,
 		TracksAltScreen: false,
 	}
@@ -475,7 +477,7 @@ func (z *Zmx) ServerEnv(ctx context.Context, key string) (string, bool, error) {
 		"zmx has no server environment: there is no shared server whose environment could be read")
 }
 
-// SetStatus is unsupported: zmx keeps no per-session metadata (§13.4).
+// SetStatus is unsupported: zmx keeps no per-session metadata (§13.1).
 func (z *Zmx) SetStatus(ctx context.Context, target, status string) error {
 	return backend.Errorf(backend.CodeUnsupported, "zmx cannot carry a session status")
 }

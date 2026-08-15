@@ -35,7 +35,7 @@ func (t *Tmux) Attach(ctx context.Context, target string, spec backend.AttachSpe
 	// SERVER option, which has no per-session form: editing it would change how
 	// tmux renders for every other client of that server, including the
 	// operator's own sessions when Olympus is pointed at a server they already
-	// run (§9.6). A real terminal answers the probe and needs nothing from us.
+	// run (§9.3). A real terminal answers the probe and needs nothing from us.
 	//
 	// -u belongs to the same group and for the same structural reason, not
 	// merely by convention: attach-session takes [-dErx], and tmux rejects
