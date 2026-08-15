@@ -108,6 +108,12 @@ type Attachment struct {
 	// Cleanup releases backend-side state the attach created, such as a view
 	// session to reap. It may be nil.
 	Cleanup func() error
+	// Notices are things the operator must be told about how this attach was
+	// set up, even though it succeeded — a supersession sweep that failed, for
+	// instance, which leaves prior clients attached. They go to the narration
+	// channel: a silent partial failure here is indistinguishable from a clean
+	// one, which is the precise thing worth reporting (behavior §8.5).
+	Notices []string
 }
 
 // Close runs the cleanup, if there is one. It is safe on the zero Attachment so
