@@ -24,6 +24,9 @@ deliberately not hidden inside it:
 - **`attach` has no automated end-to-end test.** Its pieces are unit-tested —
   the resize control, the guard, the exit code, the reaping — but a real
   interactive attach needs a terminal, so it has only been exercised by hand.
+- **CI has never run.** The workflow is written and has never been exercised:
+  there is no remote yet, so the tmux-3.3 build step and the matrix are
+  unproven. `make test` — what CI runs — is green locally on macOS.
 - **A release has never been cut.** The goreleaser configuration exists and has
   never been run, and there is no Homebrew tap: installation is `go install` or
   the archives a release would produce.

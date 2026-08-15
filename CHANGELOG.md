@@ -21,7 +21,7 @@ All notable changes to this project are documented here. The format follows
   `2026-07-28`.
 - Attach: PTY ownership, raw mode, two-layer terminal restore, the resize
   protocol, and the attach guard.
-- Multi-target capture, applying the door's alt-screen skip rule.
+- Multi-target capture: several sessions read in one call.
 - `panes`, `new` and `capabilities` as verbs and tools in their own right.
 - Throwaway runs: `run` with no target creates a session for the run and kills
   it afterwards.
@@ -37,3 +37,24 @@ All notable changes to this project are documented here. The format follows
   can live in a directory the caller controls.
 - Views: the full server-global setup — hyperlink passthrough, the read-only
   posture, wheel bindings — with the base probed before anything is created.
+
+### Fixed
+
+Nothing here has shipped yet, so these are corrections made before a first
+release rather than changes to released behaviour. They are listed because each
+changed what the code does, not just how it is written.
+
+- **`wait` matched patterns against the whole screen** instead of per line, so
+  every anchored pattern (`^42$`, `^>>>\s*$`) silently never matched while plain
+  substrings kept working. Patterns are line-oriented now, and each line is
+  tried both as captured and with trailing padding trimmed.
+- **A pane on the alternate screen came back empty.** A full-screen program
+  could be started and never observed. Such a pane is captured now; only a
+  history request against it is refused, since the alternate screen genuinely
+  has no scrollback.
+- **Views reported the base and the view swapped**, because the base was taken
+  to be the first row listed and tmux lists by name.
+- **The zmx supersession sweep was a no-op**, running with the very environment
+  variable it needs in order to aim.
+- **tmux `Create` reported an infrastructure failure** when a session's command
+  finished before creation returned, which is ordinary for a short command.

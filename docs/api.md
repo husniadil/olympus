@@ -46,7 +46,7 @@ same operation.
 | read a server env key | `server-env` | `server_env` | `ServerEnv` |
 | what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
 | environment diagnosis | `doctor` | `doctor` | `Diagnose` |
-| version | `version` | `version` | `Version` |
+| version | `version` | `version` | `Version` (a constant) |
 | serve the MCP door | `mcp` | *(is the door)* | — |
 
 **The doors translate; they do not decide.** A default, validation rule, or
@@ -219,12 +219,17 @@ Both are documented in the affected operation's `--help`, not only here.
 | `--backend <name>` | `OLYMPUS_BACKEND` | all |
 | `--socket <name>` | — | tmux backend only |
 | `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` | tmux backend only |
+| `--zmx-dir <dir>` | `ZMX_DIR` | zmx backend only |
 | `--json` | — | all |
 | `--no-lock` | — | operations that take the write lock |
 | `-q` / `--quiet` | — | human output only |
 
 Precedence is flag over environment over default, per behavior spec §0.1. An
 unknown backend name is `USAGE`, not `UNEXPECTED`.
+
+`ZMX_DIR` is read by the zmx binary itself, so it applies whether or not Olympus
+passes it: setting it in the environment moves every session, which is what
+makes it usable for isolation (§2.9).
 
 The Go door takes these as options to `Open`; the MCP door takes them from its
 process environment, since a stateless request carries no session configuration.
