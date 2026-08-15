@@ -8,10 +8,8 @@ The behavior spec is the authority on mechanics; where it constrains a door
 (§0.4, §0.8, §5.3, §12), this document restates the constraint concretely and
 never contradicts it.
 
-**Status.** §1–§5 are settled and binding — Phase 1 code must satisfy them.
-§6 (the ergonomic Go surface) is **provisional**: its shape depends on the
-`Backend` interface, which does not exist yet. It is written down to be argued
-with, not to be implemented as-is.
+**Status.** All sections are settled and binding. §6 was provisional until the
+`Backend` interface existed; it now describes the shipped surface.
 
 ---
 
@@ -329,10 +327,10 @@ for those.
 
 ---
 
-## 6. The ergonomic Go surface — PROVISIONAL
+## 6. The ergonomic Go surface
 
-Not settled. The `Backend` interface does not exist yet, and this sketch will
-move once it does. Recorded now so the design is argued before it is built.
+Settled. The `Backend` interface exists, so this is now a contract rather than a
+sketch.
 
 ```go
 ol, err := olympus.Open(olympus.WithBackend("tmux"), olympus.WithSocket("ci"))
@@ -340,33 +338,66 @@ defer ol.Close()
 
 s, err := ol.Session(ctx, "build", olympus.In("/repo"), olympus.Size(120, 40))
 
-res, err := s.Exec(ctx, "go test ./...")        // res.ExitCode, res.Output
+res, err := s.Exec(ctx, "go test ./...")         // res.ExitCode, res.Output
 job, err := s.Start(ctx, "make deploy")          // job.Poll(ctx)
 
-s.Type(ctx, "vim main.go", olympus.Submit)
-s.Press(ctx, olympus.CtrlC)
+s.Type(ctx, "vim main.go")                       // places text, never submits
+s.Submit(ctx)                                    // the terminator, alone
+s.Send(ctx, "vim main.go")                       // verified: type, confirm, submit
+s.Press(ctx, backend.KeyCtrlC)
 s.Paste(ctx, text)
 
-screen, err := s.Screen(ctx, olympus.WithColors)
+screen, err := s.Screen(ctx, olympus.WithColors())
 hit, err := s.WaitFor(ctx, `\$ $`)
 
 if errors.Is(err, olympus.ErrNotFound) { … }
 ```
 
-Principles this surface must satisfy, which are **not** provisional:
+Principles this surface satisfies:
 
-- **Options, never positional booleans.** `Screen(ctx, WithColors)` rather than
+- **Options, never positional booleans.** `Screen(ctx, WithColors())` rather than
   `Capture(ctx, targets, true, false)`. Unreadable call sites are the specific
   failure being corrected.
 - **`Session` is ensure-semantics**, matching the `start` verb: create, reuse, or
   replace-if-dead. There is no separate create-versus-open decision for a caller
-  to get wrong.
-- **`Open` performs the §0.2 preflight**, so a missing backend fails at `Open`
-  with an actionable error rather than at the first operation.
-- **Typed errors and codes both**, per §3.
+  to get wrong. `Open` is the non-creating variant, for a caller that must not
+  bring a session into being by asking about it.
+- **`Open` performs the §0.2 preflight**, so a missing backend fails there with
+  an actionable error rather than at the first operation.
+- **Typed errors and codes both**, per §3. The sentinels are re-exported from the
+  root package, so branching on a failure never requires importing the
+  mechanical layer.
 - The mechanical `backend.Backend` interface stays public for anyone writing a
   backend, and `backend/backendtest` is exported so they can prove it against the
-  same conformance suite.
+  same conformance suite. `Olympus.Raw` reaches it, at the cost of bypassing
+  every default and lock this layer decides.
+
+### 6.1 Where the two send paths differ
+
+`Send` and `SendAtomic` are not variants of one operation, and the doors MUST NOT
+offer a flag that combines them (§4.7):
+
+| | `Send` | `SendAtomic` |
+|---|---|---|
+| Confirms the text landed | yes | no |
+| Retry-safe across invocations | no — a retry re-types before checking | yes |
+| Multi-line | yes | rejected: no unambiguous submit point |
+| Lock scope | send → verify → submit, as one section | both writes |
+
+### 6.2 Degraded results carry warnings, not errors
+
+Operations that mean materially less on the resolved backend return a real
+answer plus `Warnings` (§0.8). They are never errors: failing them outright would
+make the default backend refuse work it can genuinely do. `Warnings` is
+deliberately not serialized on the result type itself — the doors place it in the
+envelope (§2), so there is one shape rather than two.
+
+### 6.3 What the library does not decide
+
+`Diagnose` takes no handle and returns no error, because a diagnostic that fails
+when nothing is installed is useless at exactly the moment it is most needed
+(§0.6). Every default in behavior §17.3 is a constant in this package, read by
+the CLI and MCP doors rather than redeclared by them.
 
 ---
 
