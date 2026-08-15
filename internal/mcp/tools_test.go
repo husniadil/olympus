@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // These drive the tools against a real backend, because a tool that registers
@@ -189,15 +190,28 @@ func TestSendToolCanVerifyWithoutSubmitting(t *testing.T) {
 		"target": name, "text": `printf 'unsubmitted-%d\n' 2`, "no_submit": true,
 	})
 
-	// Verified on screen, but never executed: the expansion is what would
-	// prove execution, and it must be absent.
-	captured := w.callTool(t, "capture", map[string]any{"targets": []string{name}})
-	data, _ := captured["data"].(map[string]any)
-	screens, _ := data["screens"].(map[string]any)
-	screen, _ := screens[name].(string)
-	if !strings.Contains(screen, "unsubmitted-%d") {
-		t.Errorf("the text was never placed in the input line: %q", screen)
+	// Polled, not captured once. send_text has already confirmed the text is on
+	// screen, but this capture is a SEPARATE request against the terminal and
+	// can outrun the pane's rendering — the same race that makes "assert
+	// immediately after writing" unreliable everywhere else in this codebase.
+	var screen string
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		captured := w.callTool(t, "capture", map[string]any{"targets": []string{name}})
+		data, _ := captured["data"].(map[string]any)
+		screens, _ := data["screens"].(map[string]any)
+		screen, _ = screens[name].(string)
+		if strings.Contains(screen, "unsubmitted-%d") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the text was never placed in the input line: %q", screen)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
+
+	// Placed but never executed: the EXPANSION is what would prove execution,
+	// and it must be absent.
 	if strings.Contains(screen, "unsubmitted-2") {
 		t.Errorf("the text was submitted despite no_submit: %q", screen)
 	}

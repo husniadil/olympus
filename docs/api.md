@@ -35,7 +35,7 @@ same operation.
 | wait for a pattern | `wait` | `wait_for` | `WaitFor` |
 | follow output live | `watch` | *(none — streaming)* | `Watch` |
 | run a command | `run` | `run_command` | `Exec` |
-| run in a throwaway session | `run` (no target) | *(none — needs a target)* | `RunOnce` |
+| run in a throwaway session | `run` (no target) | `run_command`, throwaway set | `RunOnce` |
 | start a detached run | `run --detach` | `start_run` | `Start` |
 | poll a detached run | `poll` | `poll_run` | `Job.Poll` |
 | attach a terminal | `attach` | *(none — interactive)* | `Attach` |
@@ -47,6 +47,7 @@ same operation.
 | what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
 | environment diagnosis | `doctor` | `doctor` | `Diagnose` |
 | version | `version` | `version` | `Version` |
+| serve the MCP door | `mcp` | *(is the door)* | — |
 
 **The doors translate; they do not decide.** A default, validation rule, or
 result field invented at one door is a second contract. Defaults live in the
@@ -54,7 +55,15 @@ ergonomic layer (behavior spec §17.3); doors pass them through.
 
 Two operations are door-specific by nature and MUST NOT be forced into the
 others: `attach` is interactive and needs a terminal, and `watch` is a stream.
-MCP, being request/response over stdio, exposes neither.
+MCP, being request/response over stdio, exposes neither — and those two are the
+ONLY operations it does not. Everything else in this table is reachable from
+every door, which is what makes the vocabulary one vocabulary rather than three
+overlapping ones.
+
+A door lacking an operation for any other reason is a bug, not a design choice,
+and is worth checking mechanically rather than by eye: the table above is the
+authority, and a tool missing from it is as much a defect as a tool missing from
+the server.
 
 ### 1.1 Verbs are named for intent, not mechanism
 
