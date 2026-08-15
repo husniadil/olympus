@@ -590,6 +590,7 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 		{"send", name, "echo confirmed"},
 		{"run", name, "echo ran"},
 		{"wait", name, "ran", "--timeout", "15s"},
+		{"version"},
 		// The marker is always the caller's to choose; there is no default.
 		{"exit-status", name, "OLYDONE"},
 	} {
@@ -598,6 +599,12 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 		}
 	}
 
+	// Four verbs are deliberately absent from both lists, and none of them is an
+	// oversight: `attach` needs a real terminal and is covered at the backend,
+	// where its argv and its refusals can be asserted without one; `mcp` starts
+	// a server rather than answering; and `completion` and `help` are cobra's
+	// own, identical on every backend.
+	//
 	// `watch` is deliberately absent from both lists. It IS served on meja — a
 	// client is an output tap, so Follow works — and it streams until
 	// interrupted, so running it here would hang rather than assert. The
@@ -616,6 +623,33 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 			t.Errorf("`%s` on meja exits %d, want 7 (UNSUPPORTED): %s",
 				strings.Join(args, " "), got.code, got.stderr)
 		}
+	}
+
+	// `new` means "must not already exist", so it needs a name of its own.
+	fresh := name + "-fresh"
+	if got := on("new", fresh); got.code != 0 {
+		t.Errorf("new on meja exited %d: %s", got.code, got.stderr)
+	}
+	if got := on("new", fresh); got.code != 6 {
+		t.Errorf("new on an existing meja session exits %d, want 6 (CONFLICT)", got.code)
+	}
+	if got := on("stop", fresh); got.code != 0 {
+		t.Errorf("stop on meja exited %d: %s", got.code, got.stderr)
+	}
+
+	// A detached run and its poll are one pair: the id only exists because the
+	// run produced it, so testing either alone tests half a mechanism.
+	started := on("run", name, "echo polled", "--detach", "--json")
+	if started.code != 0 {
+		t.Fatalf("a detached run on meja exited %d: %s", started.code, started.stderr)
+	}
+	data, _ := started.envelope(t).Data.(map[string]any)
+	id, _ := data["command_id"].(string)
+	if id == "" {
+		t.Fatalf("a detached run returned no id to poll: %v", data)
+	}
+	if got := on("poll", name, id); got.code != 0 {
+		t.Errorf("poll on meja exited %d: %s", got.code, got.stderr)
 	}
 
 	if got := on("stop", name); got.code != 0 {

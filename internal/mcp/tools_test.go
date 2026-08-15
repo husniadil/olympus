@@ -325,6 +325,7 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 		{"send_text", map[string]any{"target": name, "text": "echo confirmed"}},
 		{"run_command", map[string]any{"target": name, "command": "echo ran"}},
 		{"wait_for", map[string]any{"target": name, "pattern": "ran", "seconds": 15}},
+		{"exit_status", map[string]any{"target": name, "marker": "OLYDONE"}},
 	}
 	for _, c := range served {
 		got := w.callTool(t, c.tool, c.args)
@@ -343,7 +344,31 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 		{"list_views", map[string]any{"base": name}},
 		{"server_env", map[string]any{"key": "PATH"}},
 		{"session_status", map[string]any{"target": name}},
+		{"scroll_view", map[string]any{"view": name, "lines": 1}},
 	}
+	// new_session means "must not already exist", so it needs its own name, and
+	// its refusal on a taken one is part of what it is.
+	fresh := name + "-fresh"
+	if got := w.callTool(t, "new_session", map[string]any{"name": fresh}); got["ok"] == false {
+		t.Errorf("new_session is not served on meja: %v", got)
+	}
+	if text := w.callToolExpectingError(t, "new_session", map[string]any{"name": fresh}); !strings.Contains(text, "CONFLICT") {
+		t.Errorf("new_session on a taken meja name reports %q, want CONFLICT", text)
+	}
+	w.callTool(t, "stop_session", map[string]any{"target": fresh})
+
+	// A detached run and its poll are one pair: the id exists only because the
+	// run produced it, so testing either alone tests half a mechanism.
+	started := w.callTool(t, "start_run", map[string]any{"target": name, "command": "echo polled"})
+	startData, _ := started["data"].(map[string]any)
+	id, _ := startData["command_id"].(string)
+	if id == "" {
+		t.Fatalf("start_run on meja returned no id to poll: %v", started)
+	}
+	if got := w.callTool(t, "poll_run", map[string]any{"target": name, "id": id}); got["ok"] == false {
+		t.Errorf("poll_run is not served on meja: %v", got)
+	}
+
 	for _, c := range refused {
 		text := w.callToolExpectingError(t, c.tool, c.args)
 		if !strings.Contains(text, "UNSUPPORTED") {
