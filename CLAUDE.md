@@ -15,9 +15,13 @@ zmx leg skips loudly when zmx is absent rather than failing the suite.
 
 ## The specification comes first
 
-[`docs/terminal-behavior.md`](docs/terminal-behavior.md) is the normative spec,
-not documentation written after the fact. Every rule in it was established by
-measurement, and the obvious implementation of most of them is wrong.
+[`docs/terminal-behavior.md`](docs/terminal-behavior.md) is the normative spec
+for how Olympus drives a multiplexer — not documentation written after the fact.
+The obvious implementation of most of its rules is wrong.
+
+[`docs/api.md`](docs/api.md) is the companion contract for what Olympus
+*exposes*: one vocabulary across three doors, the structured envelope, error and
+exit codes, payload shapes, and stability guarantees.
 
 **Read the relevant section before touching a backend, the run protocol, input
 injection, attach, or locking.** If you deliberately change a specified

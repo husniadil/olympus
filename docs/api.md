@@ -1,0 +1,356 @@
+# Door contract
+
+`docs/terminal-behavior.md` specifies how Olympus drives a multiplexer. This
+document specifies what Olympus **exposes** — the vocabulary, output shapes, and
+stability guarantees shared by all three doors.
+
+The behavior spec is the authority on mechanics; where it constrains a door
+(§0.4, §0.8, §5.3, §12), this document restates the constraint concretely and
+never contradicts it.
+
+**Status.** §1–§5 are settled and binding — Phase 1 code must satisfy them.
+§6 (the ergonomic Go surface) is **provisional**: its shape depends on the
+`Backend` interface, which does not exist yet. It is written down to be argued
+with, not to be implemented as-is.
+
+---
+
+## 1. One vocabulary, three doors
+
+Every operation has exactly **one** name, one set of options, and one result
+shape. The CLI verb, the Go method, and the MCP tool are three spellings of the
+same operation.
+
+| Operation | CLI | MCP tool | Go |
+|---|---|---|---|
+| create-or-reuse a session | `start` | `start_session` | `Session` |
+| list sessions | `ls` | `list_sessions` | `Sessions` |
+| kill a session | `stop` | `stop_session` | `Kill` / `Stop` |
+| session detail | `info` | `session_info` | `Info` |
+| type literal text | `type` | `type_text` | `Type` |
+| send named keys | `key` | `send_keys` | `Press` |
+| paste multi-line text | `paste` | `paste_text` | `Paste` |
+| read the screen | `screen` | `capture` | `Screen` |
+| wait for a pattern | `wait` | `wait_for` | `WaitFor` |
+| follow output live | `watch` | *(none — streaming)* | `Watch` |
+| run a command | `run` | `run_command` | `Exec` |
+| start a detached run | `run --detach` | `start_run` | `Start` |
+| poll a detached run | `poll` | `poll_run` | `Job.Poll` |
+| attach a terminal | `attach` | *(none — interactive)* | `Attach` |
+| read an exit marker | `exit-status` | `exit_status` | `ExitStatus` |
+| create a view | `view create` | `create_view` | `CreateView` |
+| scroll a view | `view scroll` | `scroll_view` | `ScrollView` |
+| list views | `view ls` | `list_views` | `Views` |
+| read a server env key | `server-env` | `server_env` | `ServerEnv` |
+| environment diagnosis | `doctor` | `doctor` | `Diagnose` |
+| version | `version` | `version` | `Version` |
+
+**The doors translate; they do not decide.** A default, validation rule, or
+result field invented at one door is a second contract. Defaults live in the
+ergonomic layer (behavior spec §17.3); doors pass them through.
+
+Two operations are door-specific by nature and MUST NOT be forced into the
+others: `attach` is interactive and needs a terminal, and `watch` is a stream.
+MCP, being request/response over stdio, exposes neither.
+
+### 1.1 Verbs are named for intent, not mechanism
+
+`screen` rather than `capture-pane`, `wait` rather than `expect`, `stop` rather
+than `kill-session`. A person guessing a verb should land on the right one.
+
+**`poll` is a top-level verb, not a subcommand of `run`.** Making it
+`run poll <target> <id>` would reserve `poll` as a session name — a session
+literally named `poll` becomes unaddressable by `run`, because subcommand
+resolution wins. Keeping `poll` top-level costs nothing and removes the trap.
+
+`view` is the one legitimate subcommand group: its three operations act on views
+rather than sessions, and share a noun.
+
+### 1.2 Targets are positional, everywhere
+
+Every operation addressing a session takes it as the first positional argument.
+No operation takes the target as a flag. Operations addressing nothing (`ls`,
+`doctor`, `version`, `mcp`) take no positional.
+
+Session names are ordinary positionals, so no verb name is reserved as a session
+name — see §1.1.
+
+---
+
+## 2. The structured envelope
+
+`--json` on the CLI, and the structured content of every MCP tool result, share
+one envelope.
+
+**Success:**
+
+```json
+{
+  "ok": true,
+  "backend": "zmx",
+  "data": { },
+  "warnings": [
+    { "code": "DEGRADED", "message": "current_path is the spawn directory on zmx and does not track cd" }
+  ]
+}
+```
+
+**Failure:**
+
+```json
+{
+  "ok": false,
+  "backend": "zmx",
+  "error": { "code": "SESSION_NOT_FOUND", "message": "session \"build\" not found" }
+}
+```
+
+Rules:
+
+- `ok` is always present and is the only field a consumer needs to branch on.
+- `backend` is the **resolved** backend, never the requested one (behavior spec
+  §0.4). Present on success and failure alike — a failure is exactly when
+  knowing which backend answered matters most.
+- `data` carries the per-operation payload, and is absent for operations with no
+  payload. It is an object or an array, never a bare scalar.
+- `warnings` is omitted when empty, never `null`. It carries degraded-operation
+  disclosure (behavior spec §0.8) for the structured doors, where stderr is not
+  available.
+- `error` is present exactly when `ok` is false, and carries a code from the
+  behavior spec's §12 vocabulary.
+
+**Empty collections serialize as `[]`, never `null`.** This applies to `data`
+when it is a list, and to every list-valued field inside it.
+
+### 2.1 Why an envelope rather than a bare payload
+
+The reference implementation emitted bare per-operation payloads (`{"sent":"demo"}`)
+with errors as a separate shape. That worked because it had no cross-cutting
+fields. Olympus has two — resolved backend and warnings — and both must appear on
+every operation, including failures.
+
+Adding them to every payload would mean each operation independently remembering
+to; the envelope makes it structural. The cost is one level of nesting
+(`jq .data.name` rather than `jq .name`), paid once.
+
+### 2.2 Human output is a separate contract
+
+Without `--json`, output is formatted for reading: aligned tables for lists,
+plain text for screens and command output, colour when stdout is a TTY and never
+when it is not.
+
+**Human output is not stable and MUST NOT be parsed.** It may change in any
+release. Scripts use `--json`. This is stated in `--help` for every operation
+that has a table.
+
+`-q` suppresses non-essential human output; it has no effect on `--json`.
+
+### 2.3 Streams are separate
+
+- **stdout** is the data channel: the payload, the envelope, captured screen
+  content, command output.
+- **stderr** is the narration channel: degraded-operation warnings (behavior spec
+  §0.8), attach-steal notices (§8.5), throwaway-session cleanup failures (§6.10).
+
+Nothing diagnostic ever goes to stdout, and no payload ever goes to stderr. A
+consumer piping stdout into a parser must never have to filter it.
+
+---
+
+## 3. Errors and exit codes
+
+The code vocabulary and process exit codes are specified in behavior spec §12 and
+are **semver-bound**: never repurposed, never removed, only added to.
+
+| Code | Exit |
+|---|---|
+| `USAGE` | 2 |
+| `SESSION_NOT_FOUND` | 3 |
+| `BACKEND_UNAVAILABLE` | 4 |
+| `TIMEOUT` | 5 |
+| `CONFLICT` | 6 |
+| `UNSUPPORTED` | 7 |
+| `UNEXPECTED` | 1 |
+
+Door-level obligations:
+
+- **Every error reaches the envelope**, including argument-parsing errors. The
+  CLI MUST intercept its framework's own flag validation rather than letting it
+  print and exit (behavior spec §12.2). A caller must never need to know which
+  layer caught a failure to know whether it is machine-readable.
+- **An MCP operation failure is a tool error carrying the code**, never a
+  JSON-RPC protocol error (behavior spec §15.6).
+- **The Go door returns typed errors**: `errors.Is` against exported sentinels
+  (`ErrNotFound`, `ErrUnavailable`, `ErrTimeout`, `ErrConflict`, `ErrUnsupported`,
+  `ErrUsage`) with the code also readable from the error value.
+
+### 3.1 The two exit-code deviations
+
+Restated from behavior spec §12.1 because they are door-visible:
+
+- **`run` (human path)** exits with the *command's own* exit code, so it composes
+  in a pipeline like running the command directly. Infrastructure failures still
+  use the table.
+- **`run` (`--json`)** exits `0` for any successful protocol run; the command's
+  exit code is in `data.exit_code`.
+- **`attach`** exits with the underlying attach client's code once the presence
+  gate passes, so an exit of `3` is not necessarily `SESSION_NOT_FOUND`.
+
+Both are documented in the affected operation's `--help`, not only here.
+
+---
+
+## 4. Global options
+
+| CLI | Environment | Applies to |
+|---|---|---|
+| `--backend <name>` | `OLYMPUS_BACKEND` | all |
+| `--socket <name>` | — | tmux backend only |
+| `--json` | — | all |
+| `--no-lock` | — | operations that take the write lock |
+| `-q` / `--quiet` | — | human output only |
+
+Precedence is flag over environment over default, per behavior spec §0.1. An
+unknown backend name is `USAGE`, not `UNEXPECTED`.
+
+The Go door takes these as options to `Open`; the MCP door takes them from its
+process environment, since a stateless request carries no session configuration.
+
+---
+
+## 5. Payload shapes
+
+Field names are `snake_case` in JSON, and identical across CLI and MCP. These are
+semver-bound once shipped.
+
+**Session row** (`start`, `ls`, `info`):
+
+```json
+{
+  "name": "build",
+  "id": "$3",
+  "attached": false,
+  "dead": false,
+  "liveness": "present",
+  "cwd": "/repo",
+  "outcome": "created"
+}
+```
+
+`liveness` is the backend-owned tri-state (behavior spec §3.2). `outcome` appears
+only on `start`, and is `created` | `reused` | `reaped`.
+
+**Pane row** (`info`):
+
+```json
+{
+  "pane_id": "%7",
+  "session_name": "build",
+  "session_id": "$3",
+  "window_index": 0,
+  "dead": false,
+  "created_at": 1786778830,
+  "current_path": "/repo",
+  "current_command": "zsh",
+  "liveness": "present"
+}
+```
+
+`current_path` and `current_command` carry different meanings per backend
+(behavior spec §3.4) and trigger warnings on zmx per §0.8.
+
+**Screen** (`screen`):
+
+```json
+{
+  "screens": { "build": "…" },
+  "meta": { "build": { "alt_screen": false, "scroll_position": 0 } }
+}
+```
+
+An alt-screen target returns `""` with `alt_screen: true` — the flag is what
+makes empty mean *skipped by design* (behavior spec §5.3).
+
+**Run** (`run`): `{"exit_code": 0, "output": "…"}`.
+
+**Detached run**: `start` returns `{"command_id": "…"}`; `poll` returns
+`{"status": "pending" | "completed" | "died", "exit_code": 0, "output": "…", "reason": "…"}`.
+
+**`exit_code` is omitted unless `status` is `completed`** (behavior spec §6.7) —
+never a fake zero. Consumers branch on `status` first.
+
+**Doctor** (`doctor`):
+
+```json
+{
+  "resolved": { "backend": "zmx", "reason": "default", "socket_or_dir": "/tmp/zmx-501" },
+  "backends": [
+    { "name": "zmx", "installed": true, "version": "0.6.0", "below_floor": false,
+      "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false, "server_env": false } },
+    { "name": "tmux", "installed": true, "version": "3.7b", "below_floor": false,
+      "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true, "server_env": true } }
+  ],
+  "install_hints": []
+}
+```
+
+`reason` names the resolution rule that applied (`flag`, `env`, `default`,
+`fallback`), satisfying the disclosure requirement of behavior spec §0.4.
+
+---
+
+## 6. The ergonomic Go surface — PROVISIONAL
+
+Not settled. The `Backend` interface does not exist yet, and this sketch will
+move once it does. Recorded now so the design is argued before it is built.
+
+```go
+ol, err := olympus.Open(olympus.WithBackend("tmux"), olympus.WithSocket("ci"))
+defer ol.Close()
+
+s, err := ol.Session(ctx, "build", olympus.In("/repo"), olympus.Size(120, 40))
+
+res, err := s.Exec(ctx, "go test ./...")        // res.ExitCode, res.Output
+job, err := s.Start(ctx, "make deploy")          // job.Poll(ctx)
+
+s.Type(ctx, "vim main.go", olympus.Submit)
+s.Press(ctx, olympus.CtrlC)
+s.Paste(ctx, text)
+
+screen, err := s.Screen(ctx, olympus.WithColors)
+hit, err := s.WaitFor(ctx, `\$ $`)
+
+if errors.Is(err, olympus.ErrNotFound) { … }
+```
+
+Principles this surface must satisfy, which are **not** provisional:
+
+- **Options, never positional booleans.** `Screen(ctx, WithColors)` rather than
+  `Capture(ctx, targets, true, false)`. Unreadable call sites are the specific
+  failure being corrected.
+- **`Session` is ensure-semantics**, matching the `start` verb: create, reuse, or
+  replace-if-dead. There is no separate create-versus-open decision for a caller
+  to get wrong.
+- **`Open` performs the §0.2 preflight**, so a missing backend fails at `Open`
+  with an actionable error rather than at the first operation.
+- **Typed errors and codes both**, per §3.
+- The mechanical `backend.Backend` interface stays public for anyone writing a
+  backend, and `backend/backendtest` is exported so they can prove it against the
+  same conformance suite.
+
+---
+
+## 7. Stability
+
+Semver, with these commitments:
+
+- **Semver-bound**: the envelope shape, `data` field names and types, error codes
+  and their exit codes, MCP tool names and parameter names, CLI verb names and
+  flag names.
+- **Additive only**: new fields, new codes, new verbs, new flags. A shipped field
+  is never repurposed or removed within a major version.
+- **Not stable**: human-readable output (§2.2), stderr wording, and anything
+  under `docs/terminal-behavior.md` marked *(backend-local)*.
+
+`version` reports one literal, shared by the CLI verb, the MCP tool, and the MCP
+server identity, so no two doors can disagree about what is running.
