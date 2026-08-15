@@ -173,6 +173,7 @@ release. Scripts should use --json, whose shape is semver-bound.`),
 		a.exitStatusCmd(),
 		a.viewCmd(),
 		a.serverEnvCmd(),
+		a.mcpCmd(),
 		a.doctorCmd(),
 		a.versionCmd(),
 	)

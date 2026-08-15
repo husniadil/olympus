@@ -1547,6 +1547,27 @@ dual-era **by construction**, because SDK v1.7.0 already:
 - emits `-32022` with the supported-version list on an unsupported version;
 - still answers legacy `initialize`, **capping that path at `2025-11-25`**.
 
+Three details of that machinery are sharper than "unconditionally" suggests, and
+the conformance tests depend on all three:
+
+- **`server/discover` is registered unconditionally but SERVED conditionally.** A
+  request that does not itself declare `2026-07-28` or later gets
+  method-not-found. That is what lets a client probe an older server and learn it
+  is legacy, rather than getting a confusing partial answer.
+- **A modern request carries its whole identity in `_meta`**, not just a version:
+  the client capabilities key is **required**, and a request omitting it is
+  rejected as invalid params rather than defaulted. There is no handshake to have
+  carried it earlier, which is precisely why it must ride on every request.
+- **`-32022` applies only within the modern era.** A version string ordering
+  *below* `2026-07-28` is not a malformed modern request — it is a legacy-era
+  request, and the legacy gate handles it. Only an unknown version at or above the
+  modern revision produces the unsupported-version error.
+
+**The default advertised capabilities are not empty.** The SDK advertises
+`{"logging":{}}` when capabilities are left unset, for historical reasons.
+Olympus MUST override that with an explicit empty set: logging is deprecated
+(§15.5), and a client must not be told this server offers it.
+
 That cap is correct, not a limitation to work around: `2026-07-28` deprecates
 `initialize` itself, so an `initialize` request *is* the client selecting legacy
 semantics. A dual-era server picks its era from how the client opens, which is

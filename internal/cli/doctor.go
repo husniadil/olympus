@@ -11,18 +11,14 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
-// Version is the one literal every door reports, so no two can disagree about
-// what is running.
-const Version = "0.1.0-dev"
-
 func (a *App) versionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the Olympus version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.emit(map[string]any{"version": Version}, nil, func(w io.Writer) {
-				fmt.Fprintf(w, "olympus %s\n", Version)
+			return a.emit(map[string]any{"version": olympus.Version}, nil, func(w io.Writer) {
+				fmt.Fprintf(w, "olympus %s\n", olympus.Version)
 			})
 		},
 	}
