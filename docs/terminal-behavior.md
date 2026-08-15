@@ -819,6 +819,26 @@ The matched line is reported alongside the screen: a caller waiting on a pattern
 almost always wants the line, and making them re-run the match to find it is
 asking them to reimplement what just happened.
 
+### 5.6 Following is a tap on the stream, not a capture in a loop
+
+Following streams a session's output as it is produced.
+
+It cannot be built out of §5.1's capture. A capture reports the pane as it looks
+NOW, so anything printed and scrolled past between two polls is simply gone —
+which is exactly the output someone following a long build cares about — and a
+program that repaints in place has no meaningful delta between polls at all.
+
+Both backends provide a primitive for this and the backend layer uses it rather
+than emulating one: tmux pipes the pane into a command, zmx tails the session.
+tmux's form pipes into a COMMAND rather than a descriptor Olympus holds, so the
+tap is pointed at a temporary file the reader follows; turning the tap off MUST
+happen before that file is removed, or tmux keeps writing to a path that no
+longer exists for as long as the pane lives.
+
+What a follower receives is raw terminal output, escape sequences included. It
+is a stream, not a rendering: a caller that wants to match on content captures or
+waits instead, and one that wants a picture renders it themselves.
+
 ### 5.5 Capture metadata
 
 Per-target metadata carries the alt-screen flag and the copy-mode scroll position

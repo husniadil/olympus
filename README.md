@@ -58,6 +58,7 @@ olympus start build --dir /repo
 olympus send build 'make test'        # types it, confirms it landed, submits it
 olympus wait build '\$\s*$'           # block until the prompt comes back
 olympus screen build api docs         # several sessions in one call
+olympus watch build                   # follow output as it is produced
 olympus panes                         # every pane, across every session
 olympus capabilities                  # what this backend can do
 olympus run 'go build ./...'          # no target: a throwaway session

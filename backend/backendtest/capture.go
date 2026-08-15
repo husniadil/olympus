@@ -210,6 +210,69 @@ func captureCases() []Case {
 			},
 		},
 		{
+			Name: "§5.6 following delivers output produced after it started",
+			Fn: func(e *Env) {
+				// The point of following is the output a capture would MISS:
+				// anything printed and scrolled past between two polls. So the
+				// assertion is about output produced AFTER the stream opened,
+				// not about whatever was already on screen.
+				target := e.StartShell()
+				e.Warm(target)
+
+				stream, err := e.Backend.Follow(e.Ctx(), target)
+				if err != nil {
+					e.T.Fatalf("following: %v", err)
+				}
+				defer stream.Close()
+
+				collected := make(chan string, 1)
+				go func() {
+					buffer := make([]byte, 4096)
+					var seen strings.Builder
+					for {
+						n, err := stream.Read(buffer)
+						if n > 0 {
+							seen.Write(buffer[:n])
+							if strings.Contains(seen.String(), "followed-4") {
+								collected <- seen.String()
+								return
+							}
+						}
+						if err != nil {
+							collected <- seen.String()
+							return
+						}
+					}
+				}()
+
+				if err := e.Backend.Type(e.Ctx(), target, `printf 'followed-%d\n' 4`); err != nil {
+					e.T.Fatalf("typing: %v", err)
+				}
+				if err := e.Backend.Submit(e.Ctx(), target); err != nil {
+					e.T.Fatalf("submitting: %v", err)
+				}
+
+				select {
+				case seen := <-collected:
+					if !strings.Contains(seen, "followed-4") {
+						e.T.Errorf("the stream never carried output produced while following:\n%s", seen)
+					}
+				case <-time.After(e.budgets.Screen):
+					e.T.Errorf("the stream produced nothing within the budget")
+				}
+			},
+		},
+		{
+			Name: "§10 following an absent session is not-found",
+			Fn: func(e *Env) {
+				if _, err := e.Backend.Follow(e.Ctx(), e.Name()); err == nil {
+					e.T.Errorf("following an absent session succeeded")
+				} else if backend.CodeOf(err) != backend.CodeSessionNotFound {
+					e.T.Errorf("following an absent session is %q, want %q", backend.CodeOf(err), backend.CodeSessionNotFound)
+				}
+			},
+		},
+		{
 			Name: "§10 capturing an absent session is not-found",
 			Fn: func(e *Env) {
 				_, err := e.Backend.Screen(e.Ctx(), e.Name(), backend.ScreenOpts{})

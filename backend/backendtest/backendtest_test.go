@@ -3,6 +3,7 @@ package backendtest
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -40,6 +41,9 @@ func (inert) Screen(context.Context, string, backend.ScreenOpts) (backend.Captur
 }
 func (inert) ScreenMeta(context.Context, string) (backend.ScreenMeta, error) {
 	return backend.ScreenMeta{}, nil
+}
+func (inert) Follow(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
 }
 func (inert) Attach(context.Context, string, backend.AttachSpec) (backend.Attachment, error) {
 	return backend.Attachment{}, nil

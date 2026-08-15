@@ -2,6 +2,8 @@ package engine_test
 
 import (
 	"context"
+	"io"
+	"strings"
 	"sync"
 
 	"github.com/husniadil/olympus/backend"
@@ -161,6 +163,10 @@ func (f *fakeBackend) ScreenMeta(context.Context, string) (backend.ScreenMeta, e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.meta, nil
+}
+
+func (f *fakeBackend) Follow(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader(f.screen)), nil
 }
 
 func (f *fakeBackend) Attach(context.Context, string, backend.AttachSpec) (backend.Attachment, error) {

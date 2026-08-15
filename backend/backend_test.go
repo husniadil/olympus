@@ -2,7 +2,9 @@ package backend_test
 
 import (
 	"context"
+	"io"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/husniadil/olympus/backend"
@@ -34,6 +36,9 @@ func (stub) Screen(context.Context, string, backend.ScreenOpts) (backend.Capture
 }
 func (stub) ScreenMeta(context.Context, string) (backend.ScreenMeta, error) {
 	return backend.ScreenMeta{}, nil
+}
+func (stub) Follow(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
 }
 func (stub) Attach(context.Context, string, backend.AttachSpec) (backend.Attachment, error) {
 	return backend.Attachment{}, nil

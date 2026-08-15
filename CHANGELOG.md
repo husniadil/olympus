@@ -27,5 +27,7 @@ All notable changes to this project are documented here. The format follows
   it afterwards.
 - `paste --enter`, `send --no-enter`, and tunables on every operation that has a
   budget or a window.
+- `watch`, following a session's output live, built on each backend's own
+  streaming primitive rather than on polling a capture.
 - Views: the full server-global setup — hyperlink passthrough, the read-only
   posture, wheel bindings — with the base probed before anything is created.

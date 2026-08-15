@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"io"
 	"os/exec"
 )
 
@@ -218,6 +219,19 @@ type Backend interface {
 	// returns an empty screen, and the flag is what makes that empty mean
 	// "skipped by design" rather than "nothing there" (behavior §5.3).
 	ScreenMeta(ctx context.Context, target string) (ScreenMeta, error)
+
+	// Follow streams a session's output as it is produced.
+	//
+	// This is the one operation that cannot be built from Screen: polling a
+	// capture shows the CURRENT grid, so anything printed and scrolled away
+	// between two polls is simply gone, and a program that repaints in place
+	// has no meaningful "delta" to compute. Following taps the byte stream
+	// instead, which is what both backends provide a primitive for.
+	//
+	// The reader carries raw terminal output, escape sequences included: it is
+	// a stream, not a rendering, and a consumer that wants a picture should
+	// capture instead. Closing it stops the tap.
+	Follow(ctx context.Context, target string) (io.ReadCloser, error)
 
 	// Attach prepares a client for the engine to run inside a PTY.
 	Attach(ctx context.Context, target string, spec AttachSpec) (Attachment, error)
