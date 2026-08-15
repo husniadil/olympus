@@ -1202,6 +1202,22 @@ syntax, which does **not** accept a bare pane id (`%0`) even though tmux's own
 `-t` does. Consumers holding pane ids would otherwise have to do their own
 session lookup before every call.
 
+**The exact-match prefix does not make one target shape fit every command.** tmux
+resolves `-t` against whatever the command operates on, so the scope suffix is
+load-bearing:
+
+| Scope | Target | Commands |
+|---|---|---|
+| session | `=<name>` | `has-session`, `kill-session`, `list-panes -s` |
+| window | `=<name>:` | `set-option -w` |
+| pane | `=<name>:.` | `send-keys`, `capture-pane`, `set-option -p` |
+
+`send-keys` and `capture-pane` reject a bare session target outright, and
+`set-option -w` rejects it with `no such window`. That last one is why §2.2's
+cleanup rule exists in the form it does: the `new-session` at the head of the
+chain has already succeeded by then, so a rejected suffix leaves a live,
+half-configured session behind rather than failing cleanly.
+
 On tmux, a target beginning with `%` MUST be resolved against a full-server pane
 listing and swapped for its owning session's name before the call proceeds. Any
 other target passes through unchanged. Resolution MUST live in **one** shared
@@ -1391,6 +1407,18 @@ question where the negative answer is meaningful:
 
 A query against a socket with no server behind it is "nothing to find here", not
 "something went wrong asking".
+
+A target-addressed operation resolves the same absence into not-found **naming
+its own target**. tmux reports it in its own vocabulary — a socket path, a pane
+id, or nothing at all — and a caller holding a session name can match none of
+those against what it asked for.
+
+Detecting the condition is not one string match. tmux spells it two different
+ways depending on the subcommand: `list-sessions` reports `no server running on
+<socket>`, while most others fail at connect time with `error connecting to
+<socket> (No such file or directory)`. Matching only the first classifies every
+other verb's no-server case as `UNEXPECTED` — the exact opposite of this
+section's rule, and invisible until a caller hits a verb nobody tested cold.
 
 ---
 

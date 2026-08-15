@@ -50,6 +50,12 @@ type CreateSpec struct {
 	// Env is the spawn environment, already filtered for the hygiene rules of
 	// behavior §1.1. The backend applies it; it does not curate it.
 	Env map[string]string
+	// RemainOnExit keeps a corpse to inspect after the session's command
+	// exits. It is write-only and applies on the create path only: there is no
+	// way to read it off a live session and no way to change one (behavior
+	// §2.7). A backend with no corpse concept rejects it as unsupported before
+	// invoking anything.
+	RemainOnExit bool
 }
 
 // ScreenOpts selects what a capture includes. Both are off by default at the

@@ -2,6 +2,7 @@ package backendtest
 
 import (
 	"strings"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -58,20 +59,35 @@ func captureCases() []Case {
 			},
 		},
 		{
-			Name: "§5.3 an alt-screen pane captures empty with the flag set",
+			Name: "§5.3 an alt-screen pane is reported by the flag, and capture still succeeds",
 			Fn: func(e *Env) {
-				// Empty is the designed answer here, and the flag is what
-				// makes it mean "skipped by design" rather than "nothing
-				// there". A caller cannot tell the two apart without it.
-				target := e.StartCommand("sh", "-c", `printf 'alt-%d\n' 1; printf '\033[?1049h'; sleep 30`)
-				e.WaitFor(target, "alt-1")
+				// §5.3 specifies two layers behaving differently, and this is
+				// the mechanical one. The backend's capture NEVER refuses a
+				// target for being on the alternate screen: it succeeds, and
+				// the underlying call simply yields nothing useful. The
+				// alt-screen flag is the signal a caller uses to decide whether
+				// the result is worth taking, and this layer has no opinion
+				// about that.
+				//
+				// Skipping the capture and returning empty is the door's rule,
+				// not this one. Asserting it here would require every backend
+				// to implement a policy that belongs one layer up.
+				target := e.StartCommand("sh", "-c", `printf '\033[?1049h'; sleep 30`)
 
-				capture := e.Screen(target)
-				if !capture.Meta.AltScreen {
-					e.T.Fatalf("alt_screen is not set for a pane on the alternate screen. Screen was:\n%s", capture.Text)
-				}
-				if strings.TrimSpace(capture.Text) != "" {
-					e.T.Errorf("an alt-screen pane captured %q, want the empty string", capture.Text)
+				deadline := time.Now().Add(e.budgets.Screen)
+				for {
+					capture, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{})
+					if err != nil {
+						e.T.Fatalf("capturing an alt-screen pane failed, but this layer must never refuse one: %v", err)
+					}
+					if capture.Meta.AltScreen {
+						return
+					}
+					if time.Now().After(deadline) {
+						e.T.Errorf("alt_screen was never set for a pane on the alternate screen, so a caller cannot tell an empty capture from a skipped one")
+						return
+					}
+					time.Sleep(e.budgets.Poll)
 				}
 			},
 		},

@@ -1,0 +1,442 @@
+package tmux_test
+
+import (
+	"context"
+	"os/exec"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/tmux"
+)
+
+// The rules in this file are real and specified, but invisible through the
+// Backend interface: they are about the argv Olympus builds and the state it
+// leaves on the tmux server. The conformance suite cannot see any of it.
+
+func newBackend(t *testing.T) backend.Backend {
+	t.Helper()
+	requireTmux(t)
+	return newIsolated(t)
+}
+
+func create(t *testing.T, b backend.Backend, spec backend.CreateSpec) string {
+	t.Helper()
+	if spec.Name == "" {
+		spec.Name = "oly-only"
+	}
+	if spec.Cols == 0 {
+		spec.Cols, spec.Rows = 80, 24
+	}
+	if spec.Dir == "" {
+		spec.Dir = t.TempDir()
+	}
+	if _, err := b.Create(context.Background(), spec); err != nil {
+		t.Fatalf("creating %s: %v", spec.Name, err)
+	}
+	return spec.Name
+}
+
+func waitForScreen(t *testing.T, b backend.Backend, target, want string) string {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var last string
+	for {
+		capture, err := b.Screen(context.Background(), target, backend.ScreenOpts{})
+		if err == nil {
+			last = capture.Text
+			if strings.Contains(last, want) {
+				return last
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waiting for %q on %s: never appeared. Screen was:\n%s", want, target, last)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// warm blocks until the shell has provably executed a command. Expansion-based
+// for the reason §16 gives: the typed line is echoed verbatim, so only the
+// substituted output distinguishes execution from echo.
+func warm(t *testing.T, b backend.Backend, target string) {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := b.Type(ctx, target, `printf 'ready-%d\n' 7`); err != nil {
+			t.Fatalf("warming: %v", err)
+		}
+		if err := b.Submit(ctx, target); err != nil {
+			t.Fatalf("warming: %v", err)
+		}
+		end := time.Now().Add(2 * time.Second)
+		for time.Now().Before(end) {
+			capture, err := b.Screen(ctx, target, backend.ScreenOpts{})
+			if err == nil && strings.Contains(capture.Text, "ready-7") {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	t.Fatalf("the shell never executed a command")
+}
+
+// §2.2: options MUST be chained into the same new-session invocation.
+//
+// This race fails intermittently when reverted, so a single green run proves
+// nothing (§16). The reproduction is a command that exits before a second tmux
+// invocation could possibly run: with the options chained, the corpse is pinned
+// and the session survives to be inspected; issued separately, the second call
+// finds no such window and remain-on-exit does nothing for exactly the
+// fastest-failing commands a caller most wants a corpse for.
+func TestChainedOptionsSurviveAnInstantlyExitingCommand(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+
+	const rounds = 25
+	for i := 0; i < rounds; i++ {
+		name := create(t, b, backend.CreateSpec{
+			Name:         "oly-fast-" + itoa(i),
+			Command:      []string{"sh", "-c", "exit 7"},
+			RemainOnExit: true,
+		})
+
+		if state := b.Probe(ctx, name); state != backend.StatePresent {
+			t.Fatalf("round %d: the session vanished despite remain-on-exit, so the corpse was never pinned (state %q)", i, state)
+		}
+
+		// The corpse is the observable: remain-on-exit is write-only, and the
+		// only way to see it took effect is the dead row it leaves (§2.7).
+		deadline := time.Now().Add(5 * time.Second)
+		var dead bool
+		for !dead && time.Now().Before(deadline) {
+			panes, err := b.Panes(ctx, name)
+			if err != nil {
+				t.Fatalf("round %d: listing panes: %v", i, err)
+			}
+			for _, p := range panes {
+				dead = dead || p.Dead
+			}
+			if !dead {
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		if !dead {
+			t.Fatalf("round %d: the pane is not marked dead, so remain-on-exit did not land", i)
+		}
+		if err := b.Kill(ctx, name); err != nil {
+			t.Fatalf("round %d: killing: %v", i, err)
+		}
+	}
+}
+
+// §4.8: tmux's ";" chaining separator eats an unescaped TRAILING semicolon in a
+// text argv element.
+//
+// The observable is the PTY's echo of the typed line: the characters that
+// actually reached the pane are painted on screen, so a dropped ";" is visible
+// there whether or not the command's behavior would have changed.
+func TestTrailingSemicolonSurvivesTheChainedSendKeysPath(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-semi"})
+	warm(t, b, name)
+
+	if err := b.SendAtomic(context.Background(), name, `printf 'semi-%d\n' 1;`); err != nil {
+		t.Fatalf("sending atomically: %v", err)
+	}
+
+	screen := waitForScreen(t, b, name, "semi-1")
+	if !strings.Contains(screen, "1;") {
+		t.Errorf("the trailing semicolon was eaten by tmux's command separator. Screen was:\n%s", screen)
+	}
+}
+
+// §4.2: paste-buffer -d deletes the buffer only when the paste SUCCEEDS.
+//
+// Reproduced by pasting at a target that does not exist: load-buffer takes no
+// target and succeeds, then paste-buffer fails, and without the explicit
+// best-effort cleanup on that path the buffer leaks forever.
+func TestAFailedPasteLeavesNoBufferBehind(t *testing.T) {
+	b := newBackend(t)
+	// An anchor keeps the server up so the buffer list is still askable after
+	// the failure (§16).
+	anchor := create(t, b, backend.CreateSpec{Name: "oly-anchor"})
+	_ = anchor
+
+	err := b.Type(context.Background(), "oly-does-not-exist", "some text")
+	if err == nil {
+		t.Fatal("typing into an absent session succeeded")
+	}
+
+	buffers := listBuffers(t, b)
+	if buffers != "" {
+		t.Errorf("a buffer leaked after the paste failed:\n%s", buffers)
+	}
+}
+
+// §4.1: the buffer name MUST be unique per call. Two concurrent injections
+// sharing a name race — one call's load-buffer clobbers the other's text before
+// paste-buffer consumes it — so this drives them concurrently and repeatedly
+// rather than asserting the name's shape.
+func TestConcurrentInjectionsDoNotClobberEachOther(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+
+	const sessions = 4
+	names := make([]string, sessions)
+	for i := range names {
+		names[i] = create(t, b, backend.CreateSpec{Name: "oly-conc-" + itoa(i)})
+		warm(t, b, names[i])
+	}
+
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			text := `printf 'conc` + itoa(i) + `-%d\n' ` + itoa(i)
+			if err := b.Type(ctx, name, text); err != nil {
+				t.Errorf("typing into %s: %v", name, err)
+				return
+			}
+			if err := b.Submit(ctx, name); err != nil {
+				t.Errorf("submitting to %s: %v", name, err)
+			}
+		}(i, name)
+	}
+	wg.Wait()
+
+	for i, name := range names {
+		want := "conc" + itoa(i) + "-" + itoa(i)
+		screen := waitForScreen(t, b, name, want)
+		// Another session's payload arriving here is precisely the clobber.
+		for j := range names {
+			if j == i {
+				continue
+			}
+			if strings.Contains(screen, "conc"+itoa(j)+"-"+itoa(j)) {
+				t.Errorf("session %s received session %d's text, so the buffers collided", name, j)
+			}
+		}
+	}
+}
+
+// §1.2: the tmux server's global environment is a second leak, so new-session
+// must also pass sanitized values per-session with -e.
+//
+// Only the ZMX_* strip and the LANG default are asserted. tmux re-sets TMUX,
+// TMUX_PANE and forces TERM inside its own panes regardless of what is passed,
+// so asserting those would produce a test that passes for the wrong reason —
+// the note §1.2 marks backend-local.
+func TestSpawnedSessionsGetASanitizedEnvironment(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-env"})
+	warm(t, b, name)
+
+	ctx := context.Background()
+	// The marker is substituted, so it cannot appear in the echoed format
+	// string. Waiting on a fragment that both lines share would match the echo
+	// and prove only that the line was typed (§16).
+	if err := b.Type(ctx, name, `printf 'env%d zmx=[%s] lang=[%s]\n' 9 "$ZMX_SESSION" "$LANG"`); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	if err := b.Submit(ctx, name); err != nil {
+		t.Fatalf("submitting: %v", err)
+	}
+
+	screen := waitForScreen(t, b, name, "env9 ")
+	line := lastMatching(screen, "env9 ")
+	if !strings.Contains(line, "zmx=[]") {
+		t.Errorf("ZMX_SESSION leaked into the session: %q", line)
+	}
+	if strings.Contains(line, "lang=[]") {
+		t.Errorf("LANG was not defaulted: %q", line)
+	}
+}
+
+// §5.1: -J MUST be dropped whenever history is requested.
+//
+// -J rejoins a line tmux auto-wrapped at the pane's width. That is correct on
+// the live viewport, and wrong across scrollback, where it merges two separate
+// history lines that never appeared as one on screen. The observable is a line
+// longer than the pane: rejoined in the viewport capture, still split in the
+// history one.
+func TestHistoryCaptureDoesNotRejoinWrappedLines(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-wrap"})
+	warm(t, b, name)
+
+	ctx := context.Background()
+	// 200 characters into an 80-column pane: tmux wraps it across three rows.
+	if err := b.Type(ctx, name, `printf 'W%.0s' $(seq 1 200); printf '\nwrapped-%d\n' 1`); err != nil {
+		t.Fatalf("typing: %v", err)
+	}
+	if err := b.Submit(ctx, name); err != nil {
+		t.Fatalf("submitting: %v", err)
+	}
+	waitForScreen(t, b, name, "wrapped-1")
+
+	viewport, err := b.Screen(ctx, name, backend.ScreenOpts{})
+	if err != nil {
+		t.Fatalf("capturing the viewport: %v", err)
+	}
+	history, err := b.Screen(ctx, name, backend.ScreenOpts{HistoryLines: 500})
+	if err != nil {
+		t.Fatalf("capturing with history: %v", err)
+	}
+
+	if longestRun(viewport.Text) < 200 {
+		t.Errorf("the viewport capture did not rejoin the wrapped line, so -J was not applied: longest run was %d", longestRun(viewport.Text))
+	}
+	if got := longestRun(history.Text); got >= 200 {
+		t.Errorf("the history capture rejoined a wrapped line, so -J was not dropped: longest run was %d", got)
+	}
+}
+
+// §1.4: the attach client needs -u, or the CLIENT sanitizes every non-ASCII
+// byte to "_" before it reaches the consumer. The pane is fine; the stream is
+// not. Asserted on the argv, since running an attach needs a terminal.
+func TestAttachArgvCarriesTheFlagsTheStreamDependsOn(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-attach"})
+
+	att, err := b.Attach(context.Background(), name, backend.AttachSpec{Role: backend.RoleController})
+	if err != nil {
+		t.Fatalf("preparing an attach: %v", err)
+	}
+	args := strings.Join(att.Cmd.Args, " ")
+	if !strings.Contains(args, " -u") {
+		t.Errorf("the attach argv has no -u, so the client will sanitize non-ASCII bytes to underscores: %s", args)
+	}
+
+	viewer, err := b.Attach(context.Background(), name, backend.AttachSpec{Role: backend.RoleViewer})
+	if err != nil {
+		t.Fatalf("preparing a viewer attach: %v", err)
+	}
+	// §8.7: a viewer drops input, and must drop resize with it.
+	if !strings.Contains(strings.Join(viewer.Cmd.Args, " "), " -r") {
+		t.Errorf("a viewer attach is not read-only: %s", strings.Join(viewer.Cmd.Args, " "))
+	}
+}
+
+// §8.1: attaching onto nothing is not-found, decided before the client runs.
+func TestAttachingToAnAbsentSessionIsNotFound(t *testing.T) {
+	b := newBackend(t)
+	create(t, b, backend.CreateSpec{Name: "oly-anchor2"})
+
+	_, err := b.Attach(context.Background(), "oly-nope", backend.AttachSpec{})
+	if backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("attaching to an absent session is %q, want %q", backend.CodeOf(err), backend.CodeSessionNotFound)
+	}
+}
+
+// §9.1: views group by the base's immutable session ID, never by its name.
+//
+// tmux resolves a -t target against GROUP names before session names, so a
+// group named after its base makes the base's own name ambiguous and a later
+// operation on the base can land on the group instead.
+func TestViewsGroupByIDSoTheBaseStaysAddressableByName(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-base"})
+	warm(t, b, base)
+
+	if _, err := b.CreateView(ctx, base, "olympus-view-oly-base-a1b2"); err != nil {
+		t.Fatalf("creating a view: %v", err)
+	}
+
+	// The base must still answer to its own name for every verb, and the view
+	// must be reported as a view of it rather than as a peer.
+	if state := b.Probe(ctx, base); state != backend.StatePresent {
+		t.Errorf("the base probes %q after a view was created, want present", state)
+	}
+	if err := b.Type(ctx, base, `printf 'base-%d\n' 4`); err != nil {
+		t.Fatalf("typing into the base: %v", err)
+	}
+	if err := b.Submit(ctx, base); err != nil {
+		t.Fatalf("submitting to the base: %v", err)
+	}
+	waitForScreen(t, b, base, "base-4")
+
+	views, err := b.Views(ctx, base)
+	if err != nil {
+		t.Fatalf("listing views: %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("listing views of the base returned %d, want 1", len(views))
+	}
+	if views[0].Base != base {
+		t.Errorf("the view names base %q, want %q", views[0].Base, base)
+	}
+}
+
+func listBuffers(t *testing.T, b backend.Backend) string {
+	t.Helper()
+	socket := socketOf(t, b)
+	out, err := exec.Command("tmux", "-L", socket, "list-buffers").Output()
+	if err != nil {
+		// No buffers at all makes tmux exit non-zero on some versions.
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// socketOf recovers the private socket for raw verification calls. Those calls
+// are held to the same isolation rule as the backend itself (§2.9).
+func socketOf(t *testing.T, b backend.Backend) string {
+	t.Helper()
+	type socketed interface{ Socket() string }
+	s, ok := b.(socketed)
+	if !ok {
+		t.Fatal("the tmux backend does not expose its socket, so a raw verification call cannot be isolated")
+	}
+	return s.Socket()
+}
+
+func lastMatching(screen, prefix string) string {
+	var found string
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.Contains(line, prefix) {
+			found = line
+		}
+	}
+	return found
+}
+
+// longestRun returns the length of the longest run of "W" characters on any one
+// line, which is how a wrapped-and-rejoined line is distinguished from a
+// wrapped-and-left-split one.
+func longestRun(text string) int {
+	best := 0
+	for _, line := range strings.Split(text, "\n") {
+		run := 0
+		for _, r := range line {
+			if r == 'W' {
+				run++
+				if run > best {
+					best = run
+				}
+			} else {
+				run = 0
+			}
+		}
+	}
+	return best
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var digits []byte
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	return string(digits)
+}
+
+var _ = tmux.DefaultSocket
