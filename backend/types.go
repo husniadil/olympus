@@ -95,7 +95,7 @@ type Pane struct {
 }
 
 // A ScreenMeta carries what a capture could not put in the text itself
-// (behavior §5.4). AltScreen is what makes an empty capture mean "skipped by
+// (behavior §5.5). AltScreen is what makes an empty capture mean "skipped by
 // design" rather than "nothing there".
 type ScreenMeta struct {
 	AltScreen bool `json:"alt_screen"`

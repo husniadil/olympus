@@ -10,7 +10,7 @@ import (
 func captureCases() []Case {
 	return []Case{
 		{
-			Name: "§5.4 a pane outside copy mode reports no scroll offset",
+			Name: "§5.5 a pane outside copy mode reports no scroll offset",
 			Fn: func(e *Env) {
 				target := e.StartShell()
 				e.Warm(target)

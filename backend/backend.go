@@ -70,8 +70,12 @@ type ScreenOpts struct {
 }
 
 // A Capture is one target's screen and the metadata the text itself cannot
-// carry. Empty Text with Meta.AltScreen set means skipped by design, not
-// nothing there (behavior §5.3).
+// carry.
+//
+// Meta.AltScreen set means the pane is a full-screen program's: the Text is its
+// visible grid, and there is no scrollback behind it. Empty Text there means
+// the program has painted nothing yet, not that anything was skipped
+// (behavior §5.3).
 type Capture struct {
 	Text string
 	Meta ScreenMeta
@@ -214,10 +218,10 @@ type Backend interface {
 	// ScreenMeta reports capture metadata WITHOUT capturing.
 	//
 	// It is separate from Screen because the door needs the alt-screen flag
-	// before deciding whether capturing is worth doing at all: a pane on the
-	// alternate screen has no scrollback, so the door skips the capture and
-	// returns an empty screen, and the flag is what makes that empty mean
-	// "skipped by design" rather than "nothing there" (behavior §5.3).
+	// before it can decide WHAT to ask for: a pane on the alternate screen has
+	// no scrollback, so a history request against it must be dropped rather
+	// than sent and silently under-answered (behavior §5.3). Deciding that
+	// after capturing would mean having already asked the wrong question.
 	ScreenMeta(ctx context.Context, target string) (ScreenMeta, error)
 
 	// Follow streams a session's output as it is produced.

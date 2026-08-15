@@ -441,8 +441,11 @@ expectation.
 
 Tests MUST NEVER touch the operator's live default server.
 
-- **tmux**: use `-L <private-socket>` per test process.
-- **zmx**: there is no `-L` equivalent. Sessions are global to one daemon per
+- **tmux**: use a private socket per test process. A PATH inside a directory the
+  test owns is preferred over a NAME: killing a server does not unlink its
+  socket, so named sockets accumulate in the directory shared with the
+  operator's own servers, while a path disappears with its directory.
+- **zmx**: there is no socket flag at all. Sessions are global to one daemon per
   user, and the daemon's socket directory resolves from environment with priority
   `ZMX_DIR` > `XDG_RUNTIME_DIR` > `TMPDIR`. Session-name namespacing alone does
   **not** protect the operator: however carefully named, every test session still
@@ -673,6 +676,16 @@ On zmx, caller-visible atomicity is guaranteed by holding the per-session write
 lock across both writes. A failed submit write MUST return a timeout-class error
 ("text delivered but not submitted"), never silent success.
 
+### 4.8 tmux eats an unescaped trailing semicolon
+
+tmux's `;` chaining separator treats an **unescaped trailing `;` byte** in a text
+argv element as a command separator rather than literal text: `-l -- "echo A;
+echo B;"` lands `echo A; echo B` with the final `;` dropped, and text that is
+just `;` lands nothing. Interior semicolons are untouched — only a trailing one.
+
+Any chained `send-keys` path MUST detect a trailing `;` and escape it to `\;`.
+`-l --` is also required, guarding against text beginning with `-`.
+
 ### 4.9 Control keys are not deliverable on every backend
 
 A backend may accept a control key and silently not deliver it. That is worse
@@ -700,16 +713,6 @@ The consequence is concrete: an editor opened on zmx can be typed into and read,
 but not saved or exited, because both are control keys. Doors MUST report this
 through the capability rather than by failing the keypress, since the keypress
 itself succeeds.
-
-### 4.8 tmux eats an unescaped trailing semicolon
-
-tmux's `;` chaining separator treats an **unescaped trailing `;` byte** in a text
-argv element as a command separator rather than literal text: `-l -- "echo A;
-echo B;"` lands `echo A; echo B` with the final `;` dropped, and text that is
-just `;` lands nothing. Interior semicolons are untouched — only a trailing one.
-
-Any chained `send-keys` path MUST detect a trailing `;` and escape it to `\;`.
-`-l --` is also required, guarding against text beginning with `-`.
 
 ---
 
@@ -759,12 +762,13 @@ normalizes it away, so a REPL prompt captured as `>>> ` on one comes back as
 `>>>` on the other. A pattern that *requires* a trailing space therefore matches
 on one backend and silently never matches on the other. Doors MUST NOT paper
 over this by re-padding — the fix belongs in the pattern (`^>>>\s*$`), and
-§5.5 says so where callers will read it.
+§5.4 says so where callers will read it.
 
-### 5.3 Alt-screen panes capture empty, by design
+### 5.3 Alt-screen panes are captured; only their scrollback is refused
 
-A pane on the alternate screen (a TUI issuing `\e[?1049h`) has no scrollback, so a
-capture only re-reports the visible grid a live consumer already mirrors.
+A pane on the alternate screen (a full-screen program issuing `\e[?1049h`) has no
+scrollback. Its visible grid is real and readable; there is simply nothing
+behind it.
 
 Two layers, behaving differently — state both precisely:
 
@@ -819,6 +823,12 @@ The matched line is reported alongside the screen: a caller waiting on a pattern
 almost always wants the line, and making them re-run the match to find it is
 asking them to reimplement what just happened.
 
+### 5.5 Capture metadata
+
+Per-target metadata carries the alt-screen flag and the copy-mode scroll position
+(lines scrolled up from the live bottom; 0 when not in copy mode). tmux-only; zmx
+is always the zero value per §5.3.
+
 ### 5.6 Following is a tap on the stream, not a capture in a loop
 
 Following streams a session's output as it is produced.
@@ -838,12 +848,6 @@ longer exists for as long as the pane lives.
 What a follower receives is raw terminal output, escape sequences included. It
 is a stream, not a rendering: a caller that wants to match on content captures or
 waits instead, and one that wants a picture renders it themselves.
-
-### 5.5 Capture metadata
-
-Per-target metadata carries the alt-screen flag and the copy-mode scroll position
-(lines scrolled up from the live bottom; 0 when not in copy mode). tmux-only; zmx
-is always the zero value per §5.3.
 
 ---
 
@@ -1795,14 +1799,20 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | view session | `olympus-view-<base>-<nonce>` | grouped views (§9) |
 | throwaway run session | `olympus-run-<pid>-<nonce>` | §6.10 |
 | run sentinels | `OLY_S_<id>` / `OLY_D_<id>_<code>_` | §6.1 |
-| run/command id | `<pid>-<counter>-<8 hex>` | §6.1, §6.7 |
-| lock file | `olympus-<backend>-<hash>-<session>.lock` | §11.1 |
+| run/command id | `<pid><counter><8 hex>` | §6.1, §6.7 |
+| lock file | `<backend>-<session>-<hash>.lock`, inside the lock directory | §11.1 |
 | lock directory | `<temp>/olympus-locks`, mode 0700 | §11.1 |
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
+| follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 
 The view-session prefix is load-bearing beyond cosmetics: enumerating views (§9.5)
 selects on it, so changing it orphans every view created by an older binary.
+
+Two entries deliberately carry no `olympus-` prefix. The lock file already lives
+inside `olympus-locks/`, and the run id is embedded in a sentinel marker that
+carries its own prefix — repeating it would add length to a name whose length is
+budgeted (§2.5) without adding any separation.
 
 ### 17.2 Isolation posture differs by backend, and users MUST be told
 
@@ -1850,13 +1860,15 @@ contract.
 | submit settle gap | 150ms | §4.5 |
 | capture window: start / growth / cap | 200 lines / ×4 / 10,000 | §6.4 |
 | detached poll window | 10,000 lines (tmux; ignored on zmx) | §6.7 |
-| run timeout | 60s | §6 |
-| verified-send per-attempt budget | 5s, spent twice | §7.4 |
+| run timeout / poll interval | 60s / 250ms | §6 |
+| verified-send per-attempt budget / poll | 5s spent twice / 100ms | §7.4 |
 | verified-send needle length | 24 normalized characters | §7.1 |
 | screen-wait timeout / interval | 30s / 250ms | §5 |
 | write-lock wait | 10s, env-overridable | §11.1 |
 | attach steal wait | 3s, polled every 50ms | §8.5 |
 | attach initial size | 80×24 | §8 |
+| follow poll interval | 50ms | §5.6 |
+| write-lock retry interval | 25ms | §11.1 |
 
 Two are **per-attempt, not total**: the verified-send budget is spent twice
 (§7.4), and the graceful-kill timeout bounds only the poll phase, so total wall

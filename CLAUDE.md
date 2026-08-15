@@ -50,10 +50,13 @@ is worse than no spec, because it is still believed.
    spec §15. The statelessness is load-bearing in both directions: §6.7 explains
    why a run registry is ruled out rather than merely absent.
 
-5. **Tests must NEVER touch the operator's live sessions.** tmux tests use a
-   private `-L` socket; zmx has no `-L` equivalent, so zmx tests must set
-   `ZMX_DIR` to a private temp dir. Session-name namespacing alone is not
-   sufficient. See spec §2.9.
+5. **Tests must NEVER touch the operator's live sessions.** tmux tests put the
+   socket at a private PATH inside a directory the test owns, so it disappears
+   with the test — killing a server does not unlink its socket, and a named
+   socket would accumulate in the directory shared with the operator's own
+   servers. zmx has no socket flag at all, so its tests must set `ZMX_DIR` to a
+   private temp dir. Session-name namespacing alone is not sufficient. See spec
+   §2.9.
 
 6. **Both audiences are first-class.** A human typing a verb and reading prose,
    and a program parsing stdout, are both supported callers. A change that

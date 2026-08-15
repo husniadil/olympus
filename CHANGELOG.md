@@ -29,5 +29,11 @@ All notable changes to this project are documented here. The format follows
   budget or a window.
 - `watch`, following a session's output live, built on each backend's own
   streaming primitive rather than on polling a capture.
+- An open key vocabulary: the whole control range (`c-a`…`c-z`) and `f1`…`f12`,
+  derived rather than enumerated.
+- `control_keys` capability, reporting whether a backend actually delivers
+  control keys — which decides whether a full-screen program can be driven.
+- `--socket-path`, addressing the tmux socket by path rather than by name, so it
+  can live in a directory the caller controls.
 - Views: the full server-global setup — hyperlink passthrough, the read-only
   posture, wheel bindings — with the base probed before anything is created.

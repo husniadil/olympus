@@ -65,6 +65,9 @@ olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
 ```
 
+That is a sample, not the whole surface — `olympus --help` lists every verb, and
+each has its own `--help` explaining the parts that are not obvious.
+
 Add `--json` to any verb for a stable, machine-readable envelope. Human output
 is for reading and may change in any release; `--json` will not.
 

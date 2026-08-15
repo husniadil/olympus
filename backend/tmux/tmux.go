@@ -424,7 +424,7 @@ func (t *Tmux) screenMeta(ctx context.Context, target string) (backend.ScreenMet
 	meta := backend.ScreenMeta{AltScreen: f[0] == "1"}
 	if len(f) > 1 {
 		// #{scroll_position} expands to the empty string outside copy mode,
-		// with exit 0. Parsing that as zero is the answer §5.4 wants; treating
+		// with exit 0. Parsing that as zero is the answer §5.5 wants; treating
 		// it as an error would make every ordinary capture fail.
 		meta.ScrollPosition = atoi(f[1])
 	}

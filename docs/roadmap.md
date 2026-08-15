@@ -12,6 +12,24 @@ correct rather than against prose.
 Specs: [`terminal-behavior.md`](terminal-behavior.md) for mechanics,
 [`api.md`](api.md) for the exposed contract.
 
+## Status
+
+**All nine phases are implemented and green.** The plan below is kept as the
+record of the order the work was done in and what each phase had to satisfy —
+not as a description of work still to come.
+
+What is genuinely outstanding, which is a shorter list than the plan and is
+deliberately not hidden inside it:
+
+- **`attach` has no automated end-to-end test.** Its pieces are unit-tested —
+  the resize control, the guard, the exit code, the reaping — but a real
+  interactive attach needs a terminal, so it has only been exercised by hand.
+- **A release has never been cut.** The goreleaser configuration exists and has
+  never been run, and there is no Homebrew tap: installation is `go install` or
+  the archives a release would produce.
+- **The MCP door is stdio only**, which is deliberate (behavior §15), so there
+  is no remote or multi-client story and none is planned.
+
 ---
 
 ## Phase 1 — the mechanical layer
@@ -20,7 +38,7 @@ Specs: [`terminal-behavior.md`](terminal-behavior.md) for mechanics,
 
 - Error vocabulary and codes with their exit mapping (behavior §12).
 - Row types: session, pane, capture metadata, capabilities, liveness tri-state,
-  probe tri-state (behavior §3, §5.4, §13; shapes per api §5).
+  probe tri-state (behavior §3, §5.5, §13; shapes per api §5).
 - The `Backend` interface itself.
 - Target resolution helper (behavior §10).
 
@@ -85,9 +103,9 @@ end-to-end paths are green on both backends.
 
 `olympus` root package: `Open`, `Session`, options, typed errors.
 
-**First task of this phase is to finalize api §6**, which is currently
-provisional — the `Backend` interface now exists, so the sketch can become a
-contract.
+**The first task of this phase was to finalize api §6.** It had been left
+provisional on purpose: its shape depended on the `Backend` interface, which did
+not exist until Phase 1. Once it did, the sketch became a contract.
 
 **Done when**: the documented examples compile and run as tests, and every
 default in behavior §17.3 is decided exactly once, here.
@@ -120,7 +138,9 @@ that a legacy `initialize` still negotiates and serves the same tools.
 - README with the three doors at equal billing, opening on a quickstart.
 - CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue and PR templates.
 - Shell completions and man pages generated from the CLI.
-- goreleaser, Homebrew tap, `go install`.
+- goreleaser and `go install`. (No Homebrew tap: one would need a tap
+  repository, and claiming an install route that does not exist is worse than
+  offering fewer.)
 - CHANGELOG and the stability commitments of api §7.
 
 **Done when**: a clean checkout on a fresh machine can install, run `doctor`, and
@@ -133,8 +153,8 @@ start a session by following only the README.
 - **Test-first.** Failing test, then the code that passes it.
 - **The specs are amendable.** If implementation disproves a rule, change the
   spec in the same commit as the code that proved it, and say what moved.
-- **Never touch a live daemon or default socket** — private `ZMX_DIR` and private
-  `-L` socket, for probes as well as tests, cleaned up afterwards.
+- **Never touch a live daemon or default socket** — a private `ZMX_DIR` and a
+  private tmux socket path, for probes as well as tests, cleaned up afterwards.
 - **Race-shaped fixes need reproducing tests** (behavior §16). A test that passes
   once against the fix proves nothing.
 - **Commit at checkpoints**, small enough to review and revert alone.

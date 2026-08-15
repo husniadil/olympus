@@ -34,9 +34,12 @@ Two habits matter more than they look:
 
 This is not negotiable, and it is easy to get wrong:
 
-- **tmux**: use a private `-L` socket per test process, and remove the socket
-  file afterwards — killing the server does not unlink it.
-- **zmx**: there is no `-L` equivalent. Session-name namespacing does **not**
+- **tmux**: put the socket at a private PATH inside a directory the test owns
+  (`--socket-path` / `tmux.WithSocketPath`), so it disappears with the test.
+  A NAME works too but leaves the socket behind — killing a server does not
+  unlink it — and those accumulate in the directory shared with your own
+  servers.
+- **zmx**: there is no socket flag at all. Session-name namespacing does **not**
   protect anyone: every test session still lands on the one shared daemon. Set
   `ZMX_DIR` to a private temporary directory, for the backend *and* for every
   raw verification call.
