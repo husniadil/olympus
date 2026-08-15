@@ -94,7 +94,14 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		opt(&cfg)
 	}
 
-	var diagnosis Diagnosis
+	// Both slices start non-nil so an empty one marshals as [] rather than
+	// null (api §2). A caller handling both shapes for one field is writing two
+	// parsers, and install_hints is empty in the ordinary case — everything
+	// installed — so null was what most callers actually saw.
+	diagnosis := Diagnosis{
+		Backends:     []BackendReport{},
+		InstallHints: []string{},
+	}
 	for _, name := range preference {
 		report := BackendReport{Name: name, Floor: floors[name], Installed: cfg.installs(name)}
 		if !report.Installed {

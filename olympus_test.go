@@ -2,6 +2,7 @@ package olympus_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -753,5 +754,92 @@ func TestAColdServerIsEmptyUntargetedAndNotFoundTargeted(t *testing.T) {
 				t.Errorf("a cold server reported %d sessions", len(sessions))
 			}
 		})
+	}
+}
+
+// §5.6: a follow is a TAP on the session, and an interrupted follow must turn
+// it off. Ctrl-C is how a stream is normally ended, so it is the path that
+// matters, not an edge case.
+//
+// Left on, tmux keeps piping that pane's output into a file nobody will ever
+// read, growing on the operator's disk for as long as the session lives — and
+// the operator has no way to know, because the command they interrupted is
+// gone. Measured before this: pane_pipe stayed 1 after SIGINT.
+func TestAnInterruptedWatchTurnsItsTapOff(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+	binary := buildOlympus(t)
+
+	dir, err := os.MkdirTemp(os.TempDir(), "olyw")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "s.sock")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
+
+	where := []string{"--backend", "tmux", "--socket-path", socket}
+	if out, err := exec.Command(binary, append(where, "start", "tap")...).CombinedOutput(); err != nil {
+		t.Fatalf("start: %v\n%s", err, out)
+	}
+
+	piped := func() string {
+		out, _ := exec.Command("tmux", "-S", socket, "list-panes", "-t", "=tap", "-F", "#{pane_pipe}").Output()
+		return strings.TrimSpace(string(out))
+	}
+
+	watch := exec.Command(binary, append(where, "watch", "tap")...)
+	if err := watch.Start(); err != nil {
+		t.Fatalf("starting watch: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for piped() != "1" {
+		if time.Now().After(deadline) {
+			_ = watch.Process.Kill()
+			t.Fatal("the tap never came on, so there is nothing to test turning off")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if err := watch.Process.Signal(os.Interrupt); err != nil {
+		t.Fatalf("interrupting watch: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- watch.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		_ = watch.Process.Kill()
+		t.Fatal("watch did not exit on SIGINT")
+	}
+
+	deadline = time.Now().Add(5 * time.Second)
+	for piped() == "1" {
+		if time.Now().After(deadline) {
+			t.Fatal("the tap is still on after the watch was interrupted")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// api §2: an empty collection serializes as [], never null. A consumer that has
+// to handle both shapes for one field is being asked to write two parsers.
+func TestEmptyCollectionsAreNeverNull(t *testing.T) {
+	t.Parallel()
+	// A diagnosis with every backend installed carries no install hints, which
+	// is exactly the case that produced null.
+	raw, err := json.Marshal(olympus.Diagnose(context.Background()))
+	if err != nil {
+		t.Fatalf("marshalling a diagnosis: %v", err)
+	}
+	var round map[string]any
+	if err := json.Unmarshal(raw, &round); err != nil {
+		t.Fatalf("unmarshalling it back: %v", err)
+	}
+	for _, field := range []string{"install_hints", "backends"} {
+		if round[field] == nil {
+			t.Errorf("%s serialized as null rather than []: %s", field, raw)
+		}
 	}
 }
