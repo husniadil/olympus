@@ -6,9 +6,10 @@ Olympus creates, drives, observes and tears down real terminal sessions — the
 kind that survive you closing your laptop — and exposes that through three equal
 doors: a **Go package**, a **CLI**, and a **stdio MCP server**.
 
-It does not embed a multiplexer. It drives one you already have: `zmx` by
+It does not embed a multiplexer. It drives one you already have: [`zmx`][zmx] by
 default, [`tmux`][tmux] as the alternative, and [`meja`][meja] last.
 
+[zmx]: https://github.com/neurosnap/zmx
 [tmux]: https://github.com/tmux/tmux
 [meja]: https://github.com/garindra/meja
 
