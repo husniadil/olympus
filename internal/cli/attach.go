@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/husniadil/olympus"
+	"github.com/husniadil/olympus/backend"
 )
 
 func (a *App) attachCmd() *cobra.Command {
@@ -24,6 +25,23 @@ func (a *App) attachCmd() *cobra.Command {
 			"EXIT CODE: once the session is confirmed to exist, this hands off to the multiplexer's own client and exits with ITS status. An exit of 3 here is not necessarily a missing session.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A handoff has no structured form, and cannot be given one.
+			//
+			// Attaching hands stdout to the multiplexer's client, which then owns
+			// it: everything the session draws goes there, and so does the
+			// client's own failure text. api §2.3 promises a --json consumer that
+			// stdout carries the payload and nothing else, and there is no point
+			// at which those bytes could be taken back — so the promise is kept
+			// by refusing rather than by pretending.
+			//
+			// A usage error because one argument fixes it (§12), and it costs the
+			// caller nothing they were getting: the output was unparseable either
+			// way.
+			if a.json {
+				return backend.Errorf(backend.CodeUsage,
+					"attach hands this terminal to the session, so it has no --json form: "+
+						"drop --json to attach, or use `info` to ask about the session instead")
+			}
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
 				var opts []olympus.AttachOption
 				if viewer {

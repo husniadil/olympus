@@ -918,3 +918,46 @@ func mustData(t *testing.T, envelope cli.Envelope) []byte {
 	}
 	return encoded
 }
+
+// api §2.3: stdout carries the payload, stderr carries narration, and a consumer
+// piping stdout into a parser must never have to filter it.
+//
+// `attach` cannot honour that, and the reason is structural rather than a bug to
+// patch: it HANDS stdout to the multiplexer's client, which then owns it. Every
+// byte the session draws goes there, and so does the client's own failure —
+// measured as `open terminal failed: terminal does not support clear` on stdout,
+// with stderr empty and --json making no difference. There is no point at which
+// Olympus could take those bytes back.
+//
+// So the promise is kept by refusing rather than by pretending: asking for a
+// structured envelope from a terminal handoff is a caller mistake, and §12 makes
+// a mistake fixable by changing one argument a usage error. Refusing costs a
+// caller nothing they were actually getting — what they got before was
+// unparseable either way.
+func TestAttachRefusesTheStructuredEnvelope(t *testing.T) {
+	got := run(t, "attach", "anything", "--json")
+	if got.code != 2 {
+		t.Fatalf("exit %d, want 2 (USAGE)\nstdout: %s\nstderr: %s", got.code, got.stdout, got.stderr)
+	}
+	envelope := got.envelope(t)
+	if envelope.OK {
+		t.Error("the envelope reports success")
+	}
+	if envelope.Error == nil || envelope.Error.Code != backend.CodeUsage {
+		t.Errorf("the refusal is %v, want a usage error", envelope.Error)
+	}
+	// The refusal must say what to do instead, or it is just a wall.
+	if envelope.Error != nil && !strings.Contains(envelope.Error.Message, "attach") {
+		t.Errorf("the message does not name the verb it is about: %q", envelope.Error.Message)
+	}
+}
+
+// Without --json, attach is untouched: it is an interactive handoff and the
+// refusal above must not leak into the ordinary path.
+func TestAttachWithoutJSONIsNotRefused(t *testing.T) {
+	requireTmuxInstalled(t)
+	got := run(t, append(isolation(t), "attach", "no-such-session-"+t.Name())...)
+	if got.code == 2 {
+		t.Errorf("plain attach was refused as a usage error:\n%s%s", got.stdout, got.stderr)
+	}
+}

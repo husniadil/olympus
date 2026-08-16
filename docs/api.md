@@ -169,6 +169,16 @@ that has a table.
 Nothing diagnostic ever goes to stdout, and no payload ever goes to stderr. A
 consumer piping stdout into a parser must never have to filter it.
 
+**`attach` has no `--json` form, and asking for one is a `USAGE` error.** It is
+the single verb that hands stdout to the multiplexer's client rather than
+writing to it: every byte the session draws goes there, and so does the client's
+own failure text — `open terminal failed: …` reaches stdout with stderr empty,
+and no layer above can take those bytes back. A structured mode there could only
+pretend. Refusing keeps the rule above absolute, and costs the caller nothing
+they were getting, since that output was never parseable. The MCP door has no
+attach tool at all, for the same reason: a stdio transport has no terminal to
+hand over.
+
 ---
 
 ## 3. Errors and exit codes
@@ -459,6 +469,14 @@ spec §17.5 has the measurements and the rule.
 
 `reason` names the resolution rule that applied (`flag`, `env`, `default`,
 `fallback`), satisfying the disclosure requirement of behavior spec §0.4.
+
+A backend entry carries `problem` when it is on PATH but could not be run — the
+case a version-manager shim left behind by an uninstalled tool produces, where a
+lookup succeeds and every call fails. Resolution is a single lookup with no
+subprocess (behavior spec §0.2) and cannot tell the difference; the diagnostic
+can, and saying so is its job. Without it, `installed: true` with no `version`
+leaves a reader to guess between not-runnable, too-slow-to-answer, and
+never-asked.
 
 ---
 
