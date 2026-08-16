@@ -21,9 +21,10 @@ answered and why, its version, and what it can do.
 
 **Reproduction**
 
-The commands you ran. If you can reproduce it against a private socket
-(`--socket some-name`) or a private `ZMX_DIR`, that keeps your live sessions out
-of it.
+The commands you ran. Reproducing it off your live sessions keeps them out of
+it, and how depends on the backend: `--socket-path ./some/dir/sock` for tmux or
+meja, a private `ZMX_DIR` for zmx. A socket PATH rather than a name, because
+killing a server does not unlink its socket and a named one is left behind.
 
 **Does the spec cover it?**
 

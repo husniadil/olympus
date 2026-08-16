@@ -21,11 +21,19 @@ Two things are worth knowing when reasoning about isolation:
 - **The write lock is advisory.** It serializes other Olympus processes going
   through the same path. A human typing into a raw `tmux attach`, or any other
   writer, is unaffected and can still interleave with it.
-- **Session visibility differs by backend.** On tmux, Olympus uses its own
-  socket by default. On zmx there is no socket equivalent: sessions are global
-  to the user's daemon, so anything Olympus creates is visible to — and killable
-  by — anything else that user runs. `olympus doctor` reports which posture is
-  in effect.
+- **Session visibility differs by backend**, and the difference is larger than
+  it looks:
+  - **tmux** — Olympus uses its own socket by default, so its sessions are not
+    on the server your own `tmux` command talks to.
+  - **zmx** — there is no socket equivalent. Sessions are global to the user's
+    daemon, so anything Olympus creates is visible to, and killable by, anything
+    else that user runs.
+  - **meja** — addressed by socket path. Note that meja keeps session RECOVERY
+    files beside the socket, so a server addressed by profile name would leave
+    persisted sessions in the user's own store, to be restored later. Olympus
+    only ever addresses it by path, for that reason.
+
+  `olympus doctor` reports which posture is in effect.
 
 Lock and attach-guard files are created mode 0700/0600 under the user's
 temporary directory, because their names encode session names.

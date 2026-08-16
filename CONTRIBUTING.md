@@ -45,6 +45,10 @@ This is not negotiable, and it is easy to get wrong:
   protect anyone: every test session still lands on the one shared daemon. Set
   `ZMX_DIR` to a private temporary directory, for the backend *and* for every
   raw verification call.
+- **meja**: address it by socket path (`-S` / `meja.WithSocketPath`), never by
+  profile name (`-L`). A profile resolves under `~/.meja`, and meja keeps
+  session recovery files beside the socket — so a named profile would leave
+  persisted sessions in your own store, to come back on your next restore.
 
 ## The gate
 
