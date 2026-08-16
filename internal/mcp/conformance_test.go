@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -299,6 +300,7 @@ func TestEveryToolIsDescribed(t *testing.T) {
 // protocol error. Conflating them makes a session that was fine look broken,
 // and leaves the client unable to tell a missing target from a broken server.
 func TestAnOperationFailureIsAToolErrorNotAProtocolError(t *testing.T) {
+	requireBackend(t)
 	w := newWire(t)
 
 	response := w.call("tools/call", map[string]any{
@@ -343,4 +345,88 @@ func sortedToolNames() []string {
 	names := slices.Clone(olympusmcp.ToolNames)
 	slices.Sort(names)
 	return names
+}
+
+// §15.6 and api §5: three tools answer about Olympus and this process, not about
+// a multiplexer — and must therefore answer when no multiplexer is installed.
+//
+// That is precisely when they are needed. `doctor` is the command sent to
+// explain an environment with nothing in it; refusing because there is nothing
+// in it is the same self-defeating shape as a diagnostic that hangs. `version`
+// exists so a consumer can floor-check without shelling out, which it cannot do
+// if the answer depends on an unrelated binary. And `self` outside a session is
+// documented to answer `inside: false` — an answer a caller can act on, where an
+// error leaves them guessing whether it meant nowhere or could-not-tell.
+//
+// The whole tool surface used to open a backend handle before dispatch, so all
+// three failed with BACKEND_UNAVAILABLE on a machine with no multiplexer.
+func TestTheBackendIndependentToolsAnswerWithNothingInstalled(t *testing.T) {
+	// An empty directory as the entire PATH: no zmx, no tmux, no meja, without
+	// uninstalling anything.
+	t.Setenv("PATH", t.TempDir())
+	w := newWire(t)
+
+	for _, name := range []string{"version", "doctor", "self"} {
+		result := resultOf(t, w.call("tools/call", map[string]any{
+			"name": name, "arguments": map[string]any{}, "_meta": modernMeta(modernVersion)}))
+		if isError, _ := result["isError"].(bool); isError {
+			encoded, _ := json.Marshal(result["content"])
+			t.Errorf("%s failed with no multiplexer installed: %s", name, encoded)
+		}
+	}
+}
+
+// The rest of the surface must still refuse, and refuse in the vocabulary. A
+// blanket exemption would turn "nothing is installed" into a pile of confusing
+// per-tool failures instead of one code the caller can branch on.
+func TestTheBackendDependentToolsStillRefuseWithNothingInstalled(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	w := newWire(t)
+
+	result := resultOf(t, w.call("tools/call", map[string]any{
+		"name": "list_sessions", "arguments": map[string]any{}, "_meta": modernMeta(modernVersion)}))
+	if isError, _ := result["isError"].(bool); !isError {
+		t.Fatal("listing sessions succeeded with no multiplexer installed")
+	}
+	encoded, _ := json.Marshal(result["content"])
+	if !strings.Contains(string(encoded), "BACKEND_UNAVAILABLE") {
+		t.Errorf("the refusal does not carry its code: %s", encoded)
+	}
+}
+
+// The exemption must not cost the envelope a field. `backend` is shipped and
+// semver-bound (api §2), so a healthy machine keeps naming the resolved backend
+// on these three results; only a machine where nothing resolves leaves it empty.
+func TestAFreestandingToolStillNamesTheResolvedBackend(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+	t.Setenv("OLYMPUS_BACKEND", "tmux")
+	w := newWire(t)
+
+	result := resultOf(t, w.call("tools/call", map[string]any{
+		"name": "version", "arguments": map[string]any{}, "_meta": modernMeta(modernVersion)}))
+	structured, ok := result["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("the tool returned no structured content: %v", result)
+	}
+	if structured["backend"] != "tmux" {
+		t.Errorf("the envelope names backend %v, want tmux", structured["backend"])
+	}
+}
+
+// requireBackend skips when no multiplexer is installed.
+//
+// Cases that assert a SESSION-level outcome need something to have sessions.
+// Without this they fail with BACKEND_UNAVAILABLE, which is the CORRECT answer
+// on such a machine — so the failure reports a working product as broken, and
+// does it on exactly the machines least able to tell the difference.
+func requireBackend(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"tmux", "zmx", "meja"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return
+		}
+	}
+	t.Skip("no terminal multiplexer is installed")
 }

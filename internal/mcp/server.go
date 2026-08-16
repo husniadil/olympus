@@ -118,6 +118,43 @@ type handler[In, Out any] func(context.Context, *olympus.Olympus, In) (Out, []ol
 // addTool registers a tool with typed parameters and results, so the SDK
 // generates the JSON schemas and populates structured content rather than the
 // door hand-marshalling them (behavior §15.6).
+// addFreestandingTool registers a tool that answers about Olympus or about this
+// process, and therefore must NOT require a multiplexer.
+//
+// Three tools are in this class, and each is most needed exactly when nothing is
+// installed. `doctor` is what a caller is sent to when the environment is
+// broken; refusing because the environment is broken is the same self-defeating
+// shape as a diagnostic that hangs. `version` exists so a consumer can
+// floor-check without shelling out, which it cannot do if the answer depends on
+// an unrelated binary. And `self` outside a session is documented to answer
+// `inside: false` — an answer a caller can act on, where an error leaves them
+// unable to tell "nowhere" from "could not tell" (api §5).
+//
+// Deliberately narrow. Everything else still opens a handle and still refuses
+// with BACKEND_UNAVAILABLE, because a blanket exemption would scatter one
+// answerable condition across a pile of per-tool failures.
+func addFreestandingTool[In, Out any](s *sdk.Server, name, description string,
+	fn func(context.Context, In) (Out, []olympus.Warning, error)) {
+	sdk.AddTool(s, &sdk.Tool{Name: name, Description: description},
+		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Result[Out], error) {
+			out, warnings, err := fn(ctx, in)
+			if err != nil {
+				return toolError(err), Result[Out]{}, nil
+			}
+			// The envelope still names the resolved backend when one resolves.
+			// It is a shipped field (api §2), so it must not disappear from
+			// these three results on a healthy machine merely because they
+			// stopped REQUIRING a backend to answer. Failure to resolve is the
+			// case this whole function exists for, and is simply left empty.
+			var name backend.Name
+			if ol, openErr := open(); openErr == nil {
+				name = ol.Backend()
+				ol.Close()
+			}
+			return nil, Result[Out]{Backend: name, Data: out, Warnings: warnings}, nil
+		})
+}
+
 func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In, Out]) {
 	sdk.AddTool(s, &sdk.Tool{Name: name, Description: description},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Result[Out], error) {

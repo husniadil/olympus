@@ -376,8 +376,8 @@ func register(s *sdk.Server) {
 			return out, nil, nil
 		})
 
-	addTool(s, "self", "Report which session this MCP server is running inside, if any. Being outside one is an answer, not a failure. Nested sessions report no single address, because the environment cannot say which is inner.",
-		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) (olympus.Identity, []olympus.Warning, error) {
+	addFreestandingTool(s, "self", "Report which session this MCP server is running inside, if any. Being outside one is an answer, not a failure. Nested sessions report no single address, because the environment cannot say which is inner.",
+		func(ctx context.Context, _ emptyParams) (olympus.Identity, []olympus.Warning, error) {
 			// Answers about this PROCESS, so the handle's configured backend
 			// is deliberately not consulted: it describes what this server
 			// would address, not where it is.
@@ -513,16 +513,16 @@ func register(s *sdk.Server) {
 			return envResult{Key: in.Key, Present: present, Value: value}, nil, nil
 		})
 
-	addTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.",
-		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) (olympus.Diagnosis, []olympus.Warning, error) {
+	addFreestandingTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.",
+		func(ctx context.Context, _ emptyParams) (olympus.Diagnosis, []olympus.Warning, error) {
 			return olympus.Diagnose(ctx), nil, nil
 		})
 
 	// A version tool must exist so a consumer can floor-check without shelling
 	// out, and it reports the same literal the server identity carries
 	// (behavior §15.6).
-	addTool(s, "version", "Report the Olympus version.",
-		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) (versionResult, []olympus.Warning, error) {
+	addFreestandingTool(s, "version", "Report the Olympus version.",
+		func(ctx context.Context, _ emptyParams) (versionResult, []olympus.Warning, error) {
 			return versionResult{Version: olympus.Version}, nil, nil
 		})
 }

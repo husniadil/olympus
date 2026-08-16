@@ -22,6 +22,7 @@ var counter atomic.Int64
 // none — which is exactly what makes this possible.
 func isolate(t *testing.T) {
 	t.Helper()
+	skipUnlessFull(t)
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
@@ -398,5 +399,22 @@ func TestAForeignZmxDirDoesNotBreakAnotherBackend(t *testing.T) {
 	}
 	if got["backend"] != "tmux" {
 		t.Errorf("resolved %v, want tmux", got["backend"])
+	}
+}
+
+// skipUnlessFull skips work that drives a real multiplexer when the gate is
+// running in short mode.
+//
+// `make test` is the loop a change is iterated against, and it has to be fast
+// enough to run on every edit; `make test-full` is the gate before a commit.
+// Splitting them is NOT a reduction in coverage — nothing is deleted, and the
+// full gate still runs everything. It is a split between the two questions being
+// asked: "did I just break the logic" is answerable in seconds, and paying a
+// minute and a half for it means the answer gets asked less often, which is how
+// coverage is really lost.
+func skipUnlessFull(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
 	}
 }
