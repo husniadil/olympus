@@ -166,8 +166,13 @@ func TestStealingDisplacesALiveHolder(t *testing.T) {
 	// termination — is what frees the slot here. That is the same mechanism a
 	// real attach client relies on if its handler is not yet installed, which is
 	// why §8.6 records the recycled-pid risk as accepted rather than fixed.
+	// A longer wait than the product default on purpose. What is under test is
+	// that stealing DISPLACES a holder, not whether three seconds happens to be
+	// enough on the machine running the test — and on a loaded CI runner it is
+	// not: the first real CI run failed here with "did not release within 3s".
+	// Keeping the default would make this case a load meter.
 	slot, err := guard.Acquire(context.Background(), holderKey(), true,
-		engine.DefaultStealWait, engine.DefaultStealPoll)
+		30*time.Second, engine.DefaultStealPoll)
 	if err != nil {
 		t.Fatalf("stealing from a live holder: %v", err)
 	}

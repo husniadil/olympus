@@ -378,10 +378,13 @@ func TestDrivingAFullScreenEditor(t *testing.T) {
 				key  backend.Key
 				want string
 			}{
-				// The exact wording is nano's, and was read off a real one
-				// rather than guessed: it says "Write to File", not the
-				// "File Name to Write" older versions used.
-				{"c-o", `Write to File`},
+				// BOTH wordings, because nano changed it and the supported
+				// range spans the change: 9.2 says "Write to File", 7.2 — what
+				// Ubuntu 24.04 ships, and what CI runs — says "File Name to
+				// Write". The comment here used to name the old wording while
+				// the pattern accepted only the new one, which is a note that
+				// knew about the problem without preventing it.
+				{"c-o", `Write to File|File Name to Write`},
 				{"enter", `GNU nano`},
 			} {
 				if err := s.Press(ctx, step.key); err != nil {

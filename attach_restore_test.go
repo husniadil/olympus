@@ -127,6 +127,28 @@ func TestAttachHandsTheTerminalBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the terminal back: %v", err)
 	}
+
+	// Waiting for the bytes rather than sampling once.
+	//
+	// The client's reset is written on its way out, and the goroutine above has
+	// to be scheduled to read it. Process.Wait returning says the process is
+	// gone, NOT that its last writes have been drained from the pty — so
+	// checking here raced the reader, won on every developer machine, and lost
+	// on the first loaded CI runner it met. It reported "focus reporting was
+	// never turned back off" when the sequence was simply still in flight.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		drained := string(streamed)
+		mu.Unlock()
+		if strings.Contains(drained, "\x1b[?1004l") && strings.Contains(drained, "\x1b[?2004l") {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if after.Lflag != before.Lflag || after.Iflag != before.Iflag || after.Oflag != before.Oflag {
 		t.Errorf("the terminal was not handed back:\n  before: iflag=%#x oflag=%#x lflag=%#x\n  after:  iflag=%#x oflag=%#x lflag=%#x",
 			before.Iflag, before.Oflag, before.Lflag, after.Iflag, after.Oflag, after.Lflag)
