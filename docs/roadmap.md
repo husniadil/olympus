@@ -26,9 +26,12 @@ deliberately not hidden inside it:
   and the slot is arbitrated across real processes including a holder killed
   with SIGKILL. What is still exercised only by hand is a HUMAN attaching —
   keystroke feel, detach keys, and how a full-screen program looks to a person.
-- **CI has never run.** The workflow is written and has never been exercised:
-  there is no remote yet, so the tmux-3.3 build step and the matrix are
-  unproven. `make test-full` — what CI runs — is green locally on macOS.
+- **CI has never run.** There is no remote yet, so the matrix and the tmux-3.3
+  build step remain unproven end to end. What HAS been checked without one:
+  `actionlint` is clean, the 3.3 release tarball URL resolves, and
+  `github.com/garindra/meja` is public on the module proxy so the meja install
+  step can work. `make test-full` — what CI runs — is green locally on macOS and
+  under Docker on Linux.
 - **A release has never been cut.** The goreleaser configuration exists and has
   never been run, and there is no Homebrew tap: installation is `go install` or
   the archives a release would produce.

@@ -8,10 +8,21 @@ on:
 permissions:
   contents: read
 
+# A superseded run proves nothing about the commit that replaced it, and the
+# suite drives real terminals — these are not cheap minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: ${{ matrix.os }} · tmux ${{ matrix.tmux }}
     runs-on: ${{ matrix.os }}
+    # A hung test would otherwise burn the default six hours. This is not
+    # hypothetical: `doctor` could hang forever on a backend binary that never
+    # answered, and the local run that found it sat at 600s before anyone looked.
+    # The full gate takes ~100s on a developer machine.
+    timeout-minutes: 20
     strategy:
       # One backend or platform failing should not hide the others: the whole
       # point of the matrix is knowing WHICH combination broke.
@@ -52,6 +63,27 @@ jobs:
           cd "tmux-${{ matrix.tmux }}" && ./configure && make -j"$(nproc)" && sudo make install
           tmux -V
 
+      # meja installs from source with the Go toolchain already set up above, so
+      # unlike zmx it CAN be covered here. It is allowed to fail: a third-party
+      # module that stops building must not take the whole gate with it, and the
+      # backend's own tests skip loudly when it is absent.
+      - name: Install meja
+        continue-on-error: true
+        run: |
+          go install github.com/garindra/meja@latest
+          # setup-go is documented to add this, but this workflow has never run
+          # and a silent PATH assumption would show up as "meja absent" rather
+          # than as the mistake it is.
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Note the meja leg
+        run: |
+          if meja version >/dev/null 2>&1; then
+            echo "meja present: $(meja version | head -1)"
+          else
+            echo "::warning::meja could not be installed on this runner; its conformance leg is SKIPPED, not passing"
+          fi
+
       # zmx is not packaged for these runners. Its leg skips loudly rather than
       # failing the suite, so the tmux leg still proves everything it can — but
       # CI must never be read as having covered zmx when it did not.
@@ -74,6 +106,7 @@ jobs:
   vet:
     name: format and vet
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
