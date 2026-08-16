@@ -11,4 +11,5 @@ CLAUDE.local.md
 /olympus
 /bin/
 /dist/
+/.gendoc/
 coverage.out

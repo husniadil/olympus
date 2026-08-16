@@ -7,7 +7,12 @@ version: 2
 before:
   hooks:
     - go mod tidy
-    - go run ./tools/gendoc dist/doc
+    # NOT into dist/. before-hooks run before goreleaser prepares the
+    # distribution directory, so writing there makes dist non-empty and the run
+    # aborts with "dist is not empty" — even with --clean, because the clean
+    # happens after these. Found by actually running it; reading the file does
+    # not show the ordering.
+    - go run ./tools/gendoc .gendoc
 
 builds:
   - id: olympus
@@ -19,8 +24,16 @@ builds:
     # cannot do the job.
     goos: [darwin, linux]
     goarch: [amd64, arm64]
+    # The version is STAMPED, not compiled in. Version is the literal every door
+    # reports and the one a consumer floor-checks against (api §7); without this
+    # every published binary reports the development placeholder in version.go,
+    # whatever tag it was cut from.
     ldflags:
       - -s -w
+      - -X github.com/husniadil/olympus.Version={{ .Version }}
+    # Reproducible archives: without this the binary carries its build time and
+    # two builds of one tag differ.
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - formats: [tar.gz]
@@ -28,9 +41,9 @@ archives:
       - README.md
       - LICENSE
       - CHANGELOG.md
-      - src: dist/doc/man/*
+      - src: .gendoc/man/*
         dst: man
-      - src: dist/doc/completions/*
+      - src: .gendoc/completions/*
         dst: completions
 
 checksum:

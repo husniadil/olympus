@@ -49,7 +49,7 @@ same operation.
 | read a server env key | `server-env` | `server_env` | `ServerEnv` |
 | what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
 | environment diagnosis | `doctor` | `doctor` | `Diagnose` |
-| version | `version` | `version` | `Version` (a constant) |
+| version | `version` | `version` | `Version` (a package variable) |
 | serve the MCP door | `mcp` | *(is the door)* | — |
 
 **The doors translate; they do not decide.** A default, validation rule, or
@@ -591,3 +591,8 @@ Semver, with these commitments:
 
 `version` reports one literal, shared by the CLI verb, the MCP tool, and the MCP
 server identity, so no two doors can disagree about what is running.
+
+The release **stamps** it with the tag at link time. It is a package variable
+for that reason alone and must be treated as read-only by callers. Compiling it
+in would mean every published binary reporting the development placeholder
+whatever tag it was cut from — which breaks the one check a client has.

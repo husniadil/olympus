@@ -79,9 +79,9 @@ install:
 	go install ./cmd/olympus
 
 clean:
-	rm -rf bin dist coverage.out
+	rm -rf bin dist .gendoc coverage.out
 
 # Manual pages and shell completions, generated from the command tree itself so
 # they cannot describe a surface the binary no longer has.
 doc:
-	go run ./tools/gendoc dist/doc
+	go run ./tools/gendoc .gendoc
