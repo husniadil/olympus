@@ -244,7 +244,9 @@ loudly rather than failing the suite, and the whole suite passes with no
 multiplexer installed at all.
 
 A third-party backend can prove itself against the same conformance suite the
-shipped ones run — `backend/backendtest` is exported for exactly that.
+shipped ones run — `backend/backendtest` is exported for exactly that, and
+[`docs/adding-a-backend.md`](docs/adding-a-backend.md) is the route from a spike
+to a reviewable pull request.
 
 ---
 

@@ -88,6 +88,10 @@ is worse than no spec, because it is still believed.
 - **Commit at checkpoints.** Small, working increments rather than one large
   drop, so each step is reviewable and revertible on its own.
 
+[`docs/adding-a-backend.md`](docs/adding-a-backend.md) is the contributor route
+for a fourth backend: spike first, isolation, the conformance suite as the
+definition of correct, and the lessons that each cost a day here.
+
 [`docs/roadmap.md`](docs/roadmap.md) has the ordered phases and what "done"
 means for each.
 
