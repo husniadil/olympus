@@ -56,7 +56,7 @@ thing.
 ```sh
 olympus start build --dir /repo
 olympus send build 'make test'        # types it, confirms it landed, submits it
-olympus wait build '\$\s*$'           # block until the prompt comes back
+olympus wait build 'ok|FAIL'          # block until the output says something
 olympus screen build api docs         # several sessions in one call
 olympus watch build                   # follow output as it is produced
 olympus panes                         # every pane, across every session
@@ -70,6 +70,12 @@ olympus attach build                  # hand this terminal over
 
 That is a sample, not the whole surface — `olympus --help` lists every verb, and
 each has its own `--help` explaining the parts that are not obvious.
+
+**Wait for the program's output, not for your prompt.** `wait` matches per line,
+so `'\$\s*$'` looks like a natural "back at the prompt" pattern — and it is only
+your prompt: it never matches under zsh, fish, or anything with a themed or
+two-line prompt. Match on something the command itself prints and the pattern
+works on everyone's machine.
 
 Add `--json` to any verb for a stable, machine-readable envelope. Human output
 is for reading and may change in any release; `--json` will not.

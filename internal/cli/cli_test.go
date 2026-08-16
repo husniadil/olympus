@@ -1018,3 +1018,74 @@ func TestWatchRefusesTheStructuredEnvelope(t *testing.T) {
 		t.Errorf("the refusal is %v, want a usage error", envelope.Error)
 	}
 }
+
+// The README's examples, run.
+//
+// Nothing tested them, and they are the first thing a reader types. One was
+// already wrong: `wait build '\$\s*$'`, offered as "block until the prompt comes
+// back", matches only a prompt ending in `$`. It fails under zsh, fish, or
+// anything themed — including on the machine it was written on, which is how it
+// was found.
+//
+// Deliberately small and prompt-independent. This asserts the commands still
+// WORK; it does not try to verify the README's prose, which would be a test of a
+// file's wording rather than of a contract.
+func TestTheREADMEExamplesStillRun(t *testing.T) {
+	flags := isolation(t)
+	name := fmt.Sprintf("oly-readme-%d-%d", os.Getpid(), counter.Add(1))
+
+	for _, example := range []struct {
+		what string
+		args []string
+	}{
+		{"start", []string{"start", name}},
+		{"run", []string{"run", name, "echo hello from a real terminal"}},
+		{"screen", []string{"screen", name}},
+		{"send", []string{"send", name, "echo readme-ok"}},
+		// On the command's own output, never on a prompt. This is the case the
+		// README got wrong, so it is the one worth pinning.
+		{"wait", []string{"wait", name, "readme-ok", "--timeout", "20s"}},
+		{"panes", []string{"panes"}},
+		{"capabilities", []string{"capabilities"}},
+		{"status --set", []string{"status", name, "--set", "ready"}},
+		{"status --wait", []string{"status", name, "--wait", "ready", "--timeout", "10s"}},
+		{"throwaway run", []string{"run", "echo throwaway-ok"}},
+		{"self", []string{"self"}},
+		{"doctor", []string{"doctor"}},
+		{"ls --json", []string{"ls", "--json"}},
+		{"stop", []string{"stop", name}},
+	} {
+		got := run(t, append(flags, example.args...)...)
+		if got.code != 0 {
+			t.Errorf("README example %q exited %d\n%s%s", example.what, got.code, got.stdout, got.stderr)
+		}
+	}
+}
+
+// `olympus ls --json | jq '.data[].name'` is the README's one piped example, so
+// the envelope has to carry a data array of objects with a name — which is what
+// makes that pipeline print names rather than null.
+func TestTheREADMEJQPipelineWouldFindNames(t *testing.T) {
+	flags := isolation(t)
+	name := fmt.Sprintf("oly-readme-jq-%d-%d", os.Getpid(), counter.Add(1))
+	if got := run(t, append(flags, "start", name)...); got.code != 0 {
+		t.Fatalf("start: %s", got.stderr)
+	}
+	t.Cleanup(func() { run(t, append(flags, "stop", name)...) })
+
+	var rows []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(mustData(t, run(t, append(flags, "ls", "--json")...).envelope(t)), &rows); err != nil {
+		t.Fatalf("`ls --json` data is not an array of objects: %v", err)
+	}
+	found := false
+	for _, row := range rows {
+		if row.Name == name {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("`.data[].name` would not have found the session that exists: %v", rows)
+	}
+}
