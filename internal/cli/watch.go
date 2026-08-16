@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/husniadil/olympus"
+	"github.com/husniadil/olympus/backend"
 )
 
 func (a *App) watchCmd() *cobra.Command {
@@ -16,6 +17,16 @@ func (a *App) watchCmd() *cobra.Command {
 			"\n\nThere is no --json for this: it is a stream, and wrapping it in an envelope would mean buffering it until it ends.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Said in the help above, enforced here. A stream has no envelope
+			// that would not mean buffering it until it ends, which is the one
+			// thing a follower must not do — and accepting the flag anyway put
+			// raw terminal bytes, escape sequences included, on the channel a
+			// parser reads (api §2.3).
+			if a.json {
+				return backend.Errorf(backend.CodeUsage,
+					"watch follows a raw output stream, so it has no --json form: "+
+						"drop --json to watch, or use `screen` for a capture you can parse")
+			}
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
 				return s.Watch(cmd.Context(), a.Out)
 			})

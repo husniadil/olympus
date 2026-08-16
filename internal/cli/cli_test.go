@@ -998,3 +998,23 @@ func TestADetachedRunReturnsAPollableCommandID(t *testing.T) {
 		t.Fatalf("polling with the returned id exited %d: %s", polled.code, polled.stderr)
 	}
 }
+
+// The same rule as attach, and for the same reason: `watch` writes the session's
+// raw output stream — escape sequences included — straight to stdout. There is
+// no envelope that could contain it without buffering the stream until it ends,
+// which is the one thing a follower must not do.
+//
+// Its help text already SAID "there is no --json for this" and then accepted the
+// flag anyway, emitting raw terminal bytes onto the channel a parser is reading.
+// Saying it and enforcing it are different things, and only one of them is a
+// contract.
+func TestWatchRefusesTheStructuredEnvelope(t *testing.T) {
+	got := run(t, "watch", "anything", "--json")
+	if got.code != 2 {
+		t.Fatalf("exit %d, want 2 (USAGE)\nstdout: %s\nstderr: %s", got.code, got.stdout, got.stderr)
+	}
+	envelope := got.envelope(t)
+	if envelope.Error == nil || envelope.Error.Code != backend.CodeUsage {
+		t.Errorf("the refusal is %v, want a usage error", envelope.Error)
+	}
+}

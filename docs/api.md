@@ -169,15 +169,24 @@ that has a table.
 Nothing diagnostic ever goes to stdout, and no payload ever goes to stderr. A
 consumer piping stdout into a parser must never have to filter it.
 
-**`attach` has no `--json` form, and asking for one is a `USAGE` error.** It is
-the single verb that hands stdout to the multiplexer's client rather than
-writing to it: every byte the session draws goes there, and so does the client's
-own failure text — `open terminal failed: …` reaches stdout with stderr empty,
-and no layer above can take those bytes back. A structured mode there could only
-pretend. Refusing keeps the rule above absolute, and costs the caller nothing
-they were getting, since that output was never parseable. The MCP door has no
-attach tool at all, for the same reason: a stdio transport has no terminal to
-hand over.
+**`attach` and `watch` have no `--json` form, and asking for one is a `USAGE`
+error.** They are the two verbs whose output IS the terminal rather than a
+description of it, so no envelope can hold it:
+
+- `attach` hands stdout to the multiplexer's client, which then owns it. Every
+  byte the session draws goes there, and so does the client's own failure text —
+  `open terminal failed: …` reaches stdout with stderr empty, and no layer above
+  can take those bytes back.
+- `watch` writes the raw output stream, escape sequences included. Wrapping it in
+  an envelope would mean buffering until the stream ends, which is the one thing
+  a follower must not do.
+
+Refusing keeps the rule above absolute, and costs the caller nothing they were
+getting, since that output was never parseable either way. Use `screen` for a
+capture that can be parsed, and `info` to ask about a session.
+
+The MCP door has no attach tool at all, for the same reason: a stdio transport
+has no terminal to hand over.
 
 ---
 
