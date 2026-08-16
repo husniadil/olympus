@@ -41,7 +41,27 @@ func TestDrivingAPythonREPL(t *testing.T) {
 			s := session(t, ol)
 			ctx := context.Background()
 
-			if err := s.Send(ctx, python+" -q"); err != nil {
+			// PYTHON_BASIC_REPL pins which REPL answers, and the flake it
+			// settles took four rounds of a full suite under load to reproduce.
+			//
+			// Python 3.13 made PyREPL the default: a cursor-addressing REPL that
+			// draws its prompt by positioning rather than by printing a line. Under
+			// load its first paint lands on the row the shell's echo is still on,
+			// and the pane genuinely renders
+			//
+			//     $ /usr/bin/python3 -q>>>
+			//
+			// with the prompt appended to the command instead of starting a line.
+			// The capture is CORRECT — that is what the terminal drew — so nothing
+			// in Olympus is wrong; the anchored pattern below simply cannot match
+			// it, roughly one run in eight here.
+			//
+			// The basic REPL prints its prompt on a line of its own, on every
+			// version, which is the line-oriented behaviour this test exists to
+			// drive. Full-screen repainting is a different property with its own
+			// test against a real editor. Unknown to Python 3.12 and earlier, where
+			// it is ignored rather than an error.
+			if err := s.Send(ctx, "PYTHON_BASIC_REPL=1 "+python+" -q"); err != nil {
 				t.Fatalf("starting the REPL: %v", err)
 			}
 

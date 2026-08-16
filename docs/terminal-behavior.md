@@ -1133,6 +1133,30 @@ normalized needle; sub-24-column panes are not a supported target.
 tmux is unaffected — `-J` rejoins the wrap before capture sees it — but the
 matcher is shared, so both backends behave identically.
 
+### 7.3.1 A caller's pattern MUST NOT assume a prompt starts a line
+
+Anchoring a wait on `^` is the obvious way to write a prompt pattern, and it is
+unreliable against any program that paints by cursor addressing rather than by
+printing lines.
+
+Measured: Python 3.13's default REPL, started under load, draws its first prompt
+onto the row the shell's echo is still occupying, and the pane genuinely renders
+
+```
+$ /usr/bin/python3 -q>>>
+```
+
+The capture is correct — that is what the terminal drew — so this is not a defect
+to fix in a backend or in the matcher. It is a property of full-screen-capable
+programs that callers have to write patterns against: the same program produces a
+line-anchored prompt on one run and an appended one on the next, depending on
+timing.
+
+A caller that needs the stricter assertion should pin the program's behavior
+instead of the pattern — for a REPL, by selecting its line-oriented mode. Olympus
+reports what is on the screen; it does not normalize away where a program chose
+to put it.
+
 ### 7.4 One resend, two independent budgets
 
 Send, poll for up to one attempt budget, and on a miss resend the **same** text
