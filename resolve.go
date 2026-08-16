@@ -163,9 +163,15 @@ func installHint(name backend.Name) string {
 		return "install it with your package manager, for example `apt install tmux`"
 	case backend.Zmx:
 		// The URL was left out here for a while, on the rule that a wrong one is
-		// worse than none in the first message a new user reads. It is in now
-		// because it was checked, not because it looked right.
-		return "install it from https://github.com/neurosnap/zmx and make sure `zmx` is on your PATH"
+		// worse than none in the first message a new user reads. Both of these
+		// were checked, not guessed: the page and the tap.
+		//
+		// The homepage rather than the repository, because this message exists
+		// to get somebody installed and that is where the instructions are.
+		if runtime.GOOS == "darwin" {
+			return "install it with `brew install neurosnap/tap/zmx`, or see https://zmx.sh"
+		}
+		return "install it from https://zmx.sh and make sure `zmx` is on your PATH"
 	case backend.Meja:
 		return "install it with `go install github.com/garindra/meja@latest` and make sure `meja` is on your PATH"
 	default:
