@@ -154,8 +154,25 @@ type commandParams struct {
 
 type pollParams struct {
 	Target string `json:"target" jsonschema:"the session the run was started in"`
-	ID     string `json:"id" jsonschema:"the id start_run returned"`
-	Lines  int    `json:"lines,omitempty" jsonschema:"scrollback window to search; ignored where scrollback is native"`
+	ID     string `json:"id,omitempty" jsonschema:"the id start_run returned"`
+	// CommandID is the same value under the name start_run hands back.
+	//
+	// The asymmetry is historical: this tool has always taken `id` and
+	// start_run has always returned `command_id`, and both are shipped, so
+	// neither can be renamed (§7). A new name CAN be added, and the obvious
+	// thing for a caller to try is the one they were just given — getting it
+	// wrong costs a round trip and a schema error that reads like a broken tool.
+	CommandID string `json:"command_id,omitempty" jsonschema:"the id start_run returned; the same thing as id, under the name start_run uses"`
+	Lines     int    `json:"lines,omitempty" jsonschema:"scrollback window to search; ignored where scrollback is native"`
+}
+
+// runID resolves the two accepted spellings to one value, preferring the
+// original so a caller that sends both is not surprised by which won.
+func (p pollParams) runID() string {
+	if p.ID != "" {
+		return p.ID
+	}
+	return p.CommandID
 }
 
 type markerParams struct {
@@ -458,7 +475,17 @@ func register(s *sdk.Server) {
 			if in.Lines > 0 {
 				opts = append(opts, olympus.PollWindow(in.Lines))
 			}
-			result, err := session.Poll(ctx, in.ID, opts...)
+			id := in.runID()
+			if id == "" {
+				// Neither spelling given. Loosening the schema so either name
+				// works means the schema can no longer require one, so the
+				// requirement moves here rather than disappearing — a poll with
+				// no id would otherwise scan the scrollback for a marker that
+				// cannot exist and report died.
+				return olympus.PollResult{}, nil, backend.Errorf(backend.CodeUsage,
+					"polling needs the id start_run returned, as either id or command_id")
+			}
+			result, err := session.Poll(ctx, id, opts...)
 			return result, result.Warnings, err
 		})
 

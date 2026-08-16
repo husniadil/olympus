@@ -445,3 +445,65 @@ func TestStartRunReturnsAPollableCommandID(t *testing.T) {
 		t.Errorf("polling with the returned id reported no status: %v", polled)
 	}
 }
+
+// start_run RETURNS `command_id` and poll_run has always TAKEN `id`. Both are
+// shipped and semver-bound, so neither can be renamed — but a new name can be
+// added (CLAUDE.md #3), and the obvious thing for a caller to try is the name
+// they were just handed.
+//
+// Getting it wrong costs a round trip and a schema error that reads like the
+// tool is broken, which is a poor way to learn that two names mean one thing.
+func TestPollRunAlsoAcceptsTheNameStartRunHandedBack(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	started := w.callTool(t, "start_run", map[string]any{"target": name, "command": "echo aliased"})
+	data, _ := started["data"].(map[string]any)
+	id, _ := data["command_id"].(string)
+	if id == "" {
+		t.Fatalf("start_run returned no command_id: %v", started)
+	}
+
+	polled := w.callTool(t, "poll_run", map[string]any{"target": name, "command_id": id})
+	polledData, _ := polled["data"].(map[string]any)
+	if polledData["status"] == nil {
+		t.Errorf("poll_run rejected the name start_run handed back: %v", polled)
+	}
+}
+
+// The original name keeps working, unchanged. An alias that displaced it would
+// be a rename wearing a friendlier word.
+func TestPollRunStillAcceptsItsOriginalName(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	started := w.callTool(t, "start_run", map[string]any{"target": name, "command": "echo original"})
+	data, _ := started["data"].(map[string]any)
+	id, _ := data["command_id"].(string)
+
+	polled := w.callTool(t, "poll_run", map[string]any{"target": name, "id": id})
+	polledData, _ := polled["data"].(map[string]any)
+	if polledData["status"] == nil {
+		t.Errorf("poll_run rejected its own original parameter name: %v", polled)
+	}
+}
+
+// Accepting either name means the schema can no longer REQUIRE one, so the
+// requirement has to move rather than disappear. A poll with no id at all would
+// otherwise scan the scrollback for a marker that cannot exist and report the
+// run as died — a wrong answer dressed as a real one.
+func TestPollRunWithNoIDAtAllIsAUsageError(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	text := w.callToolExpectingError(t, "poll_run", map[string]any{"target": name})
+	if !strings.Contains(text, "USAGE") {
+		t.Errorf("polling with no id is %q, want a usage error", text)
+	}
+}
