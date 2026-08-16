@@ -31,6 +31,9 @@ func TestOrdinaryTargetPassesThroughWithoutListing(t *testing.T) {
 	}
 }
 
+// §10.1: a pane id is an address for the SESSION that owns the pane, not for
+// the pane. After a second window exists, an operation still runs against the
+// session's active window.
 func TestPaneIDResolvesToItsOwningSession(t *testing.T) {
 	got, err := backend.ResolveTarget("%7", backend.PrefixedPaneID, lister(
 		backend.Pane{ID: "%3", SessionName: "other"},

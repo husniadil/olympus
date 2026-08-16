@@ -42,6 +42,9 @@ func TestTextObservedOnScreenIsSubmittedOnce(t *testing.T) {
 
 // The failure guarded is a dropped or coalesced FIRST delivery. The same text
 // is resent, and the second window is what decides.
+// §4.4: a failed Enter after injection MUST be retried exactly once. Text left
+// sitting in the input line is not a visible failure — the NEXT injection
+// concatenates onto it, corrupting both.
 func TestADroppedFirstDeliveryIsResentOnce(t *testing.T) {
 	f := &fakeBackend{}
 	f.onType = func(f *fakeBackend, text string) {

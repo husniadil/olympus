@@ -813,6 +813,9 @@ func requireTmuxInstalled(t *testing.T) {
 	}
 }
 
+// §0.7: with no backend installed, the failure names every backend, says how to
+// install each, and points at the diagnostic.
+//
 // Nothing installed is a supported state, and it must be a supported state on
 // EVERY machine — not only on the ones that happen to lack a multiplexer.
 //

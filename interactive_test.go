@@ -240,6 +240,9 @@ func TestHistoryAgainstAFullScreenApplicationWarns(t *testing.T) {
 // Patterns are line-oriented because a screen is lines. Whole-screen matching
 // makes every anchored pattern silently never match, while a plain substring
 // still works — which is what makes that bug so easy to ship unnoticed.
+// §5.4: waiting for a pattern is LINE-oriented. Anchors are what callers write
+// — `^42$` for an answer, `^>>>` for a prompt — and matching the screen as one
+// blob makes every one of them silently never match.
 func TestWaitMatchesPerLine(t *testing.T) {
 	t.Parallel()
 	for _, l := range legs(t) {

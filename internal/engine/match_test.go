@@ -7,6 +7,8 @@ import (
 	"github.com/husniadil/olympus/internal/engine"
 )
 
+// §7.1: normalization absorbs the noise a terminal adds — case, whitespace,
+// prompt sigils, box-drawing — so a needle survives being rendered.
 func TestNormalizeAbsorbsRenderingNoise(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"make build", "makebuild"},
@@ -56,6 +58,8 @@ func TestABannerAboveTheTextDoesNotHideIt(t *testing.T) {
 	}
 }
 
+// §7.3: the matcher checks each line AND each adjacent pair, for wrap tolerance.
+//
 // A needle whose echo straddles the pane's width comes back split by a newline
 // that cannot be told from a real one, on a backend with no rejoin.
 func TestTextSplitAcrossAWrapIsStillFound(t *testing.T) {
