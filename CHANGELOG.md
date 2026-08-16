@@ -64,6 +64,33 @@ All notable changes to this project are documented here. The format follows
   anything is created. OSC 8 hyperlinks are declared per attach client with
   tmux's `-T`, so no server option is rewritten.
 
+- A second gate. `make test` is the loop — seconds, and nothing that drives a
+  terminal — while `make test-full` is what CI runs and what a commit needs. The
+  split is not a reduction: `test-full` still runs everything.
+- `docs/adding-a-backend.md`, the contributor route for a fourth backend: spike
+  first, the isolation rules, the conformance suite as the definition of
+  correct, and the lessons that each cost a day here.
+- `doctor` reports `problem` for a backend that is on PATH but cannot be run —
+  what a version-manager shim left by an uninstalled tool looks like — instead
+  of leaving a reader to infer it from a missing version.
+- `poll_run` accepts `command_id` as well as `id`, the name `start_run` hands
+  back.
+- A named compile error on unsupported platforms. Olympus is macOS and Linux
+  only, and a Windows build said so with six `undefined: syscall.*` errors.
+
+### Changed
+
+- **`key` is now `press`**, and the MCP tool `send_keys` is now `press_keys`.
+  One operation had three names, and api §1.1 decides which wins: verbs are named
+  for intent, not mechanism.
+- **The MCP tool `capture` is now `screen`**, and `Olympus.Capture` is now
+  `Olympus.Screens`, matching the `Screens` type it has always returned. What
+  looked like one inconsistently-named operation was two: one target and many.
+- **`attach --json` and `watch --json` are now `USAGE` errors.** Both write the
+  terminal rather than a description of it — attach hands stdout to the
+  multiplexer's client, watch streams raw output — so no envelope can hold them,
+  and api §2.3's promise is kept by refusing rather than by pretending.
+
 ### Fixed
 
 Nothing here has shipped yet, so these are corrections made before a first
@@ -84,3 +111,24 @@ changed what the code does, not just how it is written.
   variable it needs in order to aim.
 - **tmux `Create` reported an infrastructure failure** when a session's command
   finished before creation returned, which is ordinary for a short command.
+- **`doctor` could hang forever.** Its version probes inherited the caller's
+  context, which from the CLI is `Background`, so one hanging backend binary hung
+  the command whose entire job is explaining a broken environment. Probes are
+  bounded now — and bounding them was not enough on its own: cancelling a context
+  kills the child, while a grandchild keeps the output pipe open and the read
+  keeps waiting, measured at 30s against 3s until `WaitDelay` was set on every
+  backend subprocess.
+- **`doctor`, `version` and `self` failed over MCP when no multiplexer was
+  installed**, because every tool opened a backend handle before dispatch. Those
+  three answer about Olympus and this process, and are most needed exactly then.
+- **`info` dropped the `panes` key** whenever the list came back empty, including
+  for a session that is present — a listing racing a kill. Iterating it without a
+  guard is the normal way to consume it.
+- **A verified send failed against the most ordinary shell there is.** The
+  normalization cap was applied to the line being SEARCHED as well as to the
+  needle, so a default bash prompt on the same line consumed the whole budget
+  before the typed text began.
+- **tmux 3.5a returned empty listings.** It escapes the field separator into the
+  four characters `\037`, where 3.7b passes the byte through — so every row
+  parsed as one field and was discarded, on a version well inside the supported
+  range.

@@ -19,7 +19,9 @@ still believed.
 Failing test, then the code that makes it pass. The conformance suite in
 `backend/backendtest` was written *before* the backends it tests, so a backend
 is developed against an executable definition of correct rather than against
-prose.
+prose. Adding a backend of your own is a normal contribution, not a fork:
+[`docs/adding-a-backend.md`](docs/adding-a-backend.md) is the route from a spike
+to a reviewable pull request.
 
 Two habits matter more than they look:
 
@@ -47,10 +49,21 @@ This is not negotiable, and it is easy to get wrong:
 ## The gate
 
 ```sh
-make test
+make test       # the loop — seconds, no multiplexer needed
+make test-full  # the gate — everything, with -race. What CI runs.
 ```
 
-gofmt, `go vet`, and the full suite. It is what CI runs.
+`make test` is what you run on every edit: gofmt, `go vet`, and every case that
+does not drive a real terminal. It deliberately skips the conformance suite, so
+**a green `make test` is not a green gate**. Nothing is committed on it alone.
+
+`make test-full` adds every case that drives a terminal, runs with `-race`, and
+cross-compiles for the other supported platform. Olympus targets macOS and Linux
+only; a build for anything else stops with a named error rather than a wall of
+`undefined: syscall.Flock`.
+
+Both pass with no multiplexer installed at all — backends that are absent, or on
+PATH but not runnable, skip loudly rather than failing.
 
 ## Dependency budget: three libraries
 

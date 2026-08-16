@@ -9,7 +9,8 @@
 
 **Checklist**
 
-- [ ] `make test` passes
+- [ ] `make test-full` passes — not just `make test`, which skips every case
+      that drives a real terminal
 - [ ] Tests were written before the code they cover
 - [ ] Nothing touches a live tmux server or zmx daemon: private socket, private
       `ZMX_DIR`
