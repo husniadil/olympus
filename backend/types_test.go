@@ -99,6 +99,7 @@ func TestTriStateSpellings(t *testing.T) {
 		{"OutcomeReaped", string(backend.OutcomeReaped), "reaped"},
 		{"Tmux", string(backend.Tmux), "tmux"},
 		{"Zmx", string(backend.Zmx), "zmx"},
+		{"Meja", string(backend.Meja), "meja"},
 	}
 	for _, s := range spellings {
 		if s.got != s.want {

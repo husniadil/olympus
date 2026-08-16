@@ -368,7 +368,10 @@ error on an absent target**:
 ```
 
 `state` is `present` | `absent` | `error` (behavior spec §3.5). `session` and
-`panes` are omitted when the target is not present. Erroring with
+`panes` are omitted when the target is not present. When it **is** present,
+`panes` is always an array — empty if a listing raced a kill (§3.3), never
+missing — because the key vanishing under a present state turns an ordinary
+iteration into a crash on the rarest path. Erroring with
 `SESSION_NOT_FOUND` instead would collapse the tri-state that exists precisely so
 a caller can tell "definitely gone" from "could not ask" — the whole point of
 §3.5. `info` is the only door onto that distinction, so it must preserve it.
@@ -378,6 +381,26 @@ a caller can tell "definitely gone" from "could not ask" — the whole point of
 `run` with **no target** creates a throwaway session for the run and kills it
 afterwards (behavior spec §6.10). `run --detach` with no target is a `USAGE`
 error, since nothing would remain to poll.
+
+**Stop** (`stop`): `{"outcome": "gone" | "graceful" | "killed"}`.
+
+All three are **successes**, and the distinction is the payload's whole reason to
+exist: `gone` means there was nothing to stop, `graceful` means the session took
+the interrupt, `killed` means it did not and was terminated. A caller reconciling
+state treats all three as "not running now"; a caller reporting to a human wants
+to say which happened.
+
+**Wait** (`wait`): the capture that satisfied the wait, plus which line did it.
+
+```json
+{ "text": "…", "meta": { "alt_screen": false, "scroll_position": 0 },
+  "line": "$ make build", "matched": true }
+```
+
+`line` and `matched` are omitted when nothing matched — a capture that timed out
+carries its `text` and no claim about it. Matching is per line, never against the
+whole screen as one string (behavior spec §7.2), so `line` is the specific line
+the pattern hit rather than a slice of the screen.
 
 **Detached run**: `start` returns `{"command_id": "…"}`; `poll` returns
 `{"status": "pending" | "completed" | "died", "exit_code": 0, "output": "…", "reason": "…"}`.

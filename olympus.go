@@ -2,6 +2,7 @@ package olympus
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"time"
@@ -261,6 +262,37 @@ type Info struct {
 	Panes        []backend.Pane       `json:"panes,omitempty"`
 	Capabilities backend.Capabilities `json:"capabilities"`
 	Warnings     []Warning            `json:"-"`
+}
+
+// MarshalJSON keeps `panes` an array whenever the target is present.
+//
+// `omitempty` alone conflates two different answers with the same key: a present
+// session whose pane list came back empty — a listing racing a kill (§3.3) — and
+// an absent target that has no panes to report. §5 shows `panes` as an array on
+// the present shape, and a consumer iterating it without a guard is the normal
+// way to write that, so the key disappearing underneath a present state is a
+// crash on the rarest path.
+//
+// Absent and error still omit it, along with `session`: there, the absence is
+// the answer.
+func (i Info) MarshalJSON() ([]byte, error) {
+	type shape Info
+	out := shape(i)
+	if out.State == backend.StatePresent && out.Panes == nil {
+		out.Panes = []backend.Pane{}
+	}
+	if out.State == backend.StatePresent {
+		// An empty non-nil slice is still empty to `omitempty`, so the tag has
+		// to come off for the present case to keep it.
+		type present struct {
+			State        backend.State        `json:"state"`
+			Session      *backend.Session     `json:"session,omitempty"`
+			Panes        []backend.Pane       `json:"panes"`
+			Capabilities backend.Capabilities `json:"capabilities"`
+		}
+		return json.Marshal(present{out.State, out.Session, out.Panes, out.Capabilities})
+	}
+	return json.Marshal(out)
 }
 
 // Info reports a session's detail. It MUST NOT error on an absent target: this
