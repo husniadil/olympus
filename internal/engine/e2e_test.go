@@ -34,6 +34,7 @@ type e2eBackend struct {
 
 func e2eBackends(t *testing.T) []e2eBackend {
 	t.Helper()
+	skipUnlessFull(t)
 	var out []e2eBackend
 	if _, err := exec.LookPath("tmux"); err == nil {
 		out = append(out, e2eBackend{"tmux", newE2ETmux})
@@ -363,5 +364,22 @@ func TestEndToEndAFinishedSessionEnsuresAsCreatedNotReaped(t *testing.T) {
 				t.Errorf("outcome %q, want %q — a finished session is indistinguishable from an absent one on this backend", got.Outcome, backend.OutcomeCreated)
 			}
 		})
+	}
+}
+
+// skipUnlessFull skips work that drives a real multiplexer when the gate is
+// running in short mode.
+//
+// `make test` is the loop a change is iterated against, and it has to be fast
+// enough to run on every edit; `make test-full` is the gate before a commit.
+// Splitting them is NOT a reduction in coverage — nothing is deleted, and the
+// full gate still runs everything. It is a split between the two questions being
+// asked: "did I just break the logic" is answerable in seconds, and paying a
+// minute and a half for it means the answer gets asked less often, which is how
+// coverage is really lost.
+func skipUnlessFull(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
 	}
 }

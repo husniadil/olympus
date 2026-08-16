@@ -62,6 +62,7 @@ func sessionNames(listing string) []string {
 
 func requireZmx(t *testing.T) {
 	t.Helper()
+	skipUnlessFull(t)
 	if _, err := exec.LookPath("zmx"); err != nil {
 		// Skipping loudly: the zmx leg is expected to be absent on some
 		// machines, and a silent skip reads as a pass.
@@ -117,4 +118,14 @@ func splitFields(s string) []string {
 		out = append(out, s[start:])
 	}
 	return out
+}
+
+// skipUnlessFull skips work that drives a real multiplexer when the gate is
+// running in short mode. See the Makefile: `make test` is the fast loop, and
+// `make test-full` still runs everything.
+func skipUnlessFull(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
+	}
 }

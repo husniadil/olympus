@@ -98,6 +98,9 @@ type Expectations struct {
 
 // Run executes the whole suite against a backend.
 func Run(t *testing.T, cfg Config) {
+	if testing.Short() {
+		t.Skip("the conformance suite drives a real multiplexer; run `make test-full` for it")
+	}
 	t.Helper()
 	for _, c := range Cases() {
 		t.Run(c.Name, func(t *testing.T) {

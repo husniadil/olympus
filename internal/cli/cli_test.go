@@ -45,6 +45,7 @@ func (r result) envelope(t *testing.T) cli.Envelope {
 // (§2.9). Every invocation in this file carries them.
 func isolation(t *testing.T) []string {
 	t.Helper()
+	skipUnlessFull(t)
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
@@ -468,6 +469,9 @@ func TestSelfOutsideASessionSucceeds(t *testing.T) {
 // lines Olympus overrides. Putting it only in --json would disclose it to the
 // audience that was never going to be confused by it.
 func TestDoctorTellsAHumanWhatItOverrides(t *testing.T) {
+	// Both assertions are about the tmux pinning disclosure, which doctor can
+	// only print when tmux is there to pin anything on.
+	requireTmuxInstalled(t)
 	got := run(t, "doctor")
 	if got.code != 0 {
 		t.Fatalf("exit %d, want 0", got.code)
@@ -482,6 +486,9 @@ func TestDoctorTellsAHumanWhatItOverrides(t *testing.T) {
 // server Olympus did not start, the answer is that Olympus deliberately left it
 // alone — which is invisible unless said.
 func TestDoctorDistinguishesAServerItStartedFromOneItFound(t *testing.T) {
+	// Both assertions are about the tmux pinning disclosure, which doctor can
+	// only print when tmux is there to pin anything on.
+	requireTmuxInstalled(t)
 	got := run(t, "doctor")
 	if got.code != 0 {
 		t.Fatalf("exit %d, want 0", got.code)
@@ -494,6 +501,7 @@ func TestDoctorDistinguishesAServerItStartedFromOneItFound(t *testing.T) {
 // Reading a status nobody set is an answer, not a failure, and the CLI has to
 // preserve that: exit 0 with an empty value.
 func TestStatusOnAnAbsentSessionIsNotFound(t *testing.T) {
+	requireBackend(t)
 	got := run(t, "status", "no-such-session-"+t.Name(), "--json")
 	if got.code != 3 {
 		t.Errorf("exit %d, want 3 (SESSION_NOT_FOUND)", got.code)
@@ -759,5 +767,46 @@ func TestWindowsBelongToTheMultiplexerNotToOlympus(t *testing.T) {
 					somePane)
 			}
 		})
+	}
+}
+
+// requireBackend skips when no multiplexer is installed.
+//
+// Cases that assert a SESSION-level outcome need something to have sessions.
+// Without this they fail with BACKEND_UNAVAILABLE, which is the CORRECT answer
+// on such a machine — so the failure reports a working product as broken, and
+// does it on exactly the machines least able to tell the difference.
+func requireBackend(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"tmux", "zmx", "meja"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return
+		}
+	}
+	t.Skip("no terminal multiplexer is installed")
+}
+
+// skipUnlessFull skips work that drives a real multiplexer when the gate is
+// running in short mode.
+//
+// `make test` is the loop a change is iterated against, and it has to be fast
+// enough to run on every edit; `make test-full` is the gate before a commit.
+// Splitting them is NOT a reduction in coverage — nothing is deleted, and the
+// full gate still runs everything. It is a split between the two questions being
+// asked: "did I just break the logic" is answerable in seconds, and paying a
+// minute and a half for it means the answer gets asked less often, which is how
+// coverage is really lost.
+func skipUnlessFull(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
+	}
+}
+
+// requireTmuxInstalled skips a case that asserts tmux-specific output.
+func requireTmuxInstalled(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
 	}
 }

@@ -203,6 +203,7 @@ func TestSelfFromInsideARealSession(t *testing.T) {
 // is the only place this behaviour exists.
 func buildOlympus(t *testing.T) string {
 	t.Helper()
+	skipUnlessFull(t)
 	binary := filepath.Join(t.TempDir(), "olympus")
 	build := exec.Command("go", "build", "-o", binary, "./cmd/olympus")
 	if out, err := build.CombinedOutput(); err != nil {

@@ -1,4 +1,4 @@
-.PHONY: build test install clean doc
+.PHONY: build test test-full install clean doc
 
 BIN := bin/olympus
 
@@ -34,7 +34,29 @@ TEST_CONCURRENCY ?= -p 2 -parallel 4
 # concurrently. Measured on ten cores — 1:43 with it against 1:53 without, since
 # the suite waits on multiplexer subprocesses rather than on the CPU. A race
 # that costs ten seconds a run to catch is not one worth catching in production.
+#
+# Two gates, one suite.
+#
+#   make test       the loop, in seconds — everything that does not need a
+#                   multiplexer: payload shapes, resolution, matching, the
+#                   error vocabulary, parsers.
+#   make test-full  the gate before a commit — the above plus every case that
+#                   drives a real terminal.
+#
+# This is a split, NOT a reduction: nothing is deleted and test-full still runs
+# all of it. The reason to split is that the two answer different questions.
+# "Did I just break the logic" should cost seconds, because a check that costs a
+# minute and a half gets run less often — and a check not run is worth less than
+# a slow one. The conformance suite in particular is the project's premise
+# (CLAUDE.md: the obvious implementation of most rules is wrong), so it is never
+# the thing that gets trimmed; it is the thing that moves to the commit gate.
 test:
+	@unformatted=$$(gofmt -l .); \
+	  [ -z "$$unformatted" ] || { echo "gofmt needed: $$unformatted"; exit 1; }
+	go vet ./...
+	go test -short $(TEST_CONCURRENCY) ./...
+
+test-full:
 	@unformatted=$$(gofmt -l .); \
 	  [ -z "$$unformatted" ] || { echo "gofmt needed: $$unformatted"; exit 1; }
 	go vet ./...

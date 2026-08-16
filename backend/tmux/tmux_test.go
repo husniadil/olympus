@@ -48,6 +48,7 @@ func newIsolated(t backendtest.Reporter) backend.Backend {
 
 func requireTmux(t *testing.T) {
 	t.Helper()
+	skipUnlessFull(t)
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
@@ -65,4 +66,14 @@ func TestConformance(t *testing.T) {
 			InterruptExecSpawned: backendtest.InterruptStops,
 		},
 	})
+}
+
+// skipUnlessFull skips work that drives a real multiplexer when the gate is
+// running in short mode. See the Makefile: `make test` is the fast loop, and
+// `make test-full` still runs everything.
+func skipUnlessFull(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
+	}
 }

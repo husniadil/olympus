@@ -39,6 +39,7 @@ func newIsolated(t backendtest.Reporter) backend.Backend {
 // which would report as a wall of broken cases rather than an absent backend.
 func requireMeja(t *testing.T) {
 	t.Helper()
+	skipUnlessFull(t)
 	if err := exec.Command("meja", "version").Run(); err != nil {
 		t.Skip("meja is not installed or not runnable, so the meja conformance leg is not being run")
 	}
@@ -53,4 +54,21 @@ func TestConformance(t *testing.T) {
 			InterruptExecSpawned: backendtest.InterruptStops,
 		},
 	})
+}
+
+// skipUnlessFull skips work that drives a real multiplexer when the gate is
+// running in short mode.
+//
+// `make test` is the loop a change is iterated against, and it has to be fast
+// enough to run on every edit; `make test-full` is the gate before a commit.
+// Splitting them is NOT a reduction in coverage — nothing is deleted, and the
+// full gate still runs everything. It is a split between the two questions being
+// asked: "did I just break the logic" is answerable in seconds, and paying a
+// minute and a half for it means the answer gets asked less often, which is how
+// coverage is really lost.
+func skipUnlessFull(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
+	}
 }
