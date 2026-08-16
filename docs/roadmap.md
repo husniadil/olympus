@@ -21,12 +21,14 @@ not as a description of work still to come.
 What is genuinely outstanding, which is a shorter list than the plan and is
 deliberately not hidden inside it:
 
-- **`attach` has no automated end-to-end test.** Its pieces are unit-tested —
-  the resize control, the guard, the exit code, the reaping — but a real
-  interactive attach needs a terminal, so it has only been exercised by hand.
+- **`attach` is now covered end to end**, against a PTY the test owns: the
+  terminal is handed back as it was found, both resize routes reach the pane,
+  and the slot is arbitrated across real processes including a holder killed
+  with SIGKILL. What is still exercised only by hand is a HUMAN attaching —
+  keystroke feel, detach keys, and how a full-screen program looks to a person.
 - **CI has never run.** The workflow is written and has never been exercised:
   there is no remote yet, so the tmux-3.3 build step and the matrix are
-  unproven. `make test` — what CI runs — is green locally on macOS.
+  unproven. `make test-full` — what CI runs — is green locally on macOS.
 - **A release has never been cut.** The goreleaser configuration exists and has
   never been run, and there is no Homebrew tap: installation is `go install` or
   the archives a release would produce.

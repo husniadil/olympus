@@ -63,8 +63,13 @@ jobs:
             echo "::warning::zmx is not installed on this runner; its conformance leg is SKIPPED, not passing"
           fi
 
+      # test-full, NOT test. The gate was split so `make test` could be run on
+      # every edit in seconds, which means it deliberately skips every case that
+      # drives a real terminal — the conformance suite included. CI running it
+      # would be CI proving almost nothing, on a runner that exists to run
+      # exactly those cases.
       - name: Gate
-        run: make test
+        run: make test-full
 
   vet:
     name: format and vet

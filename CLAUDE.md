@@ -7,11 +7,24 @@ Go package, a CLI, and a stdio MCP server.
 
 ## Commands
 
-- `make test` — the gate: gofmt check, `go vet ./...`, `go test ./...`.
+- `make test` — the fast loop, seconds: everything that does not need a
+  multiplexer. Run it on every edit.
+- `make test-full` — **the gate**, and what CI runs: the above plus every case
+  that drives a real terminal, with `-race` and a cross-compile check of the
+  other supported platform. Run it before every commit.
 - `make build` / `make install` — `./cmd/olympus`.
 
-Tests require at least one backend installed. The tmux leg needs tmux ≥ 3.3; the
-zmx leg skips loudly when zmx is absent rather than failing the suite.
+The split is not a reduction — `test-full` runs everything — but it does mean a
+green `make test` is not a green gate. Nothing is committed on it alone.
+
+Tests skip rather than fail when a backend is absent, and the whole suite passes
+with none installed at all. The tmux leg needs tmux ≥ 3.3; the zmx and meja legs
+skip loudly when their binary is missing or not runnable. "On PATH" and
+"runnable" are checked separately: a version-manager shim satisfies a lookup and
+fails every call.
+
+macOS and Linux only. tmux, zmx and meja are Unix programs, and the attach path
+is termios and flock all the way down.
 
 ## The specification comes first
 

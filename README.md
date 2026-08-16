@@ -228,14 +228,20 @@ the command's exit code, and `attach` reports the multiplexer client's.
 ## Building from source
 
 ```sh
-make build     # ./bin/olympus
-make install   # go install ./cmd/olympus
-make test      # the gate: gofmt, go vet, go test
+make build      # ./bin/olympus
+make install    # go install ./cmd/olympus
+make test       # the fast loop, seconds — no multiplexer needed
+make test-full  # the gate: adds every case that drives a real terminal
 ```
 
-Tests need at least one backend installed, and never touch your live sessions:
-the tmux tests use a private socket and the zmx tests a private `ZMX_DIR`. The
-zmx leg skips loudly when zmx is absent rather than failing the suite.
+Olympus runs on **macOS and Linux**. Its backends are Unix programs and its
+attach path is termios and flock all the way down.
+
+Tests never touch your live sessions: the tmux tests use a private socket and
+the zmx tests a private `ZMX_DIR`. A backend that is absent — or on PATH but not
+runnable, which is what a leftover version-manager shim looks like — skips
+loudly rather than failing the suite, and the whole suite passes with no
+multiplexer installed at all.
 
 A third-party backend can prove itself against the same conformance suite the
 shipped ones run — `backend/backendtest` is exported for exactly that.
