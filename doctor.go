@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/backend/meja"
@@ -26,6 +27,37 @@ var floors = map[backend.Name]string{
 	// work around, and the resize behaviour its client sizing compensates for.
 	// Support below it is best-effort because none of those were checked there.
 	backend.Meja: "0.0.25",
+}
+
+// versionProbeBudget bounds a SINGLE version probe.
+//
+// The diagnostic must always answer — it is what every backend-unavailable error
+// points at (§0.6) — and a probe is a subprocess, which can hang. One was found
+// hanging for minutes because the binary on PATH was a version-manager shim that
+// reached for the network when HOME changed underneath it. With the caller's
+// context inherited unchanged, which is normally Background, `olympus doctor`
+// hung with no output and no way to tell which backend was responsible.
+//
+// Generous rather than tight: printing a version is fast everywhere, so anything
+// approaching this is already pathological, and a probe wrongly cut short costs
+// only that one backend's version line.
+const versionProbeBudget = 10 * time.Second
+
+// A versionProber is the one method the diagnostic needs from a backend, named
+// separately so the hang above can be reproduced in a test without a binary that
+// hangs.
+type versionProber interface {
+	Version(context.Context) (string, error)
+}
+
+// probeVersion asks a backend its version, under a bound.
+//
+// The caller's context still wins when it is cancelled first: the budget is a
+// backstop against a hung binary, not a floor on how long a cancel takes.
+func probeVersion(ctx context.Context, p versionProber) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, versionProbeBudget)
+	defer cancel()
+	return p.Version(ctx)
 }
 
 // A BackendReport is one backend's entry in the diagnostic.
@@ -115,7 +147,7 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		report.Capabilities = b.Capabilities()
 		report.Isolation = isolationOf(name, scope)
 		report.Managed = managedOf(name)
-		if version, err := b.Version(ctx); err == nil {
+		if version, err := probeVersion(ctx, b); err == nil {
 			report.Version = version
 			report.BelowFloor = belowFloor(version, floors[name])
 		}
@@ -197,6 +229,12 @@ func effectiveOf(ctx context.Context, b backend.Backend) (map[string]string, boo
 	if !ok {
 		return nil, false
 	}
+	// Bounded for the same reason as the version probe: this too shells out, and
+	// the diagnostic's whole value is that it answers when the environment is
+	// broken. A server that accepts a connection and then never replies would
+	// otherwise hang the command sent to explain it.
+	ctx, cancel := context.WithTimeout(ctx, versionProbeBudget)
+	defer cancel()
 	effective, pinned, err := reader.EffectiveOptions(ctx)
 	if err != nil {
 		// A diagnostic that fails when the environment is broken is useless at

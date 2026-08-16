@@ -12,6 +12,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -60,10 +61,25 @@ func (m *Meja) addressing() []string {
 	return nil
 }
 
+// waitDelay bounds how long a cancelled subprocess may keep this call waiting.
+//
+// Cancelling a context kills the CHILD, and that is not enough to unblock the
+// read: any grandchild it left behind inherited the same output pipe, and the
+// copy goroutine waits on the pipe rather than on the process. A `version` probe
+// was observed hanging indefinitely past its own 10s deadline for exactly this
+// reason — the binary on PATH was a version-manager shim which, when HOME moved
+// underneath it, spawned git subprocesses that outlived the kill.
+//
+// WaitDelay closes the descriptors once the deadline has passed, converting an
+// unbounded hang into a normal error. Long enough that a healthy child which is
+// merely slow to flush still gets to.
+const waitDelay = 2 * time.Second
+
 // run invokes the meja client and maps its failure into the error vocabulary.
 func (m *Meja) run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "meja", append(m.addressing(), args...)...)
 	cmd.Stdin = stdin
+	cmd.WaitDelay = waitDelay
 	out, err := cmd.CombinedOutput()
 	text := string(out)
 	if err != nil {
@@ -162,7 +178,9 @@ func noServer(err error) bool {
 
 // Version reports the server's version.
 func (m *Meja) Version(ctx context.Context) (string, error) {
-	out, err := exec.CommandContext(ctx, "meja", "version").Output()
+	cmd := exec.CommandContext(ctx, "meja", "version")
+	cmd.WaitDelay = waitDelay
+	out, err := cmd.Output()
 	if err != nil {
 		return "", backend.Wrapf(backend.CodeBackendUnavailable, err, "meja is not runnable")
 	}

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -509,12 +510,21 @@ func (t *Tmux) addressing() []string {
 	return []string{"-L", t.socket}
 }
 
+// waitDelay bounds how long a cancelled subprocess may keep a call waiting.
+//
+// Cancelling a context kills the CHILD, which is not enough to unblock the read:
+// a grandchild inherits the same output pipe, and the copy waits on the pipe
+// rather than on the process. Without this, a cancelled call can hang forever
+// past its own deadline. See backend/meja for the case that proved it.
+const waitDelay = 2 * time.Second
+
 // run invokes the tmux client and maps its failure into the error vocabulary.
 func (t *Tmux) run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	full := append(t.addressing(), args...)
 	cmd := exec.CommandContext(ctx, "tmux", full...)
 	cmd.Stdin = stdin
 	cmd.Env = clientEnv()
+	cmd.WaitDelay = waitDelay
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

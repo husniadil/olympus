@@ -502,9 +502,18 @@ func (z *Zmx) Views(ctx context.Context, base string) ([]backend.View, error) {
 }
 
 // command builds a zmx invocation with the isolation and hygiene rules applied.
+// waitDelay bounds how long a cancelled subprocess may keep a call waiting.
+//
+// Cancelling a context kills the CHILD, which is not enough to unblock the read:
+// a grandchild inherits the same output pipe, and the copy waits on the pipe
+// rather than on the process. Without this, a cancelled call can hang forever
+// past its own deadline. See backend/meja for the case that proved it.
+const waitDelay = 2 * time.Second
+
 func (z *Zmx) command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "zmx", args...)
 	cmd.Env = z.env(spawnEnv())
+	cmd.WaitDelay = waitDelay
 	return cmd
 }
 
