@@ -71,7 +71,21 @@ func TestDrivingAPythonREPL(t *testing.T) {
 			// backend preserves it and another normalizes it away, so a
 			// pattern that requires it works on one and silently never matches
 			// on the other.
-			if _, err := s.WaitFor(ctx, `^>>>\s*$`, olympus.WaitTimeout(20*time.Second)); err != nil {
+			// `^>>>` and NOT `^>>>\s*$`. The trailing anchor assumed the prompt
+			// has its line to itself, and a long enough command takes that away:
+			// python's path here is a mise install path, the echo wraps at column
+			// 80, and the prompt lands at the start of the continuation line —
+			// sharing it with the wrapped remainder, which renders as
+			//
+			//     >>> ython3 -
+			//
+			// tmux hides this because `-J` rejoins the wrap before capture sees
+			// it (§7.3); meja has no such rejoin, so the same session looks
+			// different there. The capture is right on both.
+			//
+			// Loosening costs nothing real: the next step waits for `^42$`, which
+			// is what actually proves the REPL is live rather than echoing.
+			if _, err := s.WaitFor(ctx, `^>>>`, olympus.WaitTimeout(20*time.Second)); err != nil {
 				// The screen AND the pane rows are the evidence. A timeout that
 				// only says a pattern did not appear cannot distinguish a
 				// program that never started, a prompt spelled differently, and
