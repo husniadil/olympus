@@ -283,13 +283,39 @@ func TestPollingDoesNotTakeTheLock(t *testing.T) {
 // §6.4: the window grows on a backend that needs an explicit depth, and is not
 // requested at all on one that returns its own scrollback.
 func TestTheCaptureWindowIsOnlyRequestedWhereItMeansSomething(t *testing.T) {
+	// §6.4: on a backend that returns its own scrollback, the window is ignored
+	// — so asking for one is a request the backend will not honour, and sending
+	// it anyway hides that the depth is really the backend's to govern.
+	//
+	// This case asserted only that Exec returned no error, on either backend.
+	// It could not have failed: the fake discarded the ScreenOpts, so the
+	// property in the name was not observable. Found by looking for tests whose
+	// only assertion is an error check.
 	native := &fakeBackend{caps: backend.Capabilities{NativeScrollback: true}, onType: completes("ok", 0)}
 	if _, err := runner(native, nil).Exec(context.Background(), "build", "cmd"); err != nil {
 		t.Fatalf("Exec: %v", err)
+	}
+	if len(native.screenOpts) == 0 {
+		t.Fatal("nothing was captured, so the request cannot be judged")
+	}
+	for i, opts := range native.screenOpts {
+		if opts.HistoryLines != 0 {
+			t.Errorf("capture %d asked a native-scrollback backend for %d history lines, want none",
+				i, opts.HistoryLines)
+		}
 	}
 
 	windowed := &fakeBackend{caps: backend.Capabilities{NativeScrollback: false}, onType: completes("ok", 0)}
 	if _, err := runner(windowed, nil).Exec(context.Background(), "build", "cmd"); err != nil {
 		t.Fatalf("Exec: %v", err)
+	}
+	if len(windowed.screenOpts) == 0 {
+		t.Fatal("nothing was captured, so the request cannot be judged")
+	}
+	for i, opts := range windowed.screenOpts {
+		if opts.HistoryLines <= 0 {
+			t.Errorf("capture %d asked a windowed backend for %d history lines, want a window",
+				i, opts.HistoryLines)
+		}
 	}
 }

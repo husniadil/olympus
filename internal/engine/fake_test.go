@@ -22,6 +22,13 @@ type fakeBackend struct {
 	panes    []backend.Pane
 	state    backend.State
 
+	// screenOpts records what each capture ASKED for. Without it a test can
+	// only observe that a capture happened, which is how
+	// TestTheCaptureWindowIsOnlyRequestedWhereItMeansSomething came to assert
+	// nothing at all: the fake discarded the opts, so the property in its name
+	// was not observable even in principle.
+	screenOpts []backend.ScreenOpts
+
 	typed   []string
 	pasted  []string
 	atomic  []string
@@ -143,8 +150,9 @@ func (f *fakeBackend) SendAtomic(_ context.Context, _, text string) error {
 	return nil
 }
 
-func (f *fakeBackend) Screen(context.Context, string, backend.ScreenOpts) (backend.Capture, error) {
+func (f *fakeBackend) Screen(_ context.Context, _ string, opts backend.ScreenOpts) (backend.Capture, error) {
 	f.mu.Lock()
+	f.screenOpts = append(f.screenOpts, opts)
 	hook := f.onScreen
 	f.mu.Unlock()
 	if hook != nil {

@@ -289,10 +289,36 @@ func TestListingCarriesTheFieldsOnlyTheLongFormProvides(t *testing.T) {
 // by pretending it applied would be worse.
 func TestAnInitialSizeIsAcceptedAndIgnored(t *testing.T) {
 	b := newBackend(t)
-	if _, err := b.Create(context.Background(), backend.CreateSpec{Name: "oly-size", Cols: 200, Rows: 60}); err != nil {
+	ctx := context.Background()
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "oly-size", Cols: 200, Rows: 60}); err != nil {
 		t.Fatalf("creating with a size: %v", err)
 	}
-	t.Cleanup(func() { _ = b.Kill(context.Background(), "oly-size") })
+	t.Cleanup(func() { _ = b.Kill(ctx, "oly-size") })
+
+	// "Accepted" was all this asserted, which made the second half of its own
+	// name — and the reason the case exists — unverified: it passed whether the
+	// size was ignored, honoured, or never looked at. Found by looking for tests
+	// whose only assertion is an error check.
+	//
+	// The declaration first, since callers branch on it rather than measuring.
+	if b.Capabilities().SpawnSizing {
+		t.Error("this backend claims spawn sizing, which would make ignoring the size a defect")
+	}
+
+	// Then the session itself, because a capability is a claim and this is the
+	// thing it claims about. 200 columns is far wider than any default, so a
+	// session that reports it would mean the request had been honoured after all.
+	warm(t, b, "oly-size")
+	if err := b.Type(ctx, "oly-size", `printf 'cols=[%s]\n' "$(tput cols)"`); err != nil {
+		t.Fatalf("asking the session its width: %v", err)
+	}
+	if err := b.Submit(ctx, "oly-size"); err != nil {
+		t.Fatalf("submitting: %v", err)
+	}
+	screen := waitFor(t, b, "oly-size", "cols=[")
+	if strings.Contains(screen, "cols=[200]") {
+		t.Errorf("the session is 200 columns wide, so the initial size was NOT ignored:\n%s", screen)
+	}
 }
 
 var _ = zmx.New
