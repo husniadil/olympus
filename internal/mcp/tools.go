@@ -26,9 +26,9 @@ var ToolNames = []string{
 	"list_panes",
 	"type_text",
 	"send_text",
-	"send_keys",
+	"press_keys",
 	"paste_text",
-	"capture",
+	"screen",
 	"wait_for",
 	"run_command",
 	"start_run",
@@ -305,7 +305,7 @@ func register(s *sdk.Server) {
 			})
 		})
 
-	addTool(s, "send_keys", "Send named keys. Key names are Olympus's own and are translated per backend.",
+	addTool(s, "press_keys", "Press named keys. Key names are Olympus's own and are translated per backend.",
 		func(ctx context.Context, ol *olympus.Olympus, in keysParams) (acknowledged, []olympus.Warning, error) {
 			keys := make([]backend.Key, 0, len(in.Keys))
 			for _, name := range in.Keys {
@@ -326,7 +326,7 @@ func register(s *sdk.Server) {
 			})
 		})
 
-	addTool(s, "capture", "Read the screens of one or more sessions in a single call. A target on the alternate screen is skipped rather than captured: its screen is empty with meta.alt_screen set, which is what distinguishes skipped-by-design from nothing-there.",
+	addTool(s, "screen", "Read the screens of one or more sessions in a single call. A target on the alternate screen is skipped rather than captured: its screen is empty with meta.alt_screen set, which is what distinguishes skipped-by-design from nothing-there.",
 		func(ctx context.Context, ol *olympus.Olympus, in captureParams) (olympus.Screens, []olympus.Warning, error) {
 			var opts []olympus.ScreenOption
 			if in.Colors {
@@ -335,7 +335,7 @@ func register(s *sdk.Server) {
 			if in.History > 0 {
 				opts = append(opts, olympus.WithHistory(in.History))
 			}
-			captured, err := ol.Capture(ctx, in.Targets, opts...)
+			captured, err := ol.Screens(ctx, in.Targets, opts...)
 			return captured, captured.Warnings, err
 		})
 

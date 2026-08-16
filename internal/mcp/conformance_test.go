@@ -304,7 +304,7 @@ func TestAnOperationFailureIsAToolErrorNotAProtocolError(t *testing.T) {
 	w := newWire(t)
 
 	response := w.call("tools/call", map[string]any{
-		"name":      "capture",
+		"name":      "screen",
 		"arguments": map[string]any{"targets": []string{"oly-never-existed"}},
 		"_meta":     modernMeta(modernVersion),
 	})
@@ -429,4 +429,53 @@ func requireBackend(t *testing.T) {
 		}
 	}
 	t.Skip("no terminal multiplexer is installed")
+}
+
+// The tool surface pinned against the SPEC, not against itself.
+//
+// TestTheToolSurfaceIsPinned compares the registered tools with the package's
+// own ToolNames list, which catches a tool registered but never declared — and
+// nothing else. Rename both together and it stays green, which is exactly what
+// happened when `capture` became `screen` and `send_keys` became `press_keys`:
+// two wire-visible renames, no objection.
+//
+// api §1 says of its verb table that "the table above is the authority", so this
+// list is transcribed from it by hand. Reading the names back off the code would
+// only assert the code agrees with itself, which is the same tautology in a
+// different place.
+func TestTheToolNamesMatchTheSpecTable(t *testing.T) {
+	fromTheSpec := []string{
+		"capabilities",
+		"create_view",
+		"doctor",
+		"exit_status",
+		"list_panes",
+		"list_sessions",
+		"list_views",
+		"new_session",
+		"paste_text",
+		"poll_run",
+		"press_keys",
+		"run_command",
+		"screen",
+		"scroll_view",
+		"self",
+		"send_text",
+		"session_info",
+		"session_status",
+		"start_run",
+		"start_session",
+		"stop_session",
+		"type_text",
+		"wait_for",
+		"server_env",
+		"version",
+	}
+	slices.Sort(fromTheSpec)
+
+	w := newWire(t)
+	listed := resultOf(t, w.call("tools/list", map[string]any{"_meta": modernMeta(modernVersion)}))
+	if got := toolNames(t, listed); !slices.Equal(got, fromTheSpec) {
+		t.Errorf("the served tools do not match api §1:\n served %v\n  §1    %v", got, fromTheSpec)
+	}
 }

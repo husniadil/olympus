@@ -223,7 +223,7 @@ func TestAddressingAnAbsentSessionIsExitThree(t *testing.T) {
 	for _, args := range [][]string{
 		{"screen", "oly-never-existed"},
 		{"type", "oly-never-existed", "hello"},
-		{"key", "oly-never-existed", "enter"},
+		{"press", "oly-never-existed", "enter"},
 	} {
 		got := run(t, append(flags, args...)...)
 		if got.code != 3 {
@@ -594,7 +594,7 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 		{"doctor"},
 		{"self"},
 		{"type", name, "echo served"},
-		{"key", name, "enter"},
+		{"press", name, "enter"},
 		{"screen", name},
 		{"paste", name, "one\ntwo"},
 		{"send", name, "echo confirmed"},

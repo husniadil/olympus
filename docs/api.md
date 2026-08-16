@@ -31,9 +31,10 @@ same operation.
 | read/set/await a status | `status` | `session_status` | `SetStatus`, `Status`, `WaitForStatus` |
 | type literal text | `type` | `type_text` | `Type` |
 | deliver text, confirmed, and submit | `send` | `send_text` | `Send` |
-| send named keys | `key` | `send_keys` | `Press` |
+| press named keys | `press` | `press_keys` | `Press` |
 | paste multi-line text | `paste` | `paste_text` | `Paste` |
-| read the screen | `screen` | `capture` | `Screen`, `Capture` |
+| read one session's screen | `screen` | `screen` | `Session.Screen` |
+| read several screens at once | `screen` (many targets) | `screen` (many targets) | `Olympus.Screens` |
 | wait for a pattern | `wait` | `wait_for` | `WaitFor` |
 | follow output live | `watch` | *(none — streaming)* | `Watch` |
 | run a command | `run` | `run_command` | `Exec` |
@@ -70,7 +71,14 @@ the server.
 ### 1.1 Verbs are named for intent, not mechanism
 
 `screen` rather than `capture-pane`, `wait` rather than `expect`, `stop` rather
-than `kill-session`. A person guessing a verb should land on the right one.
+than `kill-session`, `press` rather than `send-keys`. A person guessing a verb
+should land on the right one.
+
+The principle decides more than it first appears. Pressing keys was once `key` on
+the CLI, `send_keys` on MCP and `Press` in Go — three words for one operation,
+and the two that disagreed with `Press` were both borrowed from the multiplexer's
+own vocabulary rather than from what the caller is trying to do. Reading a screen
+had the same split, `screen` against `capture`.
 
 **`poll` is a top-level verb, not a subcommand of `run`.** Making it
 `run poll <target> <id>` would reserve `poll` as a session name — a session

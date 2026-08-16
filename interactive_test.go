@@ -170,7 +170,7 @@ func TestAFullScreenApplicationIsVisible(t *testing.T) {
 
 			deadline := time.Now().Add(20 * time.Second)
 			for {
-				captured, err := ol.Capture(ctx, []string{name})
+				captured, err := ol.Screens(ctx, []string{name})
 				if err != nil {
 					t.Fatalf("Capture: %v", err)
 				}
@@ -212,7 +212,7 @@ func TestHistoryAgainstAFullScreenApplicationWarns(t *testing.T) {
 
 			deadline := time.Now().Add(20 * time.Second)
 			for {
-				captured, err := ol.Capture(ctx, []string{name}, olympus.WithHistory(500))
+				captured, err := ol.Screens(ctx, []string{name}, olympus.WithHistory(500))
 				if err != nil {
 					t.Fatalf("Capture: %v", err)
 				}

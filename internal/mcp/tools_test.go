@@ -117,7 +117,7 @@ func TestCaptureToolReadsSeveralTargets(t *testing.T) {
 	w.callTool(t, "start_session", map[string]any{"name": first})
 	w.callTool(t, "start_session", map[string]any{"name": second})
 
-	captured := w.callTool(t, "capture", map[string]any{"targets": []string{first, second}})
+	captured := w.callTool(t, "screen", map[string]any{"targets": []string{first, second}})
 	data, _ := captured["data"].(map[string]any)
 	screens, _ := data["screens"].(map[string]any)
 	if len(screens) != 2 {
@@ -198,7 +198,7 @@ func TestSendToolCanVerifyWithoutSubmitting(t *testing.T) {
 	var screen string
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		captured := w.callTool(t, "capture", map[string]any{"targets": []string{name}})
+		captured := w.callTool(t, "screen", map[string]any{"targets": []string{name}})
 		data, _ := captured["data"].(map[string]any)
 		screens, _ := data["screens"].(map[string]any)
 		screen, _ = screens[name].(string)
@@ -320,8 +320,8 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 		{"version", map[string]any{}},
 		{"self", map[string]any{}},
 		{"type_text", map[string]any{"target": name, "text": "echo served"}},
-		{"send_keys", map[string]any{"target": name, "keys": []any{"enter"}}},
-		{"capture", map[string]any{"targets": []any{name}}},
+		{"press_keys", map[string]any{"target": name, "keys": []any{"enter"}}},
+		{"screen", map[string]any{"targets": []any{name}}},
 		{"paste_text", map[string]any{"target": name, "text": "one\ntwo"}},
 		{"send_text", map[string]any{"target": name, "text": "echo confirmed"}},
 		{"run_command", map[string]any{"target": name, "command": "echo ran"}},

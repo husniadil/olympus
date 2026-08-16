@@ -40,7 +40,7 @@ func TestCaptureReadsSeveralTargetsAtOnce(t *testing.T) {
 				t.Fatalf("the second session never ran its command: %v", err)
 			}
 
-			captured, err := ol.Capture(ctx, []string{first.Name(), second.Name()})
+			captured, err := ol.Screens(ctx, []string{first.Name(), second.Name()})
 			if err != nil {
 				t.Fatalf("Capture: %v", err)
 			}

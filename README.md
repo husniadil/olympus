@@ -142,7 +142,7 @@ pipeline like running the command directly.
 
 **It drives interactive programs, not just commands.** `run` uses shell syntax
 to mark a command's start and end, so it needs a shell — point it at a REPL and
-it will time out. Drive a REPL or a full-screen program with `send`, `key` and
+it will time out. Drive a REPL or a full-screen program with `send`, `press` and
 `wait` instead, and read it with `screen`. Patterns are matched per line, and
 should not require a trailing space: write `^>>>\s*$`, not `^>>> $`, because
 whether that space survives into a capture differs by backend.

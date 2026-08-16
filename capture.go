@@ -46,7 +46,7 @@ func (s Screens) MarshalJSON() ([]byte, error) {
 // the alternate screen genuinely lacks is scrollback, so a history request
 // against one cannot be honoured and says so through a warning rather than by
 // quietly returning less than was asked for (behavior §5.3).
-func (o *Olympus) Capture(ctx context.Context, targets []string, opts ...ScreenOption) (Screens, error) {
+func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenOption) (Screens, error) {
 	if len(targets) == 0 {
 		return Screens{}, backend.Errorf(backend.CodeUsage, "no targets given to capture")
 	}

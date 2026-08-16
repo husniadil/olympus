@@ -14,6 +14,24 @@ developed against 3.7b) and **zmx 0.6.0**. Platform: macOS and Linux only. The
 default backend is **zmx**; §0 covers resolution, fallback, and the case where
 neither backend is installed.
 
+**How to read it.** At 2200 lines this is not read front to back, and the
+sections are not all the same kind of thing:
+
+| Sections | What they are | Who needs them |
+|---|---|---|
+| §0–§14 | The backend contract: what a backend MUST do, and why the obvious version is wrong | Anyone implementing or changing a backend |
+| §15 | The MCP door | Anyone touching `internal/mcp` |
+| §16–§17 | Testing requirements, reserved identifiers, isolation, defaults | Anyone writing tests, or choosing a default |
+
+Splitting the last three out into their own document was considered and
+rejected: they cite twenty different sections of §0–§14 between them, seventy-odd
+code comments cite them back, and the result would be two documents pointing at
+each other rather than one contract and one appendix. They are not a separable
+layer — they are the same contract seen from the door's side.
+
+New here and implementing a backend? [`adding-a-backend.md`](adding-a-backend.md)
+is the route, and it names which sections matter at which step.
+
 Terminology:
 
 - **backend** — a multiplexer implementation (tmux, zmx).

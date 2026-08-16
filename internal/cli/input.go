@@ -96,11 +96,11 @@ func (a *App) sendCmd() *cobra.Command {
 	return cmd
 }
 
-func (a *App) keyCmd() *cobra.Command {
+func (a *App) pressCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "key <target> <key>...",
-		Short: "Send named keys",
-		Long: "Send named keys, for example enter, escape, c-c, up." +
+		Use:   "press <target> <key>...",
+		Short: "Press named keys",
+		Long: "Press named keys, for example enter, escape, c-c, up." +
 			"\n\nKey names are Olympus's own and are translated per backend, so the same name works everywhere." +
 			scriptsNote,
 		Args: cobra.MinimumNArgs(2),
@@ -183,7 +183,7 @@ func (a *App) screenCmd() *cobra.Command {
 				opts = append(opts, olympus.WithHistory(history))
 			}
 
-			captured, err := ol.Capture(cmd.Context(), args, opts...)
+			captured, err := ol.Screens(cmd.Context(), args, opts...)
 			if err != nil {
 				return err
 			}
