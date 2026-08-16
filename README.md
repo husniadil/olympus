@@ -7,9 +7,10 @@ kind that survive you closing your laptop — and exposes that through three equ
 doors: a **Go package**, a **CLI**, and a **stdio MCP server**.
 
 It does not embed a multiplexer. It drives one you already have: `zmx` by
-default, [`tmux`][tmux] as the alternative.
+default, [`tmux`][tmux] as the alternative, and [`meja`][meja] last.
 
 [tmux]: https://github.com/tmux/tmux
+[meja]: https://github.com/garindra/meja
 
 ---
 
@@ -166,9 +167,9 @@ sessions do not show up in a plain `tmux ls`. On zmx there is no socket
 equivalent — sessions are global to your daemon and appear in your own
 `zmx list`. `olympus doctor` states which is in effect.
 
-A third backend, **meja**, is supported and comes last in that order: it answers
-only when neither zmx nor tmux is installed, since sessions never migrate
-between backends. Address it with `--socket-path`, which is the only form
+A third backend, [**meja**][meja], is supported and comes last in that order: it
+answers only when neither zmx nor tmux is installed, since sessions never
+migrate between backends. Address it with `--socket-path`, which is the only form
 offered there — meja keeps a server's saved sessions beside its socket, so a
 named profile would write into your own store.
 
