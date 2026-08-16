@@ -237,3 +237,14 @@ func TestResolutionReasonSpellings(t *testing.T) {
 		}
 	}
 }
+
+// §5 "Detached run": `start` returns `{"command_id": "…"}`.
+//
+// One type rather than two spellings. The CLI emitted this through an anonymous
+// map and MCP through a private struct — the same wire shape written down twice,
+// agreeing by coincidence, with nothing to notice if one drifted. Both doors are
+// supposed to mirror the ergonomic layer, so the payload lives here and neither
+// door gets to spell it.
+func TestStartedMarshalsToTheSpecShape(t *testing.T) {
+	assertJSON(t, olympus.Started{CommandID: "OLY_S_a1b2"}, `{"command_id":"OLY_S_a1b2"}`)
+}

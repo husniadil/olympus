@@ -326,7 +326,8 @@ func (s *Session) WaitFor(ctx context.Context, pattern string, opts ...WaitOptio
 		}
 		if time.Now().After(deadline) {
 			return last, backend.Errorf(backend.CodeTimeout,
-				"the pattern %q did not appear on %s within %s", pattern, s.name, cfg.timeout)
+				"the pattern %q did not appear on %s within %s%s",
+				pattern, s.name, cfg.timeout, anchorHint(expression, last.Text))
 		}
 		select {
 		case <-ctx.Done():
@@ -439,6 +440,18 @@ func (s *Session) Start(ctx context.Context, command string, opts ...RunOption) 
 		return nil, err
 	}
 	return &Job{session: s, id: id}, nil
+}
+
+// A Started is what starting a detached run reports: the identifier a caller
+// re-presents to poll it.
+//
+// It lives here rather than in a door because both doors mirror the ergonomic
+// layer (§15.6). Each used to spell this shape for itself — the CLI through an
+// anonymous map, MCP through a private struct — which is two independent
+// definitions of one semver-bound payload, agreeing by coincidence and with
+// nothing to notice if either drifted.
+type Started struct {
+	CommandID string `json:"command_id"`
 }
 
 // A PollResult is one poll of a detached run.
@@ -560,4 +573,35 @@ func (o *Olympus) Stop(ctx context.Context, target string, opts ...StopOption) (
 		return Stopped{}, err
 	}
 	return (&Session{ol: o, name: resolved}).Stop(ctx, opts...)
+}
+
+// anchorHint explains a timeout whose only cause was a line anchor.
+//
+// A pattern like `^>>>\s*$` cannot match a prompt a program painted onto the row
+// the shell's echo is on — behavior §7.3.1 has the measurement — and the capture
+// shows the text plainly, so the failure reads as a lie. This turns that into an
+// answer.
+//
+// Deliberately conservative. It fires only when the SAME pattern with its line
+// anchors removed does match, so an ordinary timeout on genuinely absent text
+// says nothing extra: a wrong guess would send a caller to edit a pattern that
+// was correct.
+func anchorHint(expression *regexp.Regexp, screen string) string {
+	source := expression.String()
+	if !strings.HasPrefix(source, "^") && !strings.HasSuffix(source, "$") {
+		return ""
+	}
+	unanchored := strings.TrimSuffix(strings.TrimPrefix(source, "^"), "$")
+	if unanchored == "" {
+		return ""
+	}
+	relaxed, err := regexp.Compile(unanchored)
+	if err != nil {
+		return ""
+	}
+	if !relaxed.MatchString(screen) {
+		return ""
+	}
+	return " (it IS on screen, but not at a line boundary: the anchors in the pattern are what rejected it — " +
+		"a program that paints by cursor positioning can leave its prompt mid-line, see behavior §7.3.1)"
 }

@@ -46,7 +46,7 @@ for any successful run and the command's status is in data.exit_code instead.`) 
 					if err != nil {
 						return err
 					}
-					return a.emit(map[string]any{"command_id": job.ID()}, nil, func(w io.Writer) {
+					return a.emit(olympus.Started{CommandID: job.ID()}, nil, func(w io.Writer) {
 						fmt.Fprintln(w, job.ID())
 					})
 				}

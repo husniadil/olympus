@@ -189,10 +189,6 @@ type acknowledged struct {
 	Target string `json:"target"`
 }
 
-type startedRun struct {
-	CommandID string `json:"command_id"`
-}
-
 type markerResult struct {
 	Found bool `json:"found"`
 	// ExitCode is present only when a well-formed marker was found. A marker
@@ -430,19 +426,19 @@ func register(s *sdk.Server) {
 		})
 
 	addTool(s, "start_run", "Start a command and return an id to poll. Nothing is written down; the id is the whole handle.",
-		func(ctx context.Context, ol *olympus.Olympus, in commandParams) (startedRun, []olympus.Warning, error) {
+		func(ctx context.Context, ol *olympus.Olympus, in commandParams) (olympus.Started, []olympus.Warning, error) {
 			if in.Throwaway {
 				// A throwaway session is killed the moment the run returns,
 				// leaving nothing to poll (behavior §6.10).
-				return startedRun{}, nil, backend.Errorf(backend.CodeUsage,
+				return olympus.Started{}, nil, backend.Errorf(backend.CodeUsage,
 					"a detached run needs a target: a throwaway session is killed when the run returns, leaving nothing to poll")
 			}
-			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (startedRun, error) {
+			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (olympus.Started, error) {
 				job, err := s.Start(ctx, in.Command)
 				if err != nil {
-					return startedRun{}, err
+					return olympus.Started{}, err
 				}
-				return startedRun{CommandID: job.ID()}, nil
+				return olympus.Started{CommandID: job.ID()}, nil
 			})
 		})
 
