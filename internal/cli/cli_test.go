@@ -961,3 +961,40 @@ func TestAttachWithoutJSONIsNotRefused(t *testing.T) {
 		t.Errorf("plain attach was refused as a usage error:\n%s%s", got.stdout, got.stderr)
 	}
 }
+
+// §5 "Detached run": `start` returns `{"command_id": "…"}`, and the id is the
+// only thing a caller holds between starting a run and polling it.
+//
+// The key was pinned in the ergonomic layer's golden tests, and both doors were
+// pointed at that one type — but nothing on an ordinary backend checked that
+// either door actually EMITS it. The only cases reading the field were
+// meja-specific, so they skip wherever meja is absent, which is everywhere it
+// matters. Found by mutation: renaming the tag left both doors' suites green.
+func TestADetachedRunReturnsAPollableCommandID(t *testing.T) {
+	flags := isolation(t)
+	name := fmt.Sprintf("oly-detach-%d-%d", os.Getpid(), counter.Add(1))
+	if got := run(t, append(flags, "start", name)...); got.code != 0 {
+		t.Fatalf("start: exit %d\n%s", got.code, got.stderr)
+	}
+
+	started := run(t, append(flags, "run", name, "echo detached-ok", "--detach", "--json")...)
+	if started.code != 0 {
+		t.Fatalf("a detached run exited %d: %s", started.code, started.stderr)
+	}
+	var payload struct {
+		CommandID string `json:"command_id"`
+	}
+	if err := json.Unmarshal(mustData(t, started.envelope(t)), &payload); err != nil {
+		t.Fatalf("decoding the start payload: %v", err)
+	}
+	if payload.CommandID == "" {
+		t.Fatalf("no command_id in the start payload: %s", started.stdout)
+	}
+
+	// The id has to be usable, not merely present: a well-formed field the
+	// other verb rejects is worse than no field.
+	polled := run(t, append(flags, "poll", name, payload.CommandID, "--json")...)
+	if polled.code != 0 {
+		t.Fatalf("polling with the returned id exited %d: %s", polled.code, polled.stderr)
+	}
+}

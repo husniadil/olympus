@@ -53,3 +53,23 @@ func TestAHintForAPatternAnchoredAtOneEndOnly(t *testing.T) {
 		t.Error("a start-anchored pattern produced no hint")
 	}
 }
+
+// The anchor precondition has to be load-bearing, and this is the case that
+// makes it so: a pattern with NO anchors can still match the screen as one
+// string while matching no single line, because a match that spans a newline is
+// a match against the blob and never against a line.
+//
+// Without the precondition, that timeout would be blamed on anchors the pattern
+// does not have — sending the caller to remove something that is not there. It
+// was found by mutation: deleting the precondition left every other case green.
+func TestNoAnchorHintWhenTheMatchMerelySpansLines(t *testing.T) {
+	screen := "$ ls\nfile.txt\n"
+	spanning := regexp.MustCompile(`ls\nfile`)
+
+	if !spanning.MatchString(screen) {
+		t.Fatal("the fixture does not span lines, so it cannot test what it claims")
+	}
+	if hint := anchorHint(spanning, screen); hint != "" {
+		t.Errorf("an unanchored, line-spanning pattern was blamed on anchors: %q", hint)
+	}
+}

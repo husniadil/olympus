@@ -418,6 +418,12 @@ the pattern hit rather than a slice of the screen.
 **`exit_code` is omitted unless `status` is `completed`** (behavior spec §6.7) —
 never a fake zero. Consumers branch on `status` first.
 
+The identifier is spelled **`command_id` coming back and `id` going in** on the
+MCP door: `start_run` returns the first, `poll_run` takes the second. Both are
+shipped and therefore fixed (§7), so the asymmetry is documented rather than
+corrected — renaming either would break every client that already pairs them.
+The CLI takes the id positionally and has no such split.
+
 **View row** (`view create`, `view ls`):
 
 ```json

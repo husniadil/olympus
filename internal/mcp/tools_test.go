@@ -418,3 +418,30 @@ func skipUnlessFull(t *testing.T) {
 		t.Skip("driving a real multiplexer; run `make test-full` for this")
 	}
 }
+
+// The MCP half of the same pin. Both doors mirror one type now, and this is what
+// notices if either stops — the only cases reading this field were meja-specific
+// and skip wherever meja is absent.
+func TestStartRunReturnsAPollableCommandID(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	started := w.callTool(t, "start_run", map[string]any{"target": name, "command": "echo detached-ok"})
+	data, _ := started["data"].(map[string]any)
+	id, _ := data["command_id"].(string)
+	if id == "" {
+		t.Fatalf("start_run returned no command_id: %v", started)
+	}
+
+	// Present is not enough: the other tool has to accept it. Note the
+	// asymmetry — start_run RETURNS `command_id` and poll_run TAKES `id`. Both
+	// names are shipped and semver-bound, so neither can be renamed now; this
+	// case exists partly so the pairing is written down somewhere executable.
+	polled := w.callTool(t, "poll_run", map[string]any{"target": name, "id": id})
+	polledData, _ := polled["data"].(map[string]any)
+	if polledData["status"] == nil {
+		t.Errorf("polling with the returned id reported no status: %v", polled)
+	}
+}
