@@ -175,10 +175,30 @@ func TestAFullScreenApplicationIsVisible(t *testing.T) {
 					t.Fatalf("Capture: %v", err)
 				}
 				if strings.Contains(captured.Screens[name], "FRAME-MARKER ready") {
-					if ol.Capabilities().TracksAltScreen && !captured.Meta[name].AltScreen {
-						t.Errorf("the pane is on the alternate screen but the flag is unset")
+					if !ol.Capabilities().TracksAltScreen {
+						return
 					}
-					return
+					// The flag is re-read rather than taken from the capture
+					// above. A capture reads the metadata BEFORE the screen — it
+					// has to, since the alt-screen answer decides what to ask
+					// for (§5.3) — so the flag in one result can predate the
+					// text beside it. Asserting them as simultaneous passed
+					// everywhere until a loaded macOS runner made the window
+					// wide enough to lose, and reported a correct backend as
+					// failing to track the alternate screen.
+					for {
+						again, err := ol.Screens(ctx, []string{name})
+						if err != nil {
+							t.Fatalf("Capture: %v", err)
+						}
+						if again.Meta[name].AltScreen {
+							return
+						}
+						if time.Now().After(deadline) {
+							t.Fatal("the pane is on the alternate screen but the flag never became set")
+						}
+						time.Sleep(100 * time.Millisecond)
+					}
 				}
 				if time.Now().After(deadline) {
 					t.Fatalf("a full-screen application was never readable; screen was %q", captured.Screens[name])
@@ -324,9 +344,9 @@ func TestPasteAndSubmitExecutesTheFinalLine(t *testing.T) {
 // could press.
 func TestDrivingAFullScreenEditor(t *testing.T) {
 	t.Parallel()
-	editor, err := exec.LookPath("nano")
+	editor, err := lookPathGNUNano()
 	if err != nil {
-		t.Skip("nano is not installed, so the editor leg cannot run")
+		t.Skip("GNU nano is not installed, so the editor leg cannot run")
 	}
 
 	for _, l := range legs(t) {
@@ -418,4 +438,26 @@ func TestDrivingAFullScreenEditor(t *testing.T) {
 			}
 		})
 	}
+}
+
+// lookPathGNUNano finds GNU nano specifically, not merely a binary called nano.
+//
+// On macOS /usr/bin/nano is a symlink to pico — "UW PICO 5.09" — so a plain
+// LookPath succeeds and hands back a different editor whose every string
+// differs. The test then waits twenty seconds for "GNU nano" and reports that
+// the editor never appeared, which is true of the editor it was looking for and
+// says nothing about the one it actually launched.
+//
+// Found on a macOS CI runner, where Homebrew's nano is absent. It passes
+// locally only because a Homebrew nano sits earlier in PATH.
+func lookPathGNUNano() (string, error) {
+	path, err := exec.LookPath("nano")
+	if err != nil {
+		return "", err
+	}
+	out, err := exec.Command(path, "--version").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "GNU nano") {
+		return "", fmt.Errorf("%s is not GNU nano", path)
+	}
+	return path, nil
 }

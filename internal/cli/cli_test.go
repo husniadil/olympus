@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
@@ -759,7 +760,25 @@ func TestWindowsBelongToTheMultiplexerNotToOlympus(t *testing.T) {
 			// One capture sees both. If a pane id selected its own pane, one of
 			// these two markers would have landed somewhere this capture cannot
 			// reach — which is exactly the surprise being pinned against.
-			screen := on("screen", name).stdout
+			//
+			// Waited for rather than captured once: a verified send proves the
+			// text LANDED, not that it RAN, so capturing straight after races
+			// the shell's execution. Only the second marker ever lost that race,
+			// because the first had a whole extra send's worth of time — which
+			// is what made it read like a pane-addressing defect on a loaded
+			// macOS runner rather than the timing bug it is.
+			deadline := time.Now().Add(20 * time.Second)
+			var screen string
+			for {
+				screen = on("screen", name).stdout
+				if strings.Contains(screen, "via-session-name") && strings.Contains(screen, "via-pane-id") {
+					break
+				}
+				if time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
 			if !strings.Contains(screen, "via-session-name") {
 				t.Errorf("what was sent to the session name is not on the session's screen:\n%s", screen)
 			}
