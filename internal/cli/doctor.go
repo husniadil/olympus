@@ -83,6 +83,15 @@ func writeDiagnosis(w io.Writer, d olympus.Diagnosis) {
 	}
 	_ = table.Flush()
 
+	// A backend on PATH that cannot be run is the one state the table above
+	// spells only by omission — installed yes, version "-" — and a reader has no
+	// way to tell that from a probe that timed out. Say it in words.
+	for _, b := range d.Backends {
+		if b.Problem != "" {
+			fmt.Fprintf(w, "  ! %s is %s\n", b.Name, b.Problem)
+		}
+	}
+
 	// The matrix is not decoration. The backends differ substantially, the
 	// default is the less capable of the two, and a user needs one place that
 	// says so rather than discovering it one unsupported error at a time

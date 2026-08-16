@@ -72,6 +72,17 @@ type BackendReport struct {
 	// differs sharply between backends and a user who learns one will be
 	// surprised by the other (behavior §17.2).
 	Isolation string `json:"isolation"`
+	// Problem explains why a backend that is on PATH could not be asked its
+	// version.
+	//
+	// "On PATH" and "runnable" are different things, and a version-manager shim
+	// left behind by an uninstalled tool is the case that proves it: it
+	// satisfies a lookup and fails every call. Resolution stays a single lookup
+	// with no subprocess (§0.2) and so cannot tell the difference; the
+	// diagnostic already spends subprocesses and explaining exactly this is its
+	// job. An empty version alone left the reader to guess between "not
+	// runnable", "too slow to answer" and "never asked".
+	Problem string `json:"problem,omitempty"`
 	// Managed is every option Olympus pins on servers it starts, overriding
 	// whatever the operator's configuration says.
 	//
@@ -147,10 +158,12 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		report.Capabilities = b.Capabilities()
 		report.Isolation = isolationOf(name, scope)
 		report.Managed = managedOf(name)
-		if version, err := probeVersion(ctx, b); err == nil {
+		version, err := probeVersion(ctx, b)
+		if err == nil {
 			report.Version = version
 			report.BelowFloor = belowFloor(version, floors[name])
 		}
+		describeProbeFailure(&report, err)
 		diagnosis.Backends = append(diagnosis.Backends, report)
 	}
 
@@ -321,4 +334,15 @@ func parseVersion(version string) ([3]int, bool) {
 		out[i] = n
 	}
 	return out, true
+}
+
+// describeProbeFailure records why a version could not be read, and makes sure a
+// failed probe leaves no version behind to be believed.
+func describeProbeFailure(report *BackendReport, err error) {
+	if err == nil {
+		return
+	}
+	report.Version = ""
+	report.BelowFloor = false
+	report.Problem = "on PATH but could not be run: " + err.Error()
 }
