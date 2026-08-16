@@ -1329,6 +1329,14 @@ portably, so the superseded side cannot honestly name who stole from it. The "by
 pid N" framing belongs on the **stealer's** side, where the holder's pid is
 genuinely known from the pidfile it just read.
 
+A holder with **no** handler is a different case, and the difference is worth
+stating: it falls to SIGUSR1's POSIX default disposition, which is termination.
+That is an accepted risk rather than a mechanism to rely on — it was observed
+NOT to terminate a Go process on a GitHub Actions runner, while terminating the
+same binary on macOS and in a plain container. A steal from a holder that has
+not installed its handler is therefore best-effort, and the bounded wait
+(§17.3) is what keeps it from blocking forever.
+
 The handler runs on its own goroutine, installed **before** the PTY is spawned,
 so a steal landing in that window has no PTY to close yet. It can fire at any
 point relative to the attach: before the PTY exists, mid-stream, or after the

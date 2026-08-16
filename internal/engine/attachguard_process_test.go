@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -55,11 +56,27 @@ func holdTheSlotForever(dir string) {
 		fmt.Println("acquire:", err)
 		os.Exit(1)
 	}
-	defer func() { _ = slot.Release() }()
+
+	// A handler, because that is what a real attach client has (§8.6): it is
+	// installed before the PTY is spawned, and releasing on it is the DESIGNED
+	// path a steal takes.
+	//
+	// This holder used to install nothing and rely on SIGUSR1's POSIX default
+	// disposition to terminate it. That works on macOS and in a plain container
+	// and did not on the GitHub runner, where the steal case timed out at three
+	// seconds and then at thirty. Chasing which of the two environments is
+	// unusual would have been the wrong repair: §8.6 records default-disposition
+	// termination as an ACCEPTED RISK, not a guarantee, so asserting it was
+	// asserting something the spec deliberately does not promise.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGUSR1)
 
 	fmt.Println("held")
 	_ = os.Stdout.Sync()
-	select {} // Held until killed. Releasing is the parent's business.
+
+	<-signals
+	_ = slot.Release()
+	os.Exit(0)
 }
 
 func holderKey() engine.LockKey {
@@ -162,10 +179,11 @@ func TestStealingDisplacesALiveHolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAttachGuard: %v", err)
 	}
-	// The holder has no SIGUSR1 handler, so the POSIX default disposition —
-	// termination — is what frees the slot here. That is the same mechanism a
-	// real attach client relies on if its handler is not yet installed, which is
-	// why §8.6 records the recycled-pid risk as accepted rather than fixed.
+	// The holder handles SIGUSR1 and releases, which is what a real attach
+	// client does. What is asserted is that stealing displaces a live holder by
+	// the designed route — not that an unhandled signal happens to kill one,
+	// which §8.6 keeps as an accepted risk precisely because it is not
+	// dependable.
 	// A longer wait than the product default on purpose. What is under test is
 	// that stealing DISPLACES a holder, not whether three seconds happens to be
 	// enough on the machine running the test — and on a loaded CI runner it is
