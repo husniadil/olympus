@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/husniadil/olympus"
+	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/internal/cli"
 )
 
@@ -809,4 +811,110 @@ func requireTmuxInstalled(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
+}
+
+// Nothing installed is a supported state, and it must be a supported state on
+// EVERY machine — not only on the ones that happen to lack a multiplexer.
+//
+// The gate now skips backend-driven cases when nothing can drive them, which is
+// right, but it means the BACKEND_UNAVAILABLE path would otherwise be exercised
+// only by accident: never on a developer's machine, never on a CI runner with
+// tmux in the image. So it is simulated instead of waited for. An empty
+// directory as the whole PATH removes zmx, tmux and meja at once without
+// uninstalling anything.
+//
+// This is the first thing a new user meets, and the only thing standing between
+// them and a message that tells them what to install.
+func TestNothingInstalledIsExplainedRatherThanCrashed(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	got := run(t, "ls")
+	if got.code != 4 {
+		t.Errorf("exit %d, want 4 (BACKEND_UNAVAILABLE)", got.code)
+	}
+	// Narration on stderr, never on stdout: a consumer piping stdout into a
+	// parser must not have to filter it (api §2.3).
+	if got.stdout != "" {
+		t.Errorf("the failure wrote to stdout, which a parser is reading:\n%s", got.stdout)
+	}
+	for _, want := range []string{"zmx", "tmux", "meja", "doctor"} {
+		if !strings.Contains(got.stderr, want) {
+			t.Errorf("the message never mentions %q, so it does not say what to do:\n%s", want, got.stderr)
+		}
+	}
+}
+
+// The same condition through the structured door has to be an envelope, because
+// a program is reading it and a program cannot read prose.
+func TestNothingInstalledIsAWellFormedFailureEnvelope(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	got := run(t, "ls", "--json")
+	if got.code != 4 {
+		t.Fatalf("exit %d, want 4 (BACKEND_UNAVAILABLE)", got.code)
+	}
+	envelope := got.envelope(t)
+	if envelope.OK {
+		t.Error("the envelope reports success with no multiplexer installed")
+	}
+	if envelope.Error == nil {
+		t.Fatal("the failure envelope carries no error")
+	}
+	if envelope.Error.Code != backend.CodeBackendUnavailable {
+		t.Errorf("code is %q, want %q", envelope.Error.Code, backend.CodeBackendUnavailable)
+	}
+}
+
+// doctor is the one verb that must still SUCCEED, because explaining an empty
+// environment is the whole reason it exists (§0.6). A diagnostic that fails when
+// nothing is installed is useless at exactly the moment it is needed.
+func TestDoctorStillSucceedsWithNothingInstalled(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	got := run(t, "doctor")
+	if got.code != 0 {
+		t.Fatalf("exit %d, want 0 — doctor must answer when nothing is installed\n%s%s",
+			got.code, got.stdout, got.stderr)
+	}
+	for _, want := range []string{"zmx", "tmux", "meja"} {
+		if !strings.Contains(got.stdout, want) {
+			t.Errorf("doctor never mentions %q:\n%s", want, got.stdout)
+		}
+	}
+}
+
+// And through the structured door, where the shape matters as much as the
+// success: install_hints is the field a caller reads to tell its user what to do.
+func TestDoctorReportsEveryBackendAsMissingWithNothingInstalled(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	got := run(t, "doctor", "--json")
+	if got.code != 0 {
+		t.Fatalf("exit %d, want 0", got.code)
+	}
+	var diagnosis olympus.Diagnosis
+	if err := json.Unmarshal(mustData(t, got.envelope(t)), &diagnosis); err != nil {
+		t.Fatalf("the diagnosis is not decodable: %v", err)
+	}
+	for _, report := range diagnosis.Backends {
+		if report.Installed {
+			t.Errorf("%s reports installed with an empty PATH", report.Name)
+		}
+	}
+	if len(diagnosis.InstallHints) != len(diagnosis.Backends) {
+		t.Errorf("%d install hints for %d backends: a caller cannot tell the user what to install",
+			len(diagnosis.InstallHints), len(diagnosis.Backends))
+	}
+	if diagnosis.Resolved.Problem == "" {
+		t.Error("the diagnosis does not say why nothing resolved")
+	}
+}
+
+func mustData(t *testing.T, envelope cli.Envelope) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(envelope.Data)
+	if err != nil {
+		t.Fatalf("re-encoding the payload: %v", err)
+	}
+	return encoded
 }
