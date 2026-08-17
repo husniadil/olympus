@@ -32,9 +32,13 @@ deliberately not hidden inside it:
   3.3 floor and at each platform's system version; zmx at 0.6.0 (the floor) and
   0.7.0 (the newest release); meja at 0.0.25. A backend that cannot be
   installed skips its leg with a `::warning::` rather than passing quietly.
-- **A release has never been cut.** The goreleaser configuration exists and has
-  never been run against a tag, and there is no Homebrew tap: installation is
-  `go install` or the archives a release would produce.
+- **v0.1.0 is cut**, from a tag and nowhere else: the version every door reports
+  is stamped from it, so a build from anything but a tag would publish binaries
+  that misreport what they are. The release workflow installs all three backends
+  and refuses to proceed if any is missing — the suite skips rather than fails
+  when a backend is absent, so an uninstalled one would otherwise let a tag pass
+  a gate it never actually ran. Still no Homebrew tap, which would need a tap
+  repository of its own; installation is `go install` or the release archives.
 - **The MCP door is stdio only**, which is deliberate (behavior §15), so there
   is no remote or multi-client story and none is planned.
 - **An undiagnosed intermittent failure on the meja leg, macOS only.** Every
