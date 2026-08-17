@@ -110,9 +110,13 @@ jobs:
             arm64 | aarch64) arch=aarch64 ;;
             x86_64) arch=x86_64 ;;
           esac
+          # Into RUNNER_TEMP, not the checkout: an untracked tarball in the repo
+          # root is a dirty tree, which is harmless here but broke the first
+          # release tag outright. Same reason both places, so same handling.
           name="zmx-${{ matrix.zmx }}-${platform}-${arch}.tar.gz"
           base="https://github.com/neurosnap/zmx/releases/download/v${{ matrix.zmx }}"
-          curl -fsSL -o "$name" "$base/$name"
+          curl -fsSL -o "$RUNNER_TEMP/$name" "$base/$name"
+          cd "$RUNNER_TEMP"
 
           # Compare the digest FIELD, not the line: the published .sha256 names
           # the file by the build machine's own cache path, so `-c` would look

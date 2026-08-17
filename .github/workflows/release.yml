@@ -39,9 +39,13 @@ jobs:
           sudo apt-get update && sudo apt-get install -y tmux
           tmux -V
 
+          # Downloaded into RUNNER_TEMP, never the checkout: goreleaser refuses
+          # to build from a dirty tree, and the first tag failed on exactly this
+          # — an untracked zmx tarball sitting in the repo root.
           name="zmx-${ZMX_VERSION}-linux-x86_64.tar.gz"
           base="https://github.com/neurosnap/zmx/releases/download/v${ZMX_VERSION}"
-          curl -fsSL -o "$name" "$base/$name"
+          curl -fsSL -o "$RUNNER_TEMP/$name" "$base/$name"
+          cd "$RUNNER_TEMP"
           # Digest FIELD, not line: the published .sha256 names the file by the
           # build machine's own cache path. Same reason as in ci.yml.
           expected=$(curl -fsSL "$base/$name.sha256" | awk '{print $1}')
@@ -65,6 +69,15 @@ jobs:
             command -v "$backend" >/dev/null || { echo "$backend absent; the gate would skip its leg"; exit 1; }
           done
           make test-full
+
+      # goreleaser builds only from a clean tree, and everything above it here
+      # writes somewhere — packages, downloads, a Go build cache, the gate
+      # driving real terminals. Naming that failure beats reading it out of a
+      # goreleaser error at the end of a release run.
+      - name: The tree the release is built from is clean
+        run: |
+          dirty=$(git status --porcelain)
+          [ -z "$dirty" ] || { echo "the working tree is dirty:"; echo "$dirty"; exit 1; }
 
       - uses: goreleaser/goreleaser-action@v7
         with:
