@@ -11,5 +11,9 @@ CLAUDE.local.md
 /olympus
 /bin/
 /dist/
+# Not ours: tools run against a terminal under test write scratch trees into the
+# working directory, and one such file was committed by a wide `git add` before
+# anyone read it. Nothing in this repo builds into build/.
+/build/
 /.gendoc/
 coverage.out
