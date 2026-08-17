@@ -1,0 +1,74 @@
+name: Release
+
+# Tag-driven, and deliberately not reachable any other way. The version every
+# door reports is stamped from the tag (api §7), so a release built from
+# anything but a tag would publish binaries that lie about what they are.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # goreleaser derives the version and the changelog from tag history.
+          # A shallow clone gives it neither, and the failure is a wrong version
+          # rather than an error.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # A bare runner has no multiplexer at all, and the suite is built to SKIP
+      # rather than fail when one is missing — so a gate here without these
+      # would pass in seconds having driven no terminal, which is worse than no
+      # gate because it looks like one. These are not continue-on-error for the
+      # same reason: on a tag, a backend that cannot be installed should stop
+      # the release, not quietly narrow what it proved.
+      - name: Install the backends the gate needs
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y tmux
+          tmux -V
+
+          name="zmx-${ZMX_VERSION}-linux-x86_64.tar.gz"
+          base="https://github.com/neurosnap/zmx/releases/download/v${ZMX_VERSION}"
+          curl -fsSL -o "$name" "$base/$name"
+          # Digest FIELD, not line: the published .sha256 names the file by the
+          # build machine's own cache path. Same reason as in ci.yml.
+          expected=$(curl -fsSL "$base/$name.sha256" | awk '{print $1}')
+          actual=$(sha256sum "$name" | awk '{print $1}')
+          [ "$expected" = "$actual" ] || { echo "sha256 mismatch: want $expected, got $actual"; exit 1; }
+          mkdir -p "$HOME/.local/bin"
+          tar xzf "$name" -C "$HOME/.local/bin" zmx
+          chmod +x "$HOME/.local/bin/zmx"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          go install github.com/garindra/meja@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+        env:
+          ZMX_VERSION: "0.7.0"
+
+      # The gate is what CI runs on every push, and a tag is the one commit
+      # where skipping it would be least forgivable.
+      - name: Gate
+        run: |
+          for backend in tmux zmx meja; do
+            command -v "$backend" >/dev/null || { echo "$backend absent; the gate would skip its leg"; exit 1; }
+          done
+          make test-full
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

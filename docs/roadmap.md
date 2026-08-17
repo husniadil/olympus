@@ -26,17 +26,27 @@ deliberately not hidden inside it:
   and the slot is arbitrated across real processes including a holder killed
   with SIGKILL. What is still exercised only by hand is a HUMAN attaching —
   keystroke feel, detach keys, and how a full-screen program looks to a person.
-- **CI has never run.** There is no remote yet, so the matrix and the tmux-3.3
-  build step remain unproven end to end. What HAS been checked without one:
-  `actionlint` is clean, the 3.3 release tarball URL resolves, and
-  `github.com/garindra/meja` is public on the module proxy so the meja install
-  step can work. `make test-full` — what CI runs — is green locally on macOS and
-  under Docker on Linux.
+- **CI runs all three backends on both platforms**, and found defects across
+  its first runs — nearly every one a test that was wrong about its environment
+  rather than a bug in the code under it. tmux is covered at the
+  3.3 floor and at each platform's system version; zmx at 0.6.0 (the floor) and
+  0.7.0 (the newest release); meja at 0.0.25. A backend that cannot be
+  installed skips its leg with a `::warning::` rather than passing quietly.
 - **A release has never been cut.** The goreleaser configuration exists and has
-  never been run, and there is no Homebrew tap: installation is `go install` or
-  the archives a release would produce.
+  never been run against a tag, and there is no Homebrew tap: installation is
+  `go install` or the archives a release would produce.
 - **The MCP door is stdio only**, which is deliberate (behavior §15), so there
   is no remote or multi-client story and none is planned.
+- **An undiagnosed intermittent failure on the meja leg, macOS only.** Every
+  meja subtest in the root package failed at once with meja's own `command
+  requires an attached client` — twice in a burst, and not once in the twenty
+  runs since, across every condition tried. Three mechanisms were proposed and
+  each was falsified by measuring instead of reasoning: socket path length,
+  `-race`, and test parallelism all reproduced once and then failed to
+  reproduce at all. The burst shape points at a transient machine condition
+  rather than at the code, but that is a guess, and it is written here as one.
+  It is recorded rather than closed because a green run since is not a
+  diagnosis.
 
 ---
 

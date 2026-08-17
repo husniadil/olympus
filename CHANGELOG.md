@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0]
+
+The first release. Everything below is the initial surface rather than a change
+against a previous version, and the fixes are recorded because the specification
+and the tests that found them are part of what ships.
+
 ### Added
 
 - The mechanical layer: `backend` types, the error vocabulary with its exit
@@ -132,3 +138,6 @@ changed what the code does, not just how it is written.
   four characters `\037`, where 3.7b passes the byte through — so every row
   parsed as one field and was discarded, on a version well inside the supported
   range.
+
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/husniadil/olympus/releases/tag/v0.1.0
