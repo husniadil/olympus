@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }}
+    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }} · zmx ${{ matrix.zmx }}
     runs-on: ${{ matrix.os }}
     # A hung test would otherwise burn the default six hours. This is not
     # hypothetical: `doctor` could hang forever on a backend binary that never
@@ -30,11 +30,18 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         tmux: [system]
+        zmx: ["0.7.0"]
         include:
           # The floor is tmux 3.3, for allow-passthrough. Building it is only
           # worth the CI minutes on one platform.
+          #
+          # That leg carries the zmx floor too, so the two versions this repo
+          # names — the oldest supported and the newest released — are each
+          # exercised somewhere rather than only the one a developer happens to
+          # have installed.
           - os: ubuntu-latest
             tmux: "3.3"
+            zmx: "0.6.0"
 
     steps:
       - uses: actions/checkout@v4
@@ -84,9 +91,47 @@ jobs:
             echo "::warning::meja could not be installed on this runner; its conformance leg is SKIPPED, not passing"
           fi
 
-      # zmx is not packaged for these runners. Its leg skips loudly rather than
-      # failing the suite, so the tmux leg still proves everything it can — but
-      # CI must never be read as having covered zmx when it did not.
+      # zmx is not in any runner's package manager, but it publishes a prebuilt
+      # binary per platform — and the two it builds are exactly the two this
+      # matrix runs on. Without this the DEFAULT backend was the only one CI
+      # never touched, which is the worst possible one to leave unproven.
+      #
+      # Allowed to fail, like meja: a third-party download that breaks must not
+      # take the gate with it, and the leg below says plainly when it is absent.
+      - name: Install zmx ${{ matrix.zmx }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            macOS) platform=macos ;;
+            Linux) platform=linux ;;
+          esac
+          case "$(uname -m)" in
+            arm64 | aarch64) arch=aarch64 ;;
+            x86_64) arch=x86_64 ;;
+          esac
+          name="zmx-${{ matrix.zmx }}-${platform}-${arch}.tar.gz"
+          base="https://github.com/neurosnap/zmx/releases/download/v${{ matrix.zmx }}"
+          curl -fsSL -o "$name" "$base/$name"
+
+          # Compare the digest FIELD, not the line: the published .sha256 names
+          # the file by the build machine's own cache path, so `-c` would look
+          # for ./.zig-cache/o/<hash>/... and fail on a file that is fine.
+          expected=$(curl -fsSL "$base/$name.sha256" | awk '{print $1}')
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            actual=$(shasum -a 256 "$name" | awk '{print $1}')
+          else
+            actual=$(sha256sum "$name" | awk '{print $1}')
+          fi
+          [ "$expected" = "$actual" ] || { echo "sha256 mismatch: want $expected, got $actual"; exit 1; }
+
+          mkdir -p "$HOME/.local/bin"
+          tar xzf "$name" -C "$HOME/.local/bin" zmx
+          chmod +x "$HOME/.local/bin/zmx"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # CI must never be read as having covered zmx when it did not: on PATH and
+      # runnable are separate questions, and the version call answers the second.
       - name: Note the zmx leg
         run: |
           if command -v zmx >/dev/null 2>&1; then
