@@ -15,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # goreleaser derives the version and the changelog from tag history.
           # A shallow clone gives it neither, and the failure is a wrong version
           # rather than an error.
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -66,9 +66,13 @@ jobs:
           done
           make test-full
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
-          version: "~> v2"
+          # Pinned, not a range: the archive layout, the checksum file and the
+          # generated changelog are all goreleaser's output, and a release
+          # should be built by the same version a developer can run locally to
+          # reproduce it. Bumping this is a deliberate edit.
+          version: "2.17.1"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
