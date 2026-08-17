@@ -37,7 +37,13 @@ const clientRetry = 10 * time.Millisecond
 // one is created. That is not only an optimisation: attaching is not free, as
 // the size rule below explains.
 func (m *Meja) withClient(ctx context.Context, target string, fn func() error) error {
-	if err := fn(); err == nil || !needsClient(err) {
+	// A session somebody is already following or attached to has a client, so
+	// this first call is the one that usually succeeds — and the one that can
+	// lose that client mid-flight. §5.6 failed exactly here in CI, following its
+	// own client while injecting.
+	if err := fn(); err != nil && clientGone(err) {
+		return vanished(err, target)
+	} else if err == nil || !needsClient(err) {
 		return err
 	}
 
@@ -53,6 +59,11 @@ func (m *Meja) withClient(ctx context.Context, target string, fn func() error) e
 		// status field: the question is whether this command works yet, and
 		// asking it directly cannot disagree with itself.
 		err := fn()
+		if err != nil && clientGone(err) {
+			// Our own transient client died under the command. Same rule as
+			// above: the retry loop is for a refusal, not for a loss.
+			return vanished(err, target)
+		}
 		if err == nil || !needsClient(err) {
 			return err
 		}
@@ -73,6 +84,13 @@ func (m *Meja) withClient(ctx context.Context, target string, fn func() error) e
 
 func needsClient(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "requires an attached client")
+}
+
+// clientGone reports the OTHER client failure: one was attached and went away
+// while the command was in flight. Kept separate from needsClient on purpose —
+// see vanished for why the two must not share a predicate.
+func clientGone(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "target client disconnected")
 }
 
 // attachTransient brings up a headless client and returns its teardown.

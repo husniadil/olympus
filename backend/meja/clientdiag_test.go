@@ -94,6 +94,52 @@ func TestAbsentEvidenceIsNotReportedAsAnObservation(t *testing.T) {
 	}
 }
 
+// meja has a SECOND client failure, and it is not the one above.
+//
+// "command requires an attached client" means the command never ran: meja
+// refused it. "target client disconnected" means a client WAS there and went
+// away underneath the command, so whether it ran is unknown. Opposite ends of
+// one window, and the second arrived from CI while §5.6 was following — a case
+// that attaches its own client, so Olympus never attached a transient one and
+// the give-up diagnostic could not fire at all.
+//
+// Reported distinctly, because conflating them would claim the command did not
+// run when nobody knows that.
+func TestAVanishedClientIsNotReportedAsAMissingOne(t *testing.T) {
+	got := vanished(errors.New("target client disconnected: exit status 1"), "build").Error()
+
+	for _, want := range []string{
+		"target client disconnected", // meja's own words, kept
+		"build",
+		"whether it ran is unknown", // the part that makes it actionable
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the vanished-client error does not mention %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "requires an attached client") {
+		t.Errorf("a vanished client was described as a missing one:\n%s", got)
+	}
+}
+
+// The two are told apart by their messages, and neither predicate may claim
+// the other's. A predicate that matched both would send a half-delivered
+// command back through the retry loop.
+func TestTheTwoClientFailuresAreToldApart(t *testing.T) {
+	missing := errors.New("command requires an attached client")
+	gone := errors.New("target client disconnected: exit status 1")
+
+	if !needsClient(missing) || clientGone(missing) {
+		t.Error("a missing client was not classified as missing")
+	}
+	if !clientGone(gone) || needsClient(gone) {
+		t.Error("a vanished client was not classified as vanished")
+	}
+	if needsClient(nil) || clientGone(nil) {
+		t.Error("a nil error was classified as a client failure")
+	}
+}
+
 // The give-up path must actually run on a real failure, not only assemble
 // nicely in isolation. Squeezing the budget to nothing is the honest way to
 // force it: the client genuinely has not arrived yet, which is the same

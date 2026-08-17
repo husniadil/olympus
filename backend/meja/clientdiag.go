@@ -68,6 +68,25 @@ func giveUp(err error, target string, ev clientEvidence) error {
 	return backend.Wrapf(backend.CodeUnexpected, err, "%s", b.String())
 }
 
+// vanished reports a client that went away underneath a command.
+//
+// This is meja's OTHER client failure and it is not interchangeable with the
+// one above. "requires an attached client" is a refusal: meja declined, so the
+// command provably did not run, and retrying it is safe — which is what
+// withClient does. "target client disconnected" is a loss mid-flight: a client
+// was there, the command was accepted, and then the client went. Whether the
+// keystrokes landed is not knowable from here.
+//
+// So it is NOT retried. Resending an injection that may already be half
+// delivered would type text twice or submit twice, and a duplicated submit is
+// a worse fault than a visible failure. Saying so in the error is the point:
+// it arrived from CI reading only "submitting: target client disconnected",
+// which named the symptom and left the reader to guess the rest.
+func vanished(err error, target string) error {
+	return backend.Wrapf(backend.CodeUnexpected, err,
+		"driving %s; a client was attached and went away mid-command, so whether it ran is unknown — not retried, because resending could deliver it twice", target)
+}
+
 // tail keeps the last n bytes, marking that it truncated.
 func tail(s string, n int) string {
 	if len(s) <= n {

@@ -56,6 +56,23 @@ deliberately not hidden inside it:
     query from the client (answering it changes nothing — 15 samples each way,
     indistinguishable).
 
+  - meja has a SECOND client failure, `target client disconnected`, which is
+    not the same fault and must not be treated as one: the first is a refusal
+    (the command provably did not run, so retrying is safe), the second is a
+    loss mid-flight (whether it ran is unknown, so retrying could deliver it
+    twice). It is reported distinctly and deliberately not retried.
+  - They are NOT two edges of one client-lifetime window, which was the
+    obvious guess. Measured across five phases — no client, settled client,
+    client killed, killed and the server caught up, PTY closed — only the
+    first produced a message at all. A session whose client has died or whose
+    PTY is closed stays drivable, so the disconnect could not be provoked by
+    teardown timing in any of them.
+  - `§5.6 following` fails intermittently on its own, reproduced locally twice
+    in twenty-four full-package runs and in two DIFFERENT ways: once as the
+    disconnect above while submitting, once as a stream that never carried
+    output it should have. It attaches its own client, which the injection
+    path then borrows rather than making one.
+
   The evidence that would settle it existed at the moment of failure and was
   being thrown away: the client's output went to `io.Discard` and nothing
   recorded whether the process was alive. Both are captured now and carried
