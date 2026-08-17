@@ -2,11 +2,12 @@ package meja
 
 import (
 	"context"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -15,7 +16,7 @@ import (
 )
 
 // clientWait bounds how long an injection waits for its transient client.
-const clientWait = 5 * time.Second
+var clientWait = 5 * time.Second
 
 // clientRetry is how often the operation is retried while the client arrives.
 const clientRetry = 10 * time.Millisecond
@@ -40,11 +41,11 @@ func (m *Meja) withClient(ctx context.Context, target string, fn func() error) e
 		return err
 	}
 
-	stop, err := m.attachTransient(ctx, target)
+	client, err := m.attachTransient(ctx, target)
 	if err != nil {
 		return err
 	}
-	defer stop()
+	defer client.stop()
 
 	deadline := time.Now().Add(clientWait)
 	for {
@@ -56,7 +57,11 @@ func (m *Meja) withClient(ctx context.Context, target string, fn func() error) e
 			return err
 		}
 		if time.Now().After(deadline) {
-			return err
+			// Gathered HERE, while the client still exists. A moment later
+			// the deferred stop kills it and every distinguishing fact is
+			// gone — which is the state this repository was in when every
+			// meja case failed at once and the burst could not be diagnosed.
+			return giveUp(err, target, client.evidence())
 		}
 		select {
 		case <-ctx.Done():
@@ -79,7 +84,7 @@ func needsClient(err error) bool {
 // a client at 80x24 shrinks it to 80x23 and it stays there after that client
 // exits. The extra row is meja's status bar, which is subtracted from every
 // client's height.
-func (m *Meja) attachTransient(ctx context.Context, target string) (func(), error) {
+func (m *Meja) attachTransient(ctx context.Context, target string) (*transient, error) {
 	cols, rows := m.paneSize(ctx, target)
 
 	cmd := exec.CommandContext(ctx, "meja", append(m.addressing(), "attach", "-t", target)...)
@@ -88,15 +93,71 @@ func (m *Meja) attachTransient(ctx context.Context, target string) (func(), erro
 	if err != nil {
 		return nil, backend.Wrapf(backend.CodeBackendUnavailable, err, "attaching a client to %s", target)
 	}
-	// Drained, not ignored: a client whose output nobody reads fills its pipe
-	// and blocks the server rendering to it.
-	go func() { _, _ = io.Copy(io.Discard, f) }()
 
-	return func() {
-		_ = f.Close()
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}, nil
+	c := &transient{cmd: cmd, pty: f, target: target}
+	// Drained, not ignored: a client whose output nobody reads fills its pipe
+	// and blocks the server rendering to it. The tail is now KEPT while it is
+	// drained — bounded, so a long-lived client cannot grow it — because
+	// throwing it away is what left a failure with nothing to read.
+	go c.drain()
+	return c, nil
+}
+
+// transient is the headless client an injection borrows, and what can be said
+// about it if the injection gives up.
+type transient struct {
+	cmd    *exec.Cmd
+	pty    *os.File
+	target string
+
+	mu   sync.Mutex
+	seen []byte
+}
+
+func (c *transient) drain() {
+	buf := make([]byte, 4096)
+	for {
+		n, err := c.pty.Read(buf)
+		if n > 0 {
+			c.mu.Lock()
+			c.seen = append(c.seen, buf[:n]...)
+			if len(c.seen) > outputKept {
+				c.seen = c.seen[len(c.seen)-outputKept:]
+			}
+			c.mu.Unlock()
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// evidence reports what is observable about the client right now.
+//
+// Called before teardown, never after: killing the process is what makes "it
+// exited" true, so asking afterwards would answer its own question.
+func (c *transient) evidence() clientEvidence {
+	c.mu.Lock()
+	output := string(c.seen)
+	c.mu.Unlock()
+
+	ev := clientEvidence{Output: output}
+
+	// ProcessState is non-nil only once the process has been waited on, and
+	// nothing waits on it before teardown — so a signal-0 probe is what
+	// distinguishes a live client from a dead one here.
+	if err := c.cmd.Process.Signal(syscall.Signal(0)); err != nil {
+		ev.Exited = true
+		ev.Wait = err.Error()
+	}
+
+	return ev
+}
+
+func (c *transient) stop() {
+	_ = c.pty.Close()
+	_ = c.cmd.Process.Kill()
+	_, _ = c.cmd.Process.Wait()
 }
 
 // paneSize reads the session's current geometry, falling back to a default.

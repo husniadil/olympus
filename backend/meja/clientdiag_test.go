@@ -1,0 +1,137 @@
+package meja
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/husniadil/olympus/backend"
+)
+
+// §2.10: driving a meja session goes through an attached client, and when the
+// transient one never arrives the operation fails with meja's own words —
+// "command requires an attached client".
+//
+// Those words describe the SYMPTOM and name no cause, which is exactly the
+// position this repository was left in when every meja case failed at once,
+// twice, and then would not reproduce. The evidence that would have settled it
+// existed at the moment of failure and was thrown away: the client's own
+// output went to io.Discard, and nothing recorded whether the process was
+// still alive.
+//
+// So the give-up error carries what was observable when it gave up. These
+// tests pin what it must carry, because an error that merely repeats the
+// symptom is what made the burst undiagnosable.
+func TestGivingUpNamesWhatTheClientWasDoing(t *testing.T) {
+	base := errors.New("command requires an attached client")
+
+	got := giveUp(base, "build", clientEvidence{
+		Exited: true,
+		Wait:   "exit status 1",
+		Output: "meja: no current client",
+	}).Error()
+
+	for _, want := range []string{
+		"command requires an attached client", // meja's own words, kept
+		"build",                               // which session
+		"exited",                              // the state that explains it
+		"exit status 1",
+		"no current client", // what the client itself said
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the give-up error does not mention %q:\n%s", want, got)
+		}
+	}
+}
+
+// A client that is STILL RUNNING when the budget expires is the more
+// interesting case and the one the burst looked like: nothing crashed, the
+// client simply never became usable. The error must distinguish the two, or it
+// cannot tell "it died" from "it hung" — which are opposite bugs.
+func TestGivingUpDistinguishesAHungClientFromADeadOne(t *testing.T) {
+	base := errors.New("command requires an attached client")
+
+	got := giveUp(base, "build", clientEvidence{
+		Exited: false,
+		Output: "\x1b[?1049h",
+	}).Error()
+
+	if strings.Contains(got, "exited") {
+		t.Errorf("a live client was reported as exited:\n%s", got)
+	}
+	if !strings.Contains(got, "still running") {
+		t.Errorf("the give-up error does not say the client was still running:\n%s", got)
+	}
+}
+
+// The evidence is quoted, not pasted. A client's output is terminal escape
+// bytes, and pasting them raw into an error means the error REDRAWS the
+// operator's screen instead of describing a failure.
+func TestTheClientsOutputIsQuotedRatherThanReplayed(t *testing.T) {
+	got := giveUp(errors.New("x"), "build", clientEvidence{Output: "\x1b[2J"}).Error()
+
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("a raw escape byte reached the error text, which would redraw the reader's terminal:\n%q", got)
+	}
+	if !strings.Contains(got, `\x1b[2J`) {
+		t.Errorf("the client's output is not present in escaped form:\n%s", got)
+	}
+}
+
+// Evidence that was not gathered must not read as evidence of absence: an
+// empty output field means "it printed nothing OR nothing was captured", and
+// claiming the client printed nothing would be a claim the code cannot make.
+func TestAbsentEvidenceIsNotReportedAsAnObservation(t *testing.T) {
+	got := giveUp(errors.New("x"), "build", clientEvidence{}).Error()
+
+	if strings.Contains(got, "printed nothing") || strings.Contains(got, `""`) {
+		t.Errorf("missing evidence was reported as an observation:\n%s", got)
+	}
+}
+
+// The give-up path must actually run on a real failure, not only assemble
+// nicely in isolation. Squeezing the budget to nothing is the honest way to
+// force it: the client genuinely has not arrived yet, which is the same
+// condition as the burst, only reached on purpose.
+func TestARealGiveUpCarriesTheEvidence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real terminal")
+	}
+	if err := exec.Command("meja", "version").Run(); err != nil {
+		t.Skip("meja is not installed or not runnable")
+	}
+	dir, err0 := os.MkdirTemp(os.TempDir(), "olym")
+	if err0 != nil {
+		t.Fatalf("MkdirTemp: %v", err0)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "m.sock")
+	t.Cleanup(func() { _ = exec.Command("meja", "-S", socket, "kill-server").Run() })
+	b := New(WithSocketPath(socket))
+	ctx := context.Background()
+
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "diag", Dir: t.TempDir()}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	restore := clientWait
+	clientWait = time.Nanosecond
+	defer func() { clientWait = restore }()
+
+	err := b.Type(ctx, "diag", "x")
+	if err == nil {
+		t.Skip("the client arrived even with no budget at all; nothing to diagnose")
+	}
+	got := err.Error()
+	for _, want := range []string{"diag", "transient client"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a real give-up does not mention %q:\n%s", want, got)
+		}
+	}
+	t.Logf("give-up error as an operator would read it:\n%s", got)
+}

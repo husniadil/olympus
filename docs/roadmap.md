@@ -38,15 +38,26 @@ deliberately not hidden inside it:
 - **The MCP door is stdio only**, which is deliberate (behavior §15), so there
   is no remote or multi-client story and none is planned.
 - **An undiagnosed intermittent failure on the meja leg, macOS only.** Every
-  meja subtest in the root package failed at once with meja's own `command
-  requires an attached client` — twice in a burst, and not once in the twenty
-  runs since, across every condition tried. Three mechanisms were proposed and
-  each was falsified by measuring instead of reasoning: socket path length,
-  `-race`, and test parallelism all reproduced once and then failed to
-  reproduce at all. The burst shape points at a transient machine condition
-  rather than at the code, but that is a guess, and it is written here as one.
-  It is recorded rather than closed because a green run since is not a
-  diagnosis.
+  meja case in the root package fails at once with meja's own `command requires
+  an attached client`, in bursts of a run or two, then not again for dozens.
+
+  What is now measured rather than guessed:
+
+  - A transient client normally becomes usable in **25–50ms**. The failures sit
+    at the 5s budget — a 150× outlier, so something blocks rather than slows.
+  - Raising the budget to 30s **halved the failures but did not remove them**,
+    so it is not merely a budget that is too tight.
+  - Falsified, each by measurement after being proposed as the answer: socket
+    path length, `-race`, test parallelism, and an unanswered `DECRQM ?69`
+    query from the client (answering it changes nothing — 15 samples each way,
+    indistinguishable).
+
+  The evidence that would settle it existed at the moment of failure and was
+  being thrown away: the client's output went to `io.Discard` and nothing
+  recorded whether the process was alive. Both are captured now and carried
+  into the error, so the next burst diagnoses itself. Note that the server's
+  side cannot be captured at all — meja has no verb that lists clients, and
+  `#{session_attached}` comes back unsubstituted.
 
 ---
 
