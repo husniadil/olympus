@@ -260,13 +260,42 @@ func TestTheAttachGuardDoesNotContendWithTheWriteLock(t *testing.T) {
 	_ = writing.Release()
 }
 
+// discard opens the null device, rather than fabricating a File around fd 0.
+//
+// `os.NewFile(0, os.DevNull)` does not open anything: it wraps the descriptor
+// it is GIVEN and merely NAMES it after the null device. Two consequences, and
+// the second is the one that cost a red CI run.
+//
+// The name is a lie — the File points at whatever fd 0 happens to be — which
+// already broke a test elsewhere in this repository (see attach_resize_test.go).
+//
+// Worse, os.NewFile arms a finalizer, so the collector CLOSES FD 0 once the
+// File goes unreachable. The descriptor is then free, and the next os.Pipe —
+// the one os/exec makes whenever Stdout is not a File, which is every captured
+// backend call — is handed it. A second finalizer, or any later close, then
+// pulls that descriptor out from under a live reader. Measured: on Linux the
+// copy fails with `read |0: bad file descriptor`, which is exactly how this
+// arrived, as an unrelated zmx call failing on a docs-only commit. On macOS it
+// is not an error at all but a fatal `kevent on fd 0 failed`.
+//
+// So: open it, and close it when the test is done.
+func discard(t *testing.T) *os.File {
+	t.Helper()
+	f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("opening %s: %v", os.DevNull, err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f
+}
+
 // The engine hands back the CLIENT's exit code: once the presence gate has
 // passed it hands off, so the status belongs to whatever it ran.
 func TestAttachReturnsTheClientsOwnExitCode(t *testing.T) {
 	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "exit 6")}
 
 	code, err := engine.Attach(context.Background(), attachment,
-		engine.AttachIO{Out: os.NewFile(0, os.DevNull)}, backend.AttachSpec{Role: backend.RoleController}, nil)
+		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil)
 	if err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
@@ -285,7 +314,7 @@ func TestASpontaneousExitStillReaps(t *testing.T) {
 	}
 
 	if _, err := engine.Attach(context.Background(), attachment,
-		engine.AttachIO{Out: os.NewFile(0, os.DevNull)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
 	if !reaped {
