@@ -30,8 +30,16 @@ deliberately not hidden inside it:
   its first runs — nearly every one a test that was wrong about its environment
   rather than a bug in the code under it. tmux is covered at the
   3.3 floor and at each platform's system version; zmx at 0.6.0 (the floor) and
-  0.7.0 (the newest release); meja at 0.0.25. A backend that cannot be
-  installed skips its leg with a `::warning::` rather than passing quietly.
+  0.7.0 (the newest release); meja at 0.0.25 (the floor) and 0.0.26. A backend
+  that cannot be installed skips its leg with a `::warning::` rather than
+  passing quietly.
+
+  Every backend version is PINNED. meja was installed as `@latest` until it
+  moved from 0.0.25 to 0.0.26 on its own and took a structural change with it
+  — ordinary input stopped requiring an attached client — which meant the gate
+  changed subject without a commit, and this line was briefly wrong about what
+  CI had run. The floor leg is also what keeps the transient-client path
+  covered now that the newest release no longer takes it.
 - **v0.1.0 is cut**, from a tag and nowhere else: the version every door reports
   is stamped from it, so a build from anything but a tag would publish binaries
   that misreport what they are. The release workflow installs all three backends
@@ -44,6 +52,12 @@ deliberately not hidden inside it:
 - **An undiagnosed intermittent failure on the meja leg, macOS only.** Every
   meja case in the root package fails at once with meja's own `command requires
   an attached client`, in bursts of a run or two, then not again for dozens.
+
+  From meja 0.0.26 ordinary input no longer takes the client path at all, so
+  the burst cannot occur there — but this is NOT a fix, and must not be read as
+  one. The path still runs on the 0.0.25 floor leg, still runs for copy mode,
+  and `Follow` still attaches a client on every version. Nothing below was
+  explained; it was bypassed on one leg.
 
   What is now measured rather than guessed:
 

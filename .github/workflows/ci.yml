@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }} · zmx ${{ matrix.zmx }}
+    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }} · zmx ${{ matrix.zmx }} · meja ${{ matrix.meja }}
     runs-on: ${{ matrix.os }}
     # A hung test would otherwise burn the default six hours. This is not
     # hypothetical: `doctor` could hang forever on a backend binary that never
@@ -31,6 +31,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         tmux: [system]
         zmx: ["0.7.0"]
+        meja: ["0.0.26"]
         include:
           # The floor is tmux 3.3, for allow-passthrough. Building it is only
           # worth the CI minutes on one platform.
@@ -42,6 +43,7 @@ jobs:
           - os: ubuntu-latest
             tmux: "3.3"
             zmx: "0.6.0"
+            meja: "0.0.25"
 
     steps:
       - uses: actions/checkout@v7
@@ -74,10 +76,17 @@ jobs:
       # unlike zmx it CAN be covered here. It is allowed to fail: a third-party
       # module that stops building must not take the whole gate with it, and the
       # backend's own tests skip loudly when it is absent.
+      #
+      # PINNED, not @latest. @latest silently moved this leg from 0.0.25 to
+      # 0.0.26, and that release changed the backend STRUCTURALLY — ordinary
+      # input stopped requiring an attached client (§2.10). A gate whose
+      # subject can change without a commit is not a gate, and the floor leg
+      # below is what keeps the transient-client path exercised at all once the
+      # newest release no longer takes it.
       - name: Install meja
         continue-on-error: true
         run: |
-          go install github.com/garindra/meja@latest
+          go install "github.com/garindra/meja@v${{ matrix.meja }}"
           # setup-go is documented to add this, but this workflow has never run
           # and a silent PATH assumption would show up as "meja absent" rather
           # than as the mistake it is.

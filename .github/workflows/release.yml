@@ -56,10 +56,14 @@ jobs:
           chmod +x "$HOME/.local/bin/zmx"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-          go install github.com/garindra/meja@latest
+          # Pinned for the same reason as ci.yml, and it matters more here:
+          # @latest makes the gate a release passed depend on whatever a third
+          # party published that morning. Keep in step with ci.yml's newest leg.
+          go install "github.com/garindra/meja@v${MEJA_VERSION}"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
         env:
           ZMX_VERSION: "0.7.0"
+          MEJA_VERSION: "0.0.26"
 
       # The gate is what CI runs on every push, and a tag is the one commit
       # where skipping it would be least forgivable.

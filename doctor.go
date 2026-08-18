@@ -22,10 +22,16 @@ var floors = map[backend.Name]string{
 	backend.Tmux: "3.3",
 	// The reference version; support is best-effort.
 	backend.Zmx: "0.6.0",
-	// The version every measurement behind this backend was taken against —
-	// the -F format fields it parses, the attached-client rule its injections
-	// work around, and the resize behaviour its client sizing compensates for.
-	// Support below it is best-effort because none of those were checked there.
+	// The OLDEST version this backend was measured against, not the newest it
+	// works on: the -F format fields it parses and the resize behaviour its
+	// client sizing compensates for were checked here. Support below it is
+	// best-effort because none of those were.
+	//
+	// Deliberately not raised when 0.0.26 stopped requiring a client for
+	// ordinary input (§2.10). Injection attempts the operation and attaches
+	// only on refusal, so it is already correct on both, and raising the floor
+	// would buy nothing: copy mode still refuses without a client, and Follow
+	// attaches one on every version.
 	backend.Meja: "0.0.25",
 }
 

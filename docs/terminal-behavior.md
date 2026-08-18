@@ -494,17 +494,38 @@ underlying server out from under each other.
 
 ### 2.10 meja routes input through a client
 
-meja refuses every INPUT command on a session with no client attached:
-`send-keys` and `paste-buffer` both answer `command requires an attached client`
-even when given an explicit `-t`. Observation — listing, capture — needs no
-client. This is a structural difference from tmux and zmx, which take input from
-any caller, and everything else in this section follows from it.
+**How much of this applies depends on the meja version**, and both answers are
+in support (§0.5 floors meja at 0.0.25). Measured on both:
 
-Olympus therefore attaches a **transient headless client** for the duration of
-an injection. It MUST NOT hold a durable one: a CLI process runs once and exits,
-so there is nowhere to keep it, and a process that outlived the command to hold
-it would be the daemon §6.7 rules out. Measured cost of attach-inject-detach:
-68ms cold, 23ms warm.
+| on a session with NO client attached | 0.0.25 | 0.0.26 |
+| --- | --- | --- |
+| `send-keys` — literal, named key, control key | refused | delivered |
+| `set-buffer` | accepted | accepted |
+| `paste-buffer` | refused | delivered |
+| `send-keys -X` (copy mode) | refused | **refused** |
+| listing, capture | accepted | accepted |
+
+Through 0.0.25 meja refuses every input command on a clientless session —
+`send-keys` and `paste-buffer` both answer `command requires an attached
+client`, even when given an explicit `-t`. That is a structural difference from
+tmux and zmx, which take input from any caller.
+
+From 0.0.26 it is not: ordinary input is routed straight to the pane, and the
+refusal narrows to copy mode alone, which answers `send-keys -X requires an
+attached client`. Delivery was confirmed by capture, not by exit status — a
+zero exit says the command was accepted, not that the keys arrived.
+
+Observation never needed a client on either.
+
+Olympus therefore attaches a **transient headless client** only when an
+injection is refused, which on 0.0.26 is never for ordinary input. It MUST NOT
+hold a durable one: a CLI process runs once and exits, so there is nowhere to
+keep it, and a process that outlived the command to hold it would be the daemon
+§6.7 rules out. Measured cost of attach-inject-detach: 68ms cold, 23ms warm.
+
+The rules below did NOT follow from the refusal and are not weakened by its
+narrowing: the sizing rule governs any client Olympus attaches, and `Follow`
+still attaches one on every version.
 
 The operation MUST be attempted first, and the client created only if it
 refuses. A session a human is already sitting in has a client, and joining it
