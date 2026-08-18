@@ -14,12 +14,20 @@ from what the interface looks like.
 The interface will fit almost anything. That is the problem — it fits, and then
 one structural difference makes half of it behave unlike the others.
 
-meja is the example. Every INPUT command it accepts requires an attached client
-and refuses outright without one; observation works headlessly, driving does
-not. Nothing in `backend.Backend` hints at that, and no amount of reading its
-help would have replaced measuring it. The integration is built around a
-transient headless client per injection, which is a design, not an adapter — and
-it was chosen only after the cost was measured (68 ms cold, 23 ms warm).
+meja is the example. Through 0.0.25 every INPUT command it accepts requires an
+attached client and refuses outright without one; observation works headlessly,
+driving does not. Nothing in `backend.Backend` hints at that, and no amount of
+reading its help would have replaced measuring it. The integration is built
+around a transient headless client per injection, which is a design, not an
+adapter — and it was chosen only after the cost was measured (68 ms cold, 23 ms
+warm).
+
+There is a second lesson on top of the first. meja 0.0.26 dropped that rule for
+ordinary input, and the integration survived unchanged because it ATTEMPTS the
+operation and attaches a client only when refused — a shape that asks the
+backend what is true instead of encoding what was true when it was written. A
+capability probed at the moment of use costs one failed call; the same
+capability hardcoded costs a rewrite when it moves.
 
 So before implementing:
 

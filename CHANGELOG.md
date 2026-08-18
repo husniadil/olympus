@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- meja's two client failures are told apart. A refusal (`command requires an
+  attached client`) means the command did not run and is retried; a loss
+  mid-flight (`target client disconnected`) means it may have run and is
+  reported rather than retried, since resending could deliver an injection
+  twice. Both now carry what was observable about the client — whether it was
+  alive, and what it last wrote — instead of only meja's own words.
+- Backend versions in CI and in the release gate are pinned rather than
+  installed as `@latest`.
+
+### Fixed
+
+- Documented that meja 0.0.26 no longer routes ordinary input through an
+  attached client (behavior §2.10); the injection path already attempted the
+  operation first, so it works unchanged on both, and the supported floor
+  stays 0.0.25.
+
 ## [0.1.0]
 
 The first release. Everything below is the initial surface rather than a change

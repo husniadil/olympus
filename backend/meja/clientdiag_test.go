@@ -13,9 +13,11 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
-// §2.10: driving a meja session goes through an attached client, and when the
-// transient one never arrives the operation fails with meja's own words —
-// "command requires an attached client".
+// §2.10: through meja 0.0.25 driving a session goes through an attached client,
+// and when the transient one never arrives the operation fails with meja's own
+// words — "command requires an attached client". (From 0.0.26 ordinary input
+// takes no client, so this path is reached only on the floor and in copy mode;
+// the unit tests below hold either way, since they build the error directly.)
 //
 // Those words describe the SYMPTOM and name no cause, which is exactly the
 // position this repository was left in when every meja case failed at once,
@@ -171,7 +173,14 @@ func TestARealGiveUpCarriesTheEvidence(t *testing.T) {
 
 	err := b.Type(ctx, "diag", "x")
 	if err == nil {
-		t.Skip("the client arrived even with no budget at all; nothing to diagnose")
+		// Not "the client was fast". From meja 0.0.26 ordinary input never
+		// asks for a client (§2.10), so withClient returns on its first
+		// attempt and the give-up path is UNREACHABLE here at any budget.
+		// Said precisely, because a skip that misreports its reason reads as
+		// a case that was tried and found fine — this one was not tried at
+		// all. The path is covered on the 0.0.25 floor leg in CI.
+		version, _ := b.Version(ctx)
+		t.Skipf("this meja does not route ordinary input through a client, so the give-up path cannot be reached (%s)", version)
 	}
 	got := err.Error()
 	for _, want := range []string{"diag", "transient client"} {

@@ -23,10 +23,16 @@ const clientRetry = 10 * time.Millisecond
 
 // withClient runs an input operation with a client attached to target.
 //
-// This exists because meja routes every input command THROUGH a client and
-// refuses when a session has none: send-keys and paste-buffer both answer
-// "command requires an attached client" even with an explicit -t. Observation
-// needs no client; driving does (§2.10).
+// This exists because meja can route input THROUGH a client and refuse when a
+// session has none. Through 0.0.25 that is every input command — send-keys and
+// paste-buffer both answer "command requires an attached client" even with an
+// explicit -t; from 0.0.26 it is copy mode alone. Observation needs no client
+// on either (§2.10).
+//
+// Which is why the operation is ATTEMPTED before any client is built: asking
+// the backend what it refuses is what let this survive 0.0.26 unchanged, where
+// a hardcoded "meja always needs a client" would have attached one on every
+// injection forever.
 //
 // The client is transient. Olympus's CLI is a process that runs once and exits,
 // so there is no place to keep a durable one, and keeping one would be the
@@ -41,9 +47,12 @@ func (m *Meja) withClient(ctx context.Context, target string, fn func() error) e
 	// this first call is the one that usually succeeds — and the one that can
 	// lose that client mid-flight. §5.6 failed exactly here in CI, following its
 	// own client while injecting.
-	if err := fn(); err != nil && clientGone(err) {
+	switch err := fn(); {
+	case err == nil:
+		return nil
+	case clientGone(err):
 		return vanished(err, target)
-	} else if err == nil || !needsClient(err) {
+	case !needsClient(err):
 		return err
 	}
 

@@ -31,10 +31,12 @@ type clientEvidence struct {
 
 // meja offers NO way to ask which clients a server has. There is no verb that
 // lists them, and `#{session_attached}` comes back unsubstituted from
-// list-sessions — both measured here, by asking and reading the answer. So the
-// server's side of this failure is not observable at all, and the evidence
-// below is entirely client-side. That is a limit worth stating: a future
-// reader will otherwise assume nobody thought to ask the server.
+// list-sessions — both measured here, by asking and reading the answer, and
+// re-measured on 0.0.26 when that release changed the client rule underneath
+// everything else in this file. So the server's side of this failure is not
+// observable at all, and the evidence below is entirely client-side. That is a
+// limit worth stating: a future reader will otherwise assume nobody thought to
+// ask the server.
 //
 // giveUp wraps meja's refusal with what was observable when it was given up on.
 //

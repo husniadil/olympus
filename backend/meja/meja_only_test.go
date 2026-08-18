@@ -30,9 +30,9 @@ func newBackend(t *testing.T) (backend.Backend, string) {
 // meja has no read-only client. Accepting a viewer attach and giving it a full
 // one is the dangerous failure: a watcher who believes they cannot type, and
 // can, will eventually type into somebody else's session.
-// §2.10: meja routes every input command through an attached client and refuses
-// outright without one, which is the structural difference the whole backend is
-// built around.
+// §2.10: through 0.0.25 meja routes every input command through an attached
+// client and refuses outright without one — the structural difference this
+// backend was built around, narrowed to copy mode alone from 0.0.26.
 func TestAttachAddressesItsServerAndRefusesAViewer(t *testing.T) {
 	requireMeja(t)
 	b, socket := newBackend(t)

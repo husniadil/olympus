@@ -1,9 +1,13 @@
 // Package meja drives the meja multiplexer.
 //
-// meja differs from the other backends in one structural way, and everything
-// unusual here follows from it: every INPUT command is routed through an
-// attached client, and refuses outright when a session has none. Observation —
-// listing, capture — works headlessly; driving does not. See §2.10.
+// meja differs from the other backends in how driving reaches a pane, and that
+// is where everything unusual here comes from. Through 0.0.25 every INPUT
+// command is routed through an attached client and refuses outright when a
+// session has none; from 0.0.26 ordinary input goes straight to the pane and
+// only copy mode still refuses. Observation — listing, capture — works
+// headlessly on both. Both versions are supported, so the injection path
+// attempts the operation and attaches a client only if it is refused. See
+// §2.10.
 package meja
 
 import (
