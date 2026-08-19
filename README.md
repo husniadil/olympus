@@ -124,6 +124,16 @@ both eras work.
 }
 ```
 
+### A skill for agents
+
+`--help` says what each verb does; it cannot say which verb fits which
+situation, or name the traps that only appear when an agent strings verbs
+together — `run` against a REPL, `wait` on its own prompt, control keys on zmx.
+[`skills/olympus/SKILL.md`](skills/olympus/SKILL.md) carries that. It is
+written for any harness that loads `SKILL.md` files; with Claude Code, copy the
+directory to `~/.claude/skills/olympus/`. It describes the CLI and maps the MCP
+tool names onto it, so it serves both doors.
+
 ---
 
 ## Things worth knowing early

@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `skills/olympus/SKILL.md`: a skill an agent harness can load, covering when
+  Olympus is the right tool over a plain shell, which verb fits which situation,
+  the traps that only appear when verbs are combined, and the MCP tool names as
+  the same vocabulary under a different spelling.
+
 ### Changed
 
 - meja's two client failures are told apart. A refusal (`command requires an
