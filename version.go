@@ -1,5 +1,10 @@
 package olympus
 
+import (
+	"runtime/debug"
+	"strings"
+)
+
 // Version is the one literal every door reports: the CLI verb, the MCP tool,
 // and the MCP server's own identity. Sharing it is what stops two doors
 // disagreeing about what is running.
@@ -13,4 +18,26 @@ package olympus
 //
 // Treat it as read-only. It is a var for the linker's benefit, not the
 // caller's.
-var Version = "0.1.0-dev"
+var Version = devVersion
+
+const devVersion = "0.1.1-dev"
+
+// A `go install github.com/husniadil/olympus/cmd/olympus@v0.1.1` build gets no
+// linker flags, but the Go toolchain records the module version it resolved.
+// When the release did not stamp Version, take it from there so an installed
+// tag does not report the development placeholder; a checkout build reports
+// "(devel)" and keeps the placeholder.
+func init() {
+	if Version != devVersion {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	v := strings.TrimPrefix(info.Main.Version, "v")
+	if v == "" || v == "(devel)" {
+		return
+	}
+	Version = v
+}

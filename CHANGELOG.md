@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1]
+
 ### Added
 
 - `skills/olympus/SKILL.md`: a skill an agent harness can load, covering when
@@ -25,6 +27,13 @@ All notable changes to this project are documented here. The format follows
   installed as `@latest`.
 
 ### Fixed
+
+- Throwaway runs ignored `--timeout` and `timeout_seconds`: `RunOnce` took only
+  session options, so both doors built the run timeout and then dropped it on
+  the throwaway branch, and every throwaway run used the 60s default.
+- A binary installed with `go install ...@v0.1.1` reported the development
+  placeholder version. When the release did not stamp `Version`, it is now read
+  from the module version the Go toolchain recorded at build time.
 
 - Documented that meja 0.0.26 no longer routes ordinary input through an
   attached client (behavior §2.10); the injection path already attempted the
