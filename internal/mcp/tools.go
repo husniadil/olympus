@@ -326,7 +326,7 @@ func register(s *sdk.Server) {
 			})
 		})
 
-	addTool(s, "screen", "Read the screens of one or more sessions in a single call. A target on the alternate screen is skipped rather than captured: its screen is empty with meta.alt_screen set, which is what distinguishes skipped-by-design from nothing-there.",
+	addTool(s, "screen", "Read the screens of one or more sessions in a single call. A target on the alternate screen is captured like any other, and meta.alt_screen tells you there is no scrollback behind it: a history request against such a target is dropped, with a warning.",
 		func(ctx context.Context, ol *olympus.Olympus, in captureParams) (olympus.Screens, []olympus.Warning, error) {
 			var opts []olympus.ScreenOption
 			if in.Colors {

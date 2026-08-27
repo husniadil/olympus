@@ -45,7 +45,7 @@ olympus run build 'go test ./...' --json --timeout 5m
 
 ```sh
 olympus run build 'make deploy' --detach      # returns a run id
-olympus poll build <id> --json                # running / done, exit code, output so far
+olympus poll build <id> --json                # pending / completed / died, exit code, output so far
 olympus screen build --history 200            # the raw terminal, if poll is not enough
 ```
 
@@ -84,7 +84,16 @@ From inside: `olympus self` says which session this process is in, and `olympus 
 
 ## MCP
 
-If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores: `start_session`, `run_command`, `start_run`, `poll_run`, `send_text`, `type_text`, `press_keys`, `paste_text`, `wait_for`, `screen`, `session_status`, `self`, `list_sessions`, `list_panes`, `stop_session`, `capabilities`, `doctor`. Two are CLI-only by nature: `watch` (a stream) and `attach` (interactive). Everything in this skill applies unchanged; only the spelling differs.
+If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 25 of them:
+
+- Sessions: `start_session`, `new_session`, `list_sessions`, `session_info`, `session_status`, `stop_session`, `self`, `list_panes`
+- Input: `type_text`, `send_text`, `press_keys`, `paste_text`
+- Reading: `screen`, `wait_for`
+- Running: `run_command`, `start_run`, `poll_run`, `exit_status`
+- Views: `create_view`, `scroll_view`, `list_views`
+- Diagnostics: `server_env`, `capabilities`, `doctor`, `version`
+
+Two operations are CLI-only by nature: `watch` (a stream) and `attach` (interactive). Everything in this skill applies unchanged; only the spelling differs.
 
 ## Choosing
 

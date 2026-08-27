@@ -173,5 +173,6 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/husniadil/olympus/releases/tag/v0.1.1
 [0.1.0]: https://github.com/husniadil/olympus/releases/tag/v0.1.0

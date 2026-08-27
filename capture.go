@@ -9,9 +9,9 @@ import (
 
 // Screens is a capture of several targets at once.
 //
-// The two maps are parallel and keyed by target. A target whose screen is empty
-// while its metadata says alt-screen was SKIPPED rather than empty — which is
-// the whole reason the metadata travels alongside the text.
+// The two maps are parallel and keyed by target. A target on the alternate
+// screen is captured like any other; its metadata says so, which is how a
+// caller knows there is no scrollback behind the grid it was given.
 type Screens struct {
 	Screens  map[string]string             `json:"screens"`
 	Meta     map[string]backend.ScreenMeta `json:"meta"`

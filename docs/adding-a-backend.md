@@ -93,7 +93,7 @@ func TestConformance(t *testing.T) {
 	requireYourBackend(t)
 	backendtest.Run(t, backendtest.Config{
 		New: newIsolated,
-		Expectations: backendtest.Expectations{
+		Expect: backendtest.Expectations{
 			InterruptShellBacked: backendtest.InterruptStops,
 			InterruptExecSpawned: backendtest.InterruptIneffective,
 		},
@@ -180,12 +180,15 @@ Defaults are decided **once**, in the ergonomic layer. A door that invents its o
 default has introduced a second contract. Adding a backend should touch:
 
 - `resolve.go` — the preference order, and which addressing options apply
-- `doctor.go` — a version floor, an install hint, and where its sessions live
+- `olympus.go` — the arm of `open` that builds the handle and records its lock
+  scope, and the arm of `resolveTarget` that says how the backend spells a pane id
+- `doctor.go` — a version floor, an install hint, and the `buildBackend` arm the
+  diagnostic uses to probe it and report where its sessions live
 - `warnings.go` — any degraded-operation disclosure
 
-and **nothing** in the CLI or MCP command definitions. If you find yourself
-adding a flag for your backend alone, that is a sign the option belongs in the
-ergonomic layer's addressing table instead.
+and nothing in the CLI or MCP command definitions. If you find yourself adding a
+flag for your backend alone, that is a sign the option belongs in the ergonomic
+layer's addressing table instead.
 
 Check your work mechanically rather than by eye. A twenty-line script that diffs
 flag sets against tool names once found seven missing MCP parameters and a whole

@@ -17,11 +17,16 @@ default, [`tmux`][tmux] as the alternative, and [`meja`][meja] last.
 
 ## Quickstart
 
-You need Go 1.26+ and at least one multiplexer.
+You need Go 1.26.5+ and at least one multiplexer.
 
 ```sh
 go install github.com/husniadil/olympus/cmd/olympus@latest
 ```
+
+Or take a release archive from
+[GitHub Releases](https://github.com/husniadil/olympus/releases), built for
+darwin and linux on amd64 and arm64; each one carries the binary, its man pages
+and its shell completions.
 
 Check what Olympus found:
 
@@ -142,8 +147,10 @@ tool names onto it, so it serves both doors.
 tmux and vice versa. They never migrate and never merge. `olympus doctor` always
 tells you which backend answered, and so does every `--json` envelope.
 
-**The two backends are not equivalent.** zmx is the default and the less capable
-of the two — no views, no corpse-on-exit, no server environment. Operations that
+**The three backends are not equivalent.** zmx is the default and the least
+capable of them — no views, no corpse-on-exit, no server environment, and no
+reliable control keys. tmux is the most capable; meja sits between the two, with
+control keys but neither views nor a server environment. Operations that
 mean less on the resolved backend say so on stderr rather than failing, so a
 successful result is never quietly narrower than you think. The capability
 matrix in `olympus doctor` is the one place that lays this out.
@@ -165,12 +172,12 @@ it will time out. Drive a REPL or a full-screen program with `send`, `press` and
 should not require a trailing space: write `^>>>\s*$`, not `^>>> $`, because
 whether that space survives into a capture differs by backend.
 
-**Driving a full-screen program needs tmux.** Both backends *show* you one
-correctly — a repaint is captured as it currently looks. But zmx does not
+**Driving a full-screen program needs tmux or meja.** All three backends *show*
+you one correctly — a repaint is captured as it currently looks. But zmx does not
 reliably deliver control keys, so an editor opened there can be typed into and
 read, and never saved or exited: Ctrl-O and Ctrl-X simply do not arrive.
 `olympus capabilities` reports this as `control_keys`, and `olympus doctor`
-shows it for both backends. Everything else — commands, REPLs, reading output —
+shows it for every backend. Everything else — commands, REPLs, reading output —
 works the same on either.
 
 **Where sessions live differs.** On tmux, Olympus uses its own socket, so its

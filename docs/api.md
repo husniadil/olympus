@@ -158,8 +158,8 @@ to; the envelope makes it structural. The cost is one level of nesting
 ### 2.2 Human output is a separate contract
 
 Without `--json`, output is formatted for reading: aligned tables for lists,
-plain text for screens and command output, colour when stdout is a TTY and never
-when it is not.
+plain text for screens and command output. Colour is permitted when stdout is a
+TTY and forbidden when it is not; none is currently emitted.
 
 **Human output is not stable and MUST NOT be parsed.** It may change in any
 release. Scripts use `--json`. This is stated in `--help` for every operation
@@ -246,15 +246,24 @@ Both are documented in the affected operation's `--help`, not only here.
 | CLI | Environment | Applies to |
 |---|---|---|
 | `--backend <name>` | `OLYMPUS_BACKEND` | all (`zmx`, `tmux`, `meja`) |
-| `--socket <name>` | `OLYMPUS_SOCKET` | tmux backend only |
-| `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` | tmux and meja backends |
+| `--socket <name>` | `OLYMPUS_SOCKET` (MCP door only) | tmux backend only |
+| `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` (MCP door only) | tmux and meja backends |
 | `--zmx-dir <dir>` | `ZMX_DIR` | zmx backend only |
 | `--json` | — | all |
 | `--no-lock` | — | operations that take the write lock |
+| — | `OLYMPUS_LOCK_WAIT` | operations that take the write lock |
 | `-q` / `--quiet` | — | human output only |
 
 Precedence is flag over environment over default, per behavior spec §0.1. An
 unknown backend name is `USAGE`, not `UNEXPECTED`.
+
+`OLYMPUS_SOCKET` and `OLYMPUS_SOCKET_PATH` are read by the MCP door alone. The
+CLI honours only `OLYMPUS_BACKEND` from the environment; on the CLI the two
+addressing options are flags, `--socket` and `--socket-path`.
+
+`OLYMPUS_LOCK_WAIT` overrides how long a writer waits for a contended session
+before reporting `CONFLICT`, default 10s. It is a duration string, read at call
+time, and is ignored when it does not parse or is not positive.
 
 **An addressing option the resolved backend cannot use is also `USAGE`**, never a
 silent no-op. Each of them exists to isolate — to put a server somewhere the
@@ -459,12 +468,16 @@ for those.
   "resolved": { "backend": "zmx", "reason": "default", "socket_or_dir": "/tmp/zmx-501",
                 "pinned": false },
   "backends": [
-    { "name": "zmx", "installed": true, "version": "0.6.0", "below_floor": false,
+    { "name": "zmx", "installed": true, "version": "0.6.0", "floor": "0.6.0",
+      "below_floor": false,
+      "isolation": "shared daemon in the default directory for this user; these sessions appear in your own `zmx list` alongside everything else",
       "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
                         "server_env": false, "control_keys": false,
                         "spawn_sizing": false, "session_status": false,
                         "tracks_alt_screen": false } },
-    { "name": "tmux", "installed": true, "version": "3.7b", "below_floor": false,
+    { "name": "tmux", "installed": true, "version": "3.7b", "floor": "3.3",
+      "below_floor": false,
+      "isolation": "private socket \"olympus\"; these sessions do not appear in a plain `tmux ls`",
       "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
                         "server_env": true, "control_keys": true,
                         "spawn_sizing": true, "session_status": true,
@@ -474,6 +487,12 @@ for those.
   "install_hints": []
 }
 ```
+
+`floor` is the oldest version of that backend Olympus is supported against, and
+`below_floor` is that comparison already made for the reported version.
+`isolation` says, in one sentence, where that backend's sessions live and who
+else can see them — which socket or directory answers, and whether the sessions
+show up in the user's own plain listing.
 
 `managed_options` is every option Olympus pins on servers **it starts**,
 overriding the operator's own configuration. `resolved.pinned` says whether the

@@ -165,7 +165,7 @@ func (a *App) screenCmd() *cobra.Command {
 		Use:   "screen <target>...",
 		Short: "Read the screen of one or more sessions",
 		Long: "Read the screen of one or more sessions, in a single call." +
-			"\n\nA target on the alternate screen is SKIPPED rather than captured: it has no scrollback, so a capture would only re-report a grid a live viewer already mirrors. Its screen comes back empty with meta.alt_screen set, and that flag is what distinguishes skipped-by-design from nothing-there." +
+			"\n\nA target on the alternate screen IS captured: its visible grid is the only way to observe a full-screen application, and meta.alt_screen tells you there is no scrollback behind it. A --history request against such a target is dropped, with a warning." +
 			scriptsNote,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
