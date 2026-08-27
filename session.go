@@ -142,14 +142,25 @@ func (s *Session) PasteAndSubmit(ctx context.Context, text string) error {
 		if err := s.ol.backend.Paste(ctx, s.name, text); err != nil {
 			return err
 		}
-		if err := s.ol.backend.Submit(ctx, s.name); err == nil {
-			return nil
+		return engine.SubmitOnce(ctx, s.ol.backend, s.name)
+	})
+}
+
+// TypeAndSubmit places text and then submits it, as one critical section with
+// the terminator retried once (behavior §4.4).
+//
+// It exists because composing Type and Submit at a door is exactly what §4.4
+// forbids: two lock acquisitions with a gap between them, and an unretried
+// terminator that leaves the text sitting in the input line for the next
+// injection to concatenate onto. Type followed by Submit remains available for
+// a caller that genuinely wants the two apart; a door offering "type and press
+// Enter" as one verb goes through here.
+func (s *Session) TypeAndSubmit(ctx context.Context, text string) error {
+	return engine.WithLock(ctx, s.ol.locks, s.key(), s.ol.lockWait, func() error {
+		if err := s.ol.backend.Type(ctx, s.name, text); err != nil {
+			return err
 		}
-		if err := s.ol.backend.Submit(ctx, s.name); err != nil {
-			return backend.Wrapf(backend.CodeTimeout, err,
-				"text was pasted into %s but not submitted, and is still sitting in the input line", s.name)
-		}
-		return nil
+		return engine.SubmitOnce(ctx, s.ol.backend, s.name)
 	})
 }
 
@@ -256,7 +267,11 @@ func (s *Session) Screen(ctx context.Context, opts ...ScreenOption) (Screen, err
 		opt(&options)
 	}
 
-	capture, err := s.ol.backend.Screen(ctx, s.name, options)
+	// Through the shared capture, so a single-target read gathers metadata
+	// first and drops a history request on the alternate screen exactly as a
+	// multi-target one does (behavior §5.3). WaitFor and ExitStatus both read
+	// through here, so this is where they inherit the rule too.
+	capture, altScreen, err := s.ol.captureOne(ctx, s.name, options)
 	if err != nil {
 		return Screen{}, err
 	}
@@ -266,6 +281,9 @@ func (s *Session) Screen(ctx context.Context, opts ...ScreenOption) (Screen, err
 	screen.Warnings = append(screen.Warnings, warn(s.ol.resolution.Backend, opCaptureMeta)...)
 	if options.HistoryLines > 0 {
 		screen.Warnings = append(screen.Warnings, warn(s.ol.resolution.Backend, opCaptureHistory)...)
+		if altScreen {
+			screen.Warnings = append(screen.Warnings, altScreenHistoryDropped)
+		}
 	}
 	return screen, nil
 }

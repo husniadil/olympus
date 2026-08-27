@@ -271,13 +271,13 @@ func register(s *sdk.Server) {
 	addTool(s, "type_text", "Place literal text in the input line WITHOUT submitting it.",
 		func(ctx context.Context, ol *olympus.Olympus, in textParams) (acknowledged, []olympus.Warning, error) {
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (acknowledged, error) {
-				if err := s.Type(ctx, in.Text); err != nil {
-					return acknowledged{}, err
-				}
+				// With submit this is a composed inject-then-submit, so it
+				// goes through the one call that retries the terminator
+				// (§4.4).
 				if in.Submit {
-					return acknowledged{Target: s.Name()}, s.Submit(ctx)
+					return acknowledged{Target: s.Name()}, s.TypeAndSubmit(ctx, in.Text)
 				}
-				return acknowledged{Target: s.Name()}, nil
+				return acknowledged{Target: s.Name()}, s.Type(ctx, in.Text)
 			})
 		})
 

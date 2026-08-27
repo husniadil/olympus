@@ -19,10 +19,6 @@ import (
 // operator's to share with every user on the machine.
 const LockDirName = "olympus-locks"
 
-// DefaultLockWait is how long to wait for a contended lock before reporting a
-// conflict (behavior §17.3).
-const DefaultLockWait = 10 * time.Second
-
 // lockPoll is the retry interval while waiting.
 const lockPoll = 25 * time.Millisecond
 

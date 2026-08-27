@@ -4,7 +4,18 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"time"
 )
+
+// SubmitSettle separates a text write from its terminator, so the terminator
+// registers as a keypress on a paste-detecting consumer rather than becoming a
+// literal newline inside its input box (behavior §4.5, §17.3).
+//
+// It lives here because both layers that pace a terminator need the SAME gap: a
+// backend whose spelling has no subcommand chaining paces it internally, and
+// the run protocol paces its own injection above the interface. Two copies of
+// one contract value is two places for it to drift.
+const SubmitSettle = 150 * time.Millisecond
 
 // A Key names a keypress. The vocabulary is Olympus's own and each backend
 // translates it, so a caller never has to know one multiplexer's spelling to
@@ -48,9 +59,6 @@ type CreateSpec struct {
 	Command []string
 	Cols    int
 	Rows    int
-	// Env is the spawn environment, already filtered for the hygiene rules of
-	// behavior §1.1. The backend applies it; it does not curate it.
-	Env map[string]string
 	// RemainOnExit keeps a corpse to inspect after the session's command
 	// exits. It is write-only and applies on the create path only: there is no
 	// way to read it off a live session and no way to change one (behavior

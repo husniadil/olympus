@@ -69,8 +69,17 @@ func (o *Olympus) CreateView(ctx context.Context, base string, opts ...ViewOptio
 }
 
 // ScrollView moves a view back into its history, leaving its base untouched.
+//
+// The view is resolved like every other target (behavior §10). A view is a
+// session, so a caller holding its pane id can address it the way they address
+// any other — and this was the one target method that handed its argument
+// straight to the backend instead.
 func (o *Olympus) ScrollView(ctx context.Context, view string, lines int) error {
-	return o.backend.ScrollView(ctx, view, lines)
+	resolved, err := o.resolveTarget(ctx, view)
+	if err != nil {
+		return err
+	}
+	return o.backend.ScrollView(ctx, resolved, lines)
 }
 
 // Views lists views, for one base or for every session when base is empty.

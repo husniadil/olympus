@@ -82,8 +82,7 @@ func (t *Tmux) ServerRunning(ctx context.Context) bool {
 // own value.
 //
 // The second return is how a diagnostic tells a server Olympus started from one
-// it merely found, without Olympus having to remember which it did — the values
-// themselves are the record.
+// it merely found: the marker option, not the values, is what records it (§17.5).
 func (t *Tmux) EffectiveOptions(ctx context.Context) (map[string]string, bool, error) {
 	if !t.ServerRunning(ctx) {
 		return nil, false, nil

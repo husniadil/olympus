@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -178,5 +179,44 @@ func TestATransientCaptureFailureDoesNotAbortTheAttempt(t *testing.T) {
 	}
 	if typed, _ := f.counts(); typed != 1 {
 		t.Errorf("sent the text %d times, want 1 — the attempt should have recovered without resending", typed)
+	}
+}
+
+// §4.4: a verified send is a composed inject-then-submit, so its terminator is
+// retried exactly once. Before this, only PasteAndSubmit had the retry: a
+// dropped Enter here failed the call and left the verified text sitting in the
+// input line, where the next injection concatenates onto it.
+func TestAVerifiedSendRetriesADroppedTerminatorOnce(t *testing.T) {
+	f := &fakeBackend{
+		submitFailures: 1,
+		onType:         func(f *fakeBackend, text string) { f.setScreen("$ " + text) },
+	}
+
+	if err := delivery(t, f, nil).VerifiedSubmit(context.Background(), "build", "make build"); err != nil {
+		t.Fatalf("VerifiedSubmit: %v", err)
+	}
+	if _, submits := f.counts(); submits != 1 {
+		t.Errorf("the terminator landed %d times, want 1 — the retry did not run", submits)
+	}
+}
+
+// Exactly once, not until it works. A terminator that keeps failing surfaces an
+// error naming the text left behind, because a caller that does not learn about
+// it will corrupt its next injection.
+func TestATerminatorThatKeepsFailingIsSurfaced(t *testing.T) {
+	f := &fakeBackend{
+		submitFailures: 2,
+		onType:         func(f *fakeBackend, text string) { f.setScreen("$ " + text) },
+	}
+
+	err := delivery(t, f, nil).VerifiedSubmit(context.Background(), "build", "make build")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout naming the unsubmitted text", err)
+	}
+	if !strings.Contains(err.Error(), "still sitting in the input line") {
+		t.Errorf("error is %q, want it to say the text is still in the input line", err)
+	}
+	if f.submitFailures != 0 {
+		t.Errorf("%d scripted failures were never reached, so the terminator was tried fewer than twice", f.submitFailures)
 	}
 }

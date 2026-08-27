@@ -41,13 +41,14 @@ func (a *App) typeCmd() *cobra.Command {
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
-				if err := s.Type(cmd.Context(), args[1]); err != nil {
-					return err
-				}
+				// --submit is a composed inject-then-submit, so it goes
+				// through the one call that retries the terminator (§4.4).
 				if submit {
-					if err := s.Submit(cmd.Context()); err != nil {
+					if err := s.TypeAndSubmit(cmd.Context(), args[1]); err != nil {
 						return err
 					}
+				} else if err := s.Type(cmd.Context(), args[1]); err != nil {
+					return err
 				}
 				return a.emit(map[string]any{"target": s.Name(), "submitted": submit}, nil, nil)
 			})

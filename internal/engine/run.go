@@ -7,15 +7,10 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
-// Run defaults (behavior §17.3, §6.4).
+// Run windows (behavior §6.4). The timeout and poll interval a run takes when
+// nothing asks for others are §17.3 defaults and are decided in the ergonomic
+// layer, which is the one place that holds them.
 const (
-	DefaultRunTimeout = 60 * time.Second
-	DefaultRunPoll    = 250 * time.Millisecond
-	// SubmitSettle separates the injected line from its terminator, so the
-	// terminator registers as a keypress rather than as part of a paste
-	// (behavior §4.5).
-	SubmitSettle = 150 * time.Millisecond
-
 	// The capture window starts here and quadruples on every miss, capped —
 	// long-running output can scroll the sentinel markers off-screen while the
 	// command is still producing output above them (behavior §6.4).
@@ -139,9 +134,9 @@ func (r Runner) inject(ctx context.Context, target, command string) (Markers, er
 		select {
 		case <-ctx.Done():
 			return backend.Wrapf(backend.CodeTimeout, ctx.Err(), "injecting a command into %s", target)
-		case <-time.After(SubmitSettle):
+		case <-time.After(backend.SubmitSettle):
 		}
-		return r.Backend.Submit(ctx, target)
+		return SubmitOnce(ctx, r.Backend, target)
 	})
 	if err != nil {
 		return Markers{}, err

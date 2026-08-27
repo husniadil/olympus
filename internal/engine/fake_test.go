@@ -43,10 +43,14 @@ type fakeBackend struct {
 	// change over time.
 	onScreen func(f *fakeBackend)
 
-	typeErr   error
-	submitErr error
-	screenErr error
-	createErr error
+	typeErr error
+	// submitFailures is how many of the next terminators are dropped, so a test
+	// can script the §4.4 case: an Enter that fails once and lands on the
+	// retry.
+	submitFailures int
+	submitErr      error
+	screenErr      error
+	createErr      error
 }
 
 func (f *fakeBackend) Capabilities() backend.Capabilities { return f.caps }
@@ -136,6 +140,10 @@ func (f *fakeBackend) Press(context.Context, string, ...backend.Key) error { ret
 func (f *fakeBackend) Submit(context.Context, string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.submitFailures > 0 {
+		f.submitFailures--
+		return backend.Errorf(backend.CodeUnexpected, "the terminator was dropped")
+	}
 	if f.submitErr != nil {
 		return f.submitErr
 	}

@@ -3,6 +3,10 @@ package zmx
 import "os"
 
 // The sanitized spawn environment (behavior §1.1).
+//
+// The environment is the backend's own to build rather than something handed
+// down with the request: every backend applies the same rules, and a curated
+// map travelling through CreateSpec would be a second place for them to live.
 const (
 	spawnTerm   = "xterm-256color"
 	defaultLang = "en_US.UTF-8"

@@ -4,6 +4,10 @@ import "os"
 
 // The sanitized spawn environment (behavior §1.1).
 //
+// The environment is the backend's own to build rather than something handed
+// down with the request: every backend applies the same rules, and a curated
+// map travelling through CreateSpec would be a second place for them to live.
+//
 // TERM is forced because a host running inside tmux or screen inherits a
 // screen-family TERM, and a shell such as zsh then emits its window title as
 // the screen sequence ESC k <title> ESC \ — which a consumer that does not

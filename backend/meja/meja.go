@@ -79,11 +79,19 @@ func (m *Meja) addressing() []string {
 // merely slow to flush still gets to.
 const waitDelay = 2 * time.Second
 
+// command builds a meja invocation with the addressing and hygiene rules
+// applied (§1.1).
+func (m *Meja) command(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "meja", append(m.addressing(), args...)...)
+	cmd.Env = spawnEnv()
+	cmd.WaitDelay = waitDelay
+	return cmd
+}
+
 // run invokes the meja client and maps its failure into the error vocabulary.
 func (m *Meja) run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "meja", append(m.addressing(), args...)...)
+	cmd := m.command(ctx, args...)
 	cmd.Stdin = stdin
-	cmd.WaitDelay = waitDelay
 	out, err := cmd.CombinedOutput()
 	text := string(out)
 	if err != nil {

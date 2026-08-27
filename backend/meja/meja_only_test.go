@@ -54,13 +54,15 @@ func TestAttachAddressesItsServerAndRefusesAViewer(t *testing.T) {
 		t.Errorf("attach argv does not target the session:\n  %s", args)
 	}
 
+	// §8.7: meja has no read-only client, so a viewer attach is refused rather
+	// than downgraded to one that can type.
 	if _, err := b.Attach(ctx, "att", backend.AttachSpec{Role: backend.RoleViewer}); backend.CodeOf(err) != backend.CodeUnsupported {
 		t.Errorf("a viewer attach reports %v, want UNSUPPORTED — meja has no read-only client", backend.CodeOf(err))
 	}
 
-	// Supersede has no mechanism either, and a silent no-op would leave the
-	// caller believing prior clients were displaced when they are still there
-	// — and meja sizes the session to the smallest of them (§8.5).
+	// §8.4: meja has no supersede mechanism either, and a silent no-op would
+	// leave the caller believing prior clients were displaced when they are
+	// still there — and meja sizes the session to the smallest of them.
 	superseded, err := b.Attach(ctx, "att", backend.AttachSpec{Role: backend.RoleController, Supersede: true})
 	if err != nil {
 		t.Fatalf("preparing a superseding attach: %v", err)

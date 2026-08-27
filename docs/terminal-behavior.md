@@ -85,8 +85,8 @@ the *common* failure cheap and legible; it does not guarantee the backend works.
 
 - **Not explicitly selected** (resolved via the default): if `zmx` is unavailable
   and another supported backend is present, fall back to it, in the order `zmx`,
-  `tmux`. Refusing to start on a host with a working multiplexer installed is
-  hostile for no gain.
+  `tmux`, `meja`. Refusing to start on a host with a working multiplexer
+  installed is hostile for no gain.
 - **Explicitly selected** (flag or environment): **no fallback, ever.** An
   explicit choice that cannot be honored MUST fail loudly. Silently running
   somewhere the caller did not ask for is worse than failing.
@@ -104,9 +104,12 @@ The **resolved** backend — not the requested one — MUST be observable:
 - shown in human-readable listing output;
 - reported by the diagnostic (§0.6) along with *why* it was chosen.
 
-When a listing comes back empty on the resolved backend while another installed
-backend does have sessions, the door SHOULD say so. An empty list that should not
-be empty is exactly when a user needs to learn that backends are scoped.
+When a listing comes back empty, the door MUST name the resolved backend it was
+empty *on*: an empty list that should not be empty is exactly when a user needs
+to learn that backends are scoped. It does not go on to ask the other installed
+backends whether one of them holds the missing sessions — that would put a
+subprocess per installed backend on the cheapest read there is, against §0.2 —
+so the disclosure says where the answer came from, not where the sessions went.
 
 ### 0.5 Version floors
 
@@ -161,17 +164,18 @@ result.
 
 A degrading operation MUST say so once: on stderr for the CLI (never stdout,
 which is the data channel), and through the result for structured doors. Known
-cases, all zmx:
+cases, and the backends they belong to:
 
-| Operation | What silently differs |
-|---|---|
-| pane listing | `current_path` is the spawn directory, frozen (§3.4) |
-| pane listing | `current_command` is the spawn argv, not the live process (§3.4) |
-| capture with history | the flag is accepted and changes nothing (§5.2) |
-| capture | wrapped lines cannot be rejoined (§5.2) |
-| capture metadata | always zero, never tracked (§5.3) |
-| detached run poll | the requested window size is ignored (§6.7) |
-| graceful kill | exec-spawned sessions cannot be interrupted (§2.8.1) |
+| Operation | Backends | What silently differs |
+|---|---|---|
+| pane listing | zmx | `current_path` is the spawn directory, frozen (§3.4) |
+| pane listing | zmx | `current_command` is the spawn argv, not the live process (§3.4) |
+| capture with history | zmx | the flag is accepted and changes nothing (§5.2) |
+| capture | zmx | wrapped lines cannot be rejoined (§5.2) |
+| capture metadata | zmx, meja | always zero, never tracked (§5.3) |
+| session creation with a size | zmx, meja | the requested size is ignored: the session takes its size from the client that attaches it (§2.1, §2.10) |
+| detached run poll | zmx | the requested window size is ignored (§6.7) |
+| graceful kill | zmx | exec-spawned sessions cannot be interrupted (§2.8.1) |
 
 Contrast with §12's `UNSUPPORTED`, which covers an operation the backend has **no
 concept of** and which returns nothing at all. Degradation returns a real answer
@@ -823,7 +827,7 @@ itself succeeds.
 |---|---|---|
 | `-J` | viewport captures only | rejoins a line tmux auto-wrapped at the pane's width, so a consumer matching against the text sees one logical line |
 | `-e` | opt-in colors | preserves ANSI escapes; stripped by default |
-| `-S -` | opt-in history | full scrollback instead of the visible viewport |
+| `-S -<lines>` | opt-in history | scrollback above the visible viewport, to the requested depth; §6.4 decides that depth |
 
 **`-J` MUST be dropped whenever history is requested.** It is correct on the live
 viewport, where nothing has been wrapped and re-flowed since. Across full
@@ -1285,6 +1289,11 @@ A new attach takes over from prior clients on every backend, mirroring what
   — adding it to the interface would leak a tmux-specific flag into a contract
   zmx has no equivalent for.
 - **zmx**: two mechanisms, because one is not enough (§8.5).
+- **meja**: none. There is no supersede and no displacement of any kind: a prior
+  client stays attached, and meja sizes the session to the smallest client on
+  it, so the new attach may reshape what everyone else sees. An attach that
+  asked to supersede therefore succeeds and MUST carry a notice saying it did
+  not — silence there reads as a supersession that happened.
 
 ### 8.5 zmx supersession needs both a guard and a sweep
 
@@ -1382,6 +1391,12 @@ per-view grouped sessions. A read-only viewer MUST therefore drop resize calls i
 addition to keystrokes: a viewer resize on zmx physically resizes the *driver's*
 terminal — a real disruption, not a self-contained no-op. A deliberately stronger
 gate than tmux needs.
+
+**meja has no read-only client at all**, so there is nothing to make passive: a
+viewer attach is refused as `UNSUPPORTED` (§12) rather than downgraded to a
+controller. Dropping input silently would be worse than saying so — a watcher
+who believes they cannot type, and can, will eventually type into somebody
+else's session.
 
 ### 8.8 A spontaneous attach exit must still reap its view session
 
@@ -2129,8 +2144,9 @@ contract.
 
 | Value | Default | Rule |
 |---|---|---|
-| backend | `zmx`, falling back to `tmux` | §0.1, §0.3 |
+| backend | `zmx`, falling back to `tmux`, then `meja` | §0.1, §0.3 |
 | tmux socket | `olympus` | §17.2 |
+| tmux `history-limit` | 50,000 lines | §17.5 |
 | spawn `TERM` | `xterm-256color` | §1.1 |
 | spawn `LANG` | `en_US.UTF-8` when unset | §1.1 |
 | zmx spawn registration deadline | 15s, env-overridable | §2.4 |

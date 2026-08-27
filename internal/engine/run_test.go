@@ -319,3 +319,19 @@ func TestTheCaptureWindowIsOnlyRequestedWhereItMeansSomething(t *testing.T) {
 		}
 	}
 }
+
+// §4.4: injecting a run's sentinel line and pressing Enter is a composed
+// inject-then-submit, so the terminator is retried exactly once. A dropped
+// Enter used to fail the start outright and leave the sentinel line — markers
+// and all — sitting in the input line for the next injection to concatenate
+// onto.
+func TestAnInjectedRunRetriesADroppedTerminatorOnce(t *testing.T) {
+	f := &fakeBackend{submitFailures: 1}
+
+	if _, err := runner(f, nil).Start(context.Background(), "build", "make build"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if _, submits := f.counts(); submits != 1 {
+		t.Errorf("the terminator landed %d times, want 1 — the retry did not run", submits)
+	}
+}

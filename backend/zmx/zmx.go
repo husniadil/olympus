@@ -36,12 +36,6 @@ const (
 	registrationPoll    = 100 * time.Millisecond
 )
 
-// submitSettle separates a text write from its terminator (behavior §4.5,
-// §17.3). zmx has no subcommand chaining, so a genuinely separate write is the
-// only way the terminator registers as a keypress rather than as part of a
-// paste.
-const submitSettle = 150 * time.Millisecond
-
 // A Zmx is a backend driving one zmx daemon, identified by its socket
 // directory.
 type Zmx struct {
@@ -401,7 +395,7 @@ func (z *Zmx) SendAtomic(ctx context.Context, target, text string) error {
 	select {
 	case <-ctx.Done():
 		return backend.Wrapf(backend.CodeTimeout, ctx.Err(), "text delivered to %s but not submitted", target)
-	case <-time.After(submitSettle):
+	case <-time.After(backend.SubmitSettle):
 	}
 	if err := z.send(ctx, target, "\r"); err != nil {
 		// Never silent success: the caller has to know the text is sitting

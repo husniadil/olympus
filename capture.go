@@ -67,27 +67,13 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 			return Screens{}, err
 		}
 
-		meta, err := o.backend.ScreenMeta(ctx, resolved)
+		capture, alt, err := o.captureOne(ctx, resolved, options)
 		if err != nil {
 			return Screens{}, err
 		}
-		out.Meta[target] = meta
-
-		perTarget := options
-		if meta.AltScreen {
-			// There is no scrollback on the alternate screen, so asking for
-			// history is asking for something that does not exist. Dropping
-			// the request keeps the capture honest; the warning below keeps it
-			// visible.
-			perTarget.HistoryLines = 0
-			altScreen = true
-		}
-
-		capture, err := o.backend.Screen(ctx, resolved, perTarget)
-		if err != nil {
-			return Screens{}, err
-		}
+		out.Meta[target] = capture.Meta
 		out.Screens[target] = capture.Text
+		altScreen = altScreen || alt
 	}
 
 	// Announced once for the whole call, never once per target: a warning per
@@ -97,13 +83,45 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 	if options.HistoryLines > 0 {
 		out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureHistory)...)
 		if altScreen {
-			out.Warnings = append(out.Warnings, Warning{
-				Code:    WarningDegraded,
-				Message: "a target is on the alternate screen, which has no scrollback, so the history request was dropped for it",
-			})
+			out.Warnings = append(out.Warnings, altScreenHistoryDropped)
 		}
 	}
 	return out, nil
+}
+
+// altScreenHistoryDropped is the disclosure §5.3 requires when a history
+// request is refused for a target that has none to give.
+var altScreenHistoryDropped = Warning{
+	Code:    WarningDegraded,
+	Message: "a target is on the alternate screen, which has no scrollback, so the history request was dropped for it",
+}
+
+// captureOne gathers a target's metadata FIRST and captures with it applied.
+//
+// The order is the rule rather than an optimisation. A pane on the alternate
+// screen has no scrollback, so a history request against it must be dropped
+// before the capture asks for it; deciding afterwards would mean having already
+// asked the wrong question (behavior §5.3). The capture itself is never
+// skipped: for a caller driving a full-screen application the visible grid is
+// the only way to observe the program at all.
+//
+// Shared by every capture door rather than written once per door. A one-target
+// read and a many-target one are the same rule, and the one-target one is where
+// the rule went missing.
+func (o *Olympus) captureOne(ctx context.Context, resolved string, options backend.ScreenOpts) (backend.Capture, bool, error) {
+	meta, err := o.backend.ScreenMeta(ctx, resolved)
+	if err != nil {
+		return backend.Capture{}, false, err
+	}
+	if meta.AltScreen {
+		options.HistoryLines = 0
+	}
+	capture, err := o.backend.Screen(ctx, resolved, options)
+	if err != nil {
+		return backend.Capture{}, false, err
+	}
+	capture.Meta = meta
+	return capture, meta.AltScreen, nil
 }
 
 // Panes lists panes: every pane on the backend when target is empty, or one

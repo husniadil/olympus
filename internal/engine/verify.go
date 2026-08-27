@@ -7,14 +7,6 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
-// DefaultVerifyBudget is one attempt's polling window, and DefaultVerifyPoll
-// the interval between captures (behavior §17.3). Worst-case wall time before
-// a verified send fails is TWICE the budget, because of the resend.
-const (
-	DefaultVerifyBudget = 5 * time.Second
-	DefaultVerifyPoll   = 100 * time.Millisecond
-)
-
 // A Delivery performs verified sends against one session.
 type Delivery struct {
 	Backend backend.Backend
@@ -59,8 +51,30 @@ func (d Delivery) Verified(ctx context.Context, target, text string, submit bool
 		if !submit {
 			return nil
 		}
-		return d.Backend.Submit(ctx, target)
+		return SubmitOnce(ctx, d.Backend, target)
 	})
+}
+
+// SubmitOnce sends the terminator and retries it exactly once (behavior §4.4).
+//
+// Once text sits in the input line, a failed Enter does not merely fail visibly
+// — it leaves that text there, where the NEXT injection silently concatenates
+// onto it and corrupts both. Every composed inject-then-submit path goes
+// through here rather than calling Submit itself, because a retry written out
+// per call site is one that ends up present on some paths and missing on the
+// rest, which is exactly the state this repository was in.
+//
+// It does NOT take the lock: the caller already holds it, and the whole point
+// is that nothing lands between the injection and its terminator.
+func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
+	if err := b.Submit(ctx, target); err == nil {
+		return nil
+	}
+	if err := b.Submit(ctx, target); err != nil {
+		return backend.Wrapf(backend.CodeTimeout, err,
+			"text was delivered to %s but not submitted, and is still sitting in the input line", target)
+	}
+	return nil
 }
 
 // deliver sends and verifies, resending once (behavior §7.4).

@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- meja sessions are spawned with the sanitized environment §1.1 requires:
+  `TERM` forced, `LANG` defaulted, `TMUX`/`TMUX_PANE`/`ZMX_SESSION`/
+  `ZMX_SESSION_PREFIX` stripped. They inherited the caller's environment.
+- Every composed inject-then-submit path retries the Enter once (§4.4):
+  verified sends, runs, and `type --submit` / `type_text` with `submit`. Only
+  paste-and-submit did before.
+- A single-target `screen` (and `wait_for`, `exit_status`) drops a history
+  request on an alternate-screen target with a warning, as the multi-target
+  read already did (§5.3).
+- `scroll_view` resolves its target like every other target-taking verb, so a
+  pane id works there too (§10).
+
+### Changed
+
+- `CreateSpec.Env` is gone; it was never set or read. Each backend builds its
+  own spawn environment.
+- `Session.TypeAndSubmit` is the one-call form of type-then-Enter for doors.
+
 ## [0.1.1]
 
 ### Added
