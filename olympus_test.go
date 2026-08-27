@@ -1176,3 +1176,44 @@ func skipUnlessFull(t *testing.T) {
 		t.Skip("driving a real multiplexer; run `make test-full` for this")
 	}
 }
+
+// §17.3: one place decides the tunable values, and these are the values it
+// decides. A door that invents its own has created a second contract, so the
+// numbers are transcribed here from the spec's table by hand rather than read
+// back off the constants — reading them off the code would only assert the code
+// agrees with itself.
+//
+// Two of these are per-attempt rather than total, which is the distinction the
+// table records and the reason they are listed with that word attached: the
+// verified-send budget is spent twice (§7.4).
+func TestTheShippedDefaultsAreTheOnesTheSpecPublishes(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []struct {
+		rule string
+		got  any
+		want any
+	}{
+		{"attach initial size (§8)", [2]int{olympus.DefaultCols, olympus.DefaultRows}, [2]int{80, 24}},
+		{"run timeout", olympus.DefaultRunTimeout, 60 * time.Second},
+		{"run poll interval", olympus.DefaultRunPoll, 250 * time.Millisecond},
+		{"screen-wait timeout (§5)", olympus.DefaultWaitTimeout, 30 * time.Second},
+		{"screen-wait interval (§5)", olympus.DefaultWaitPoll, 250 * time.Millisecond},
+		{"verified-send per-attempt budget (§7.4)", olympus.DefaultVerifyBudget, 5 * time.Second},
+		{"verified-send poll (§7.4)", olympus.DefaultVerifyPoll, 100 * time.Millisecond},
+		{"write-lock wait (§11.1)", olympus.DefaultLockWait, 10 * time.Second},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s is %v, want the published %v", c.rule, c.got, c.want)
+		}
+	}
+
+	// The write-lock wait is one of the env-overridable values, and §17.3 says
+	// those MUST be read at call time rather than cached at process start — an
+	// operator raising it should not have to restart anything. Naming the
+	// variable is what makes that reachable; a name only this package knew
+	// could not be set from outside it.
+	if olympus.LockWaitEnv != "OLYMPUS_LOCK_WAIT" {
+		t.Errorf("the write-lock override is named %q, want OLYMPUS_LOCK_WAIT", olympus.LockWaitEnv)
+	}
+}

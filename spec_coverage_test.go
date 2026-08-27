@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,11 +26,6 @@ import (
 // as uncovered. All three were in fact covered, by tests that simply did not
 // name them. The false positives were the finding: traceability was the thing
 // missing, not coverage.
-
-// specSections beyond this are reference material rather than backend contract —
-// the MCP door, testing requirements, reserved identifiers and defaults. They
-// are covered by the doors' own suites, which do not read as backend rules.
-const lastContractSection = 14
 
 func TestEveryNormativeSectionIsCitedByATest(t *testing.T) {
 	t.Parallel()
@@ -68,8 +62,16 @@ func TestTheCitationCheckWouldNoticeAnUncitedRule(t *testing.T) {
 	}
 }
 
-// mustBearingSections returns every §number in the backend contract whose body
-// contains a MUST.
+// mustBearingSections returns every §number in the spec whose body contains a
+// MUST.
+//
+// The exemption is the MUST itself, applied per section: a section whose body
+// states no requirement is reference material and is skipped by name, here,
+// because it carries nothing to trace. There is no range cap. One used to stop
+// the walk at the backend contract, which exempted the MCP door, the testing
+// requirements and the reserved-identifier registry as a block — sections that
+// do state MUSTs, and whose rules were therefore untraceable by construction
+// rather than by any judgement about them.
 func mustBearingSections(spec string) []string {
 	heading := regexp.MustCompile(`(?m)^#{2,4} (\d+(?:\.\d+)*)\.? [^\n]*$`)
 	locations := heading.FindAllStringSubmatchIndex(spec, -1)
@@ -83,7 +85,7 @@ func mustBearingSections(spec string) []string {
 		}
 		body := spec[loc[1]:end]
 
-		if major(number) > lastContractSection || !strings.Contains(body, "MUST") {
+		if !strings.Contains(body, "MUST") {
 			continue
 		}
 		// A rule the spec itself hands to a backend's own tests is not expected
@@ -148,9 +150,4 @@ func citationsInTests(t *testing.T) map[string]bool {
 // worth paying.
 func coveredBy(section string, cited map[string]bool) bool {
 	return cited[section]
-}
-
-func major(section string) int {
-	n, _ := strconv.Atoi(strings.SplitN(section, ".", 2)[0])
-	return n
 }

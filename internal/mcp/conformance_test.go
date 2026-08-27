@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -130,6 +133,10 @@ func resultOf(t *testing.T, response map[string]any) map[string]any {
 }
 
 // 1. server/discover advertises the modern revision.
+//
+// §15.2: the modern era has no negotiation handshake, so a server MUST
+// implement server/discover — it is the only place a client can read the
+// versions and capabilities an initialize would once have negotiated.
 func TestDiscoverAdvertisesTheModernRevision(t *testing.T) {
 	w := newWire(t)
 	// discover is only SERVED to a request that itself declares the modern
@@ -158,6 +165,10 @@ func TestDiscoverAdvertisesTheModernRevision(t *testing.T) {
 
 // 2. A modern-era request — per-request metadata, no handshake — completes a
 // real tool call end to end.
+//
+// §15.4: this is also what statelessness looks like from the wire. The request
+// is the first this server has ever seen, so a handler that cached anything
+// per connection, or assumed a prior call had happened, could not answer it.
 func TestAModernRequestCompletesAToolCallWithoutAHandshake(t *testing.T) {
 	w := newWire(t)
 
@@ -209,6 +220,10 @@ func TestALegacyHandshakeStillNegotiatesAndServesTheSameTools(t *testing.T) {
 
 // 4. An unknown requested version is answered with the specified code, carrying
 // the supported list so the client can retry with a mutually supported one.
+//
+// §15.2 names both halves: the code is UnsupportedProtocolVersionError, -32022,
+// and its data MUST list the versions the server supports alongside the one
+// asked for.
 func TestAnUnknownProtocolVersionIsRejectedWithTheSupportedList(t *testing.T) {
 	w := newWire(t)
 
@@ -246,11 +261,14 @@ func TestAnUnknownProtocolVersionIsRejectedWithTheSupportedList(t *testing.T) {
 	}
 }
 
-// 5. No advertised capability includes a deprecated feature.
+// 5. No advertised capability includes a deprecated feature (§15.5).
 //
 // Roots, sampling and logging are deprecated as of the modern revision. They
 // remain functional during a long deprecation window, which is exactly what
-// makes them a trap: they work today and are dead ends.
+// makes them a trap: they work today and are dead ends. Olympus is a pure tool
+// server and MUST NOT depend on any of them — and the SDK advertises
+// {"logging":{}} when capabilities are left unset, so the empty set here is an
+// override rather than a default falling out.
 func TestNoDeprecatedCapabilityIsAdvertised(t *testing.T) {
 	w := newWire(t)
 	result := resultOf(t, w.call("server/discover", map[string]any{"_meta": modernMeta(modernVersion)}))
@@ -477,5 +495,44 @@ func TestTheToolNamesMatchTheSpecTable(t *testing.T) {
 	listed := resultOf(t, w.call("tools/list", map[string]any{"_meta": modernMeta(modernVersion)}))
 	if got := toolNames(t, listed); !slices.Equal(got, fromTheSpec) {
 		t.Errorf("the served tools do not match api §1:\n served %v\n  §1    %v", got, fromTheSpec)
+	}
+}
+
+// §15.1: the door is built on the official Go SDK, pinned at the first release
+// whose latest supported revision is the modern one, and protocol framing MUST
+// NOT be hand-rolled.
+//
+// The half a test can hold is the pin. "Not hand-rolled" is a shape, and the
+// wire assertions above already fail loudly if anything below them stops being
+// the SDK's — but only once the pin has moved, which is when they can no longer
+// say what revision they were written against. The SDK is one of three budgeted
+// dependencies precisely so this door tracks the spec by moving a version
+// string, so the version string is the thing to pin: raising it is a spec edit
+// as much as a go.mod edit, and this test is what makes the two happen
+// together.
+func TestTheDoorIsBuiltOnThePinnedSDK(t *testing.T) {
+	const (
+		module = "github.com/modelcontextprotocol/go-sdk"
+		want   = "v1.7.0"
+	)
+
+	gomod, err := os.ReadFile(filepath.Join("..", "..", "go.mod"))
+	if err != nil {
+		t.Fatalf("reading go.mod: %v", err)
+	}
+
+	require := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(module) + `\s+(\S+)(.*)$`)
+	match := require.FindStringSubmatch(string(gomod))
+	if match == nil {
+		t.Fatalf("go.mod does not require %s at all, so the framing is coming from somewhere else", module)
+	}
+	if match[1] != want {
+		t.Errorf("go.mod pins %s at %s, want %s — behavior §15.1 names the version, so move both or neither",
+			module, match[1], want)
+	}
+	// An indirect requirement would mean nothing here imports it, which is the
+	// hand-rolled case wearing the right dependency.
+	if strings.Contains(match[2], "// indirect") {
+		t.Errorf("%s is an indirect dependency, so this door is not built on it", module)
 	}
 }
