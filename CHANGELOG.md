@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2]
+
+### Changed
+
+- `CreateSpec.Env` is gone; it was never set or read. Each backend builds its
+  own spawn environment.
+- `Session.TypeAndSubmit` is the one-call form of type-then-Enter for doors.
+
 ### Fixed
 
 - meja sessions are spawned with the sanitized environment §1.1 requires:
@@ -19,12 +27,6 @@ All notable changes to this project are documented here. The format follows
   read already did (§5.3).
 - `scroll_view` resolves its target like every other target-taking verb, so a
   pane id works there too (§10).
-
-### Changed
-
-- `CreateSpec.Env` is gone; it was never set or read. Each backend builds its
-  own spawn environment.
-- `Session.TypeAndSubmit` is the one-call form of type-then-Enter for doors.
 
 ## [0.1.1]
 
@@ -193,6 +195,7 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/husniadil/olympus/releases/tag/v0.1.2
 [0.1.1]: https://github.com/husniadil/olympus/releases/tag/v0.1.1
 [0.1.0]: https://github.com/husniadil/olympus/releases/tag/v0.1.0

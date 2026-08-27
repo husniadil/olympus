@@ -1,7 +1,7 @@
 # Implementation roadmap
 
 Ordered phases from an empty module to a releasable v0.1.0, the first of the cut
-releases; the latest is v0.1.1. Each phase is a checkpoint: it ends green, it
+releases; the latest is v0.1.2. Each phase is a checkpoint: it ends green, it
 ends committed, and it ends with the specs updated if implementation disproved
 them.
 
@@ -41,14 +41,14 @@ deliberately not hidden inside it:
   changed subject without a commit, and this line was briefly wrong about what
   CI had run. The floor leg is also what keeps the transient-client path
   covered now that the newest release no longer takes it.
-- **v0.1.0 is cut**, and v0.1.1 after it, from a tag and nowhere else: the
-  version every door reports is stamped from it, so a build from anything but a
-  tag would publish binaries that misreport what they are. The release workflow
-  installs all three backends and refuses to proceed if any is missing — the
-  suite skips rather than fails when a backend is absent, so an uninstalled one
-  would otherwise let a tag pass a gate it never actually ran. Still no Homebrew
-  tap, which would need a tap repository of its own; installation is
-  `go install` or the release archives.
+- **v0.1.0 is cut**, and v0.1.1 and v0.1.2 after it, from a tag and nowhere
+  else: the version every door reports is stamped from it, so a build from
+  anything but a tag would publish binaries that misreport what they are. The
+  release workflow installs all three backends and refuses to proceed if any is
+  missing — the suite skips rather than fails when a backend is absent, so an
+  uninstalled one would otherwise let a tag pass a gate it never actually ran.
+  Still no Homebrew tap, which would need a tap repository of its own;
+  installation is `go install` or the release archives.
 - **The MCP door is stdio only**, which is deliberate (behavior §15), so there
   is no remote or multi-client story and none is planned.
 - **An undiagnosed intermittent failure on the meja leg, macOS only.** Every
