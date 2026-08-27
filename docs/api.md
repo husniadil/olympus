@@ -615,3 +615,8 @@ The release **stamps** it with the tag at link time. It is a package variable
 for that reason alone and must be treated as read-only by callers. Compiling it
 in would mean every published binary reporting the development placeholder
 whatever tag it was cut from — which breaks the one check a client has.
+
+A binary built without that stamp — `go install …@tag` — reads the module
+version from its own build info at start and reports that instead; only a
+build from a working tree, with no tag to read, reports the development
+placeholder.

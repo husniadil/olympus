@@ -112,6 +112,7 @@ be empty is exactly when a user needs to learn that backends are scoped.
 
 - **tmux ≥ 3.3** (`allow-passthrough`).
 - **zmx 0.6.0** is the reference version; support is best-effort.
+- **meja 0.0.25** is the floor (§2.10 says why it is not raised to 0.0.26).
 
 A below-floor backend MUST be reported by name and version rather than allowed to
 fail later in a way that looks like an Olympus bug. A version probe costs a

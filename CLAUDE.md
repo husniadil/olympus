@@ -2,8 +2,8 @@
 
 A terminal you can drive from code. Olympus creates, drives, observes and tears
 down real terminal sessions on top of a multiplexer it does not embed — zmx by
-default, tmux as the alternative — and exposes that through three equal doors: a
-Go package, a CLI, and a stdio MCP server.
+default, tmux as the alternative, and meja last — and exposes that through three
+equal doors: a Go package, a CLI, and a stdio MCP server.
 
 ## Commands
 
@@ -13,15 +13,26 @@ Go package, a CLI, and a stdio MCP server.
   that drives a real terminal, with `-race` and a cross-compile check of the
   other supported platform. Run it before every commit.
 - `make build` / `make install` — `./cmd/olympus`.
+- `make doc` — man pages and shell completions into `.gendoc`, generated from the
+  command tree so they cannot describe a surface the binary no longer has. The
+  release runs the same generator and ships the output in the archive.
+- `make clean` — `bin`, `dist`, `.gendoc`, `coverage.out`.
+
+Both test targets check `gofmt` and run `go vet` first, so either can fail on
+formatting before a single test runs. The formatting is checked rather than
+applied on purpose: the fix belongs in the commit that caused it.
 
 The split is not a reduction — `test-full` runs everything — but it does mean a
 green `make test` is not a green gate. Nothing is committed on it alone.
 
 Tests skip rather than fail when a backend is absent, and the whole suite passes
-with none installed at all. The tmux leg needs tmux ≥ 3.3; the zmx and meja legs
-skip loudly when their binary is missing or not runnable. "On PATH" and
-"runnable" are checked separately: a version-manager shim satisfies a lookup and
-fails every call.
+with none installed at all. Each leg skips loudly when its binary is missing or
+not runnable. All three carry a version floor, reported by `doctor` rather than
+enforced on the hot path (behavior §0.5, `floors` in `doctor.go`): tmux 3.3, zmx
+0.6.0, meja 0.0.25. CI pins the backend versions and runs a floor leg — `@latest`
+once moved meja from 0.0.25 to 0.0.26 and took a structural change with it, so
+the gate changed subject without a commit. "On PATH" and "runnable" are checked
+separately: a version-manager shim satisfies a lookup and fails every call.
 
 macOS and Linux only. tmux, zmx and meja are Unix programs, and the attach path
 is termios and flock all the way down.
@@ -56,7 +67,15 @@ is worse than no spec, because it is still believed.
 
 3. **The `--json` shape and the error-code vocabulary are semver-bound.** A
    shipped field or code is never repurposed or removed; only new ones are
-   added. See spec §12.
+   added. The vocabulary is spec §12; the commitment itself is api §7.
+
+   The same section governs `Version` in `version.go`. It is the one literal
+   every door reports and the one a consumer floor-checks against, so it is a
+   `var` for the linker, not for callers: the release stamps the tag into it
+   through goreleaser's `-X github.com/husniadil/olympus.Version`. When nothing
+   stamped it, `init` falls back to the module version `debug.ReadBuildInfo`
+   recorded, so a `go install …@v0.1.1` build does not report the development
+   placeholder; a checkout build reads `(devel)` and keeps the placeholder.
 
 4. **No HTTP server, no daemon, no persistent state.** MCP is stdio only,
    targeting revision `2026-07-28`, whose own request model is stateless — see
@@ -68,8 +87,11 @@ is worse than no spec, because it is still believed.
    with the test — killing a server does not unlink its socket, and a named
    socket would accumulate in the directory shared with the operator's own
    servers. zmx has no socket flag at all, so its tests must set `ZMX_DIR` to a
-   private temp dir. Session-name namespacing alone is not sufficient. See spec
-   §2.9.
+   private temp dir. meja tests must use a socket PATH (`-S`), never a profile
+   name (`-L`): meja stores a server's session recovery files beside its socket,
+   so a named profile leaves persisted test sessions in the operator's own store
+   to reappear on their next restore. Session-name namespacing alone is not
+   sufficient for any of them. See spec §2.9.
 
 6. **Both audiences are first-class.** A human typing a verb and reading prose,
    and a program parsing stdout, are both supported callers. A change that
@@ -93,7 +115,9 @@ for a fourth backend: spike first, isolation, the conformance suite as the
 definition of correct, and the lessons that each cost a day here.
 
 [`docs/roadmap.md`](docs/roadmap.md) has the ordered phases and what "done"
-means for each.
+meant for each. All nine are implemented and green, so read it as the record of
+how the work was done — and for its Status section, which is the short honest
+list of what is genuinely still outstanding.
 
 ## Layering
 
@@ -105,6 +129,7 @@ ergonomic:  package olympus — Session handle, options, defaults, typed errors
 mechanical: package backend — the interface backends implement
                     ├── backend/tmux
                     ├── backend/zmx
+                    ├── backend/meja
                     └── backend/backendtest — the conformance suite
 ```
 
@@ -114,3 +139,13 @@ explicit and complete; that is where the spec's rules live.
 
 `backend/backendtest` is exported on purpose: a third-party backend should be
 able to prove itself against the same suite the shipped ones run.
+
+The MCP door's surface is pinned the same way: `ToolNames` in
+`internal/mcp/tools.go` lists the 25 tools, exported and asserted against both
+the registered set and the spec's own table, so a tool cannot silently appear or
+vanish. Adding or renaming one means the list, the registration, and the api §1
+table move together.
+
+[`skills/olympus/SKILL.md`](skills/olympus/SKILL.md) teaches an agent harness
+when Olympus beats a plain shell and which verb fits which situation. It is a
+shipped surface: a verb or MCP tool that changes has to be reflected there too.
