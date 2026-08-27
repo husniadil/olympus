@@ -177,6 +177,29 @@ func TestThrowawayRunTool(t *testing.T) {
 	}
 }
 
+// timeout_seconds must reach a throwaway run too: the throwaway branch creates
+// its own session, and a branch that forgot to carry the run's options would
+// bound every command by the default instead of by what was asked for.
+func TestThrowawayRunToolHonorsTimeoutSeconds(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+
+	started := time.Now()
+	text := w.callToolExpectingError(t, "run_command", map[string]any{
+		"command":         "sleep 120",
+		"throwaway":       true,
+		"timeout_seconds": 2,
+	})
+	elapsed := time.Since(started)
+
+	if !strings.Contains(text, "TIMEOUT") {
+		t.Errorf("a throwaway run past its budget did not report a timeout: %s", text)
+	}
+	if elapsed > 30*time.Second {
+		t.Errorf("the run took %s, so timeout_seconds was not the budget it used", elapsed)
+	}
+}
+
 // Verification and submission are independent, and both are reachable.
 func TestSendToolCanVerifyWithoutSubmitting(t *testing.T) {
 	isolate(t)

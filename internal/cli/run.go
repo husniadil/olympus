@@ -37,7 +37,7 @@ for any successful run and the command's status is in data.exit_code instead.`) 
 			}
 
 			if len(args) == 1 {
-				return a.runThrowaway(cmd, args[0], detach)
+				return a.runThrowaway(cmd, args[0], detach, opts)
 			}
 
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
@@ -84,7 +84,7 @@ for any successful run and the command's status is in data.exit_code instead.`) 
 }
 
 // runThrowaway runs a command in a session made for it and killed afterwards.
-func (a *App) runThrowaway(cmd *cobra.Command, command string, detach bool) error {
+func (a *App) runThrowaway(cmd *cobra.Command, command string, detach bool, opts []olympus.RunOption) error {
 	if detach {
 		// There would be nothing left to poll: the session is killed the
 		// moment the run returns (behavior §6.10).
@@ -98,7 +98,7 @@ func (a *App) runThrowaway(cmd *cobra.Command, command string, detach bool) erro
 	}
 	defer ol.Close()
 
-	result, warnings, err := ol.RunOnce(cmd.Context(), command)
+	result, warnings, err := ol.RunOnce(cmd.Context(), command, opts)
 	if err != nil {
 		return err
 	}

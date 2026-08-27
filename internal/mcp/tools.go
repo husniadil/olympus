@@ -434,7 +434,7 @@ func register(s *sdk.Server) {
 					return olympus.Result{}, nil, backend.Errorf(backend.CodeUsage,
 						"a throwaway run creates its own session, so it takes no target")
 				}
-				result, warnings, err := ol.RunOnce(ctx, in.Command)
+				result, warnings, err := ol.RunOnce(ctx, in.Command, opts)
 				return result, warnings, err
 			}
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (olympus.Result, error) {

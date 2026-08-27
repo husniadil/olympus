@@ -32,7 +32,14 @@ func throwawayName() string {
 // A cleanup failure MUST NOT override the run's own result. It comes back as a
 // warning instead: a session that failed to clean up is a leak to notice
 // separately, not a reason to hide the answer the caller actually asked for.
-func (o *Olympus) RunOnce(ctx context.Context, command string, opts ...SessionOption) (Result, []Warning, error) {
+//
+// Two different things are configurable here and the signature names both
+// rather than making a caller guess which one a single variadic shapes: run
+// bounds the run itself — the timeout above all — and session shapes the
+// session created to hold it. A throwaway that silently dropped the run's own
+// timeout would run every command on the default budget while reporting the
+// caller's.
+func (o *Olympus) RunOnce(ctx context.Context, command string, run []RunOption, session ...SessionOption) (Result, []Warning, error) {
 	// Validated before anything is created, so a bad command does not leave a
 	// session behind to clean up (behavior §6.3).
 	if err := engine.ValidateCommand(command); err != nil {
@@ -41,7 +48,7 @@ func (o *Olympus) RunOnce(ctx context.Context, command string, opts ...SessionOp
 
 	name := throwawayName()
 	spec := backend.CreateSpec{Name: name, Cols: DefaultCols, Rows: DefaultRows}
-	for _, opt := range opts {
+	for _, opt := range session {
 		opt(&spec)
 	}
 	// It gets the default shell: the sentinel protocol is shell syntax, so a
@@ -53,8 +60,8 @@ func (o *Olympus) RunOnce(ctx context.Context, command string, opts ...SessionOp
 		return Result{}, nil, err
 	}
 
-	session := &Session{ol: o, name: name}
-	result, runErr := session.Exec(ctx, command)
+	handle := &Session{ol: o, name: name}
+	result, runErr := handle.Exec(ctx, command, run...)
 
 	var warnings []Warning
 	// context.WithoutCancel so a cancelled or timed-out run still cleans up:

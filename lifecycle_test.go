@@ -56,7 +56,7 @@ func TestRunOnceUsesAThrowawaySessionAndCleansUp(t *testing.T) {
 				t.Fatalf("Sessions: %v", err)
 			}
 
-			result, warnings, err := ol.RunOnce(ctx, `printf 'throwaway-%d\n' 3`)
+			result, warnings, err := ol.RunOnce(ctx, `printf 'throwaway-%d\n' 3`, nil)
 			if err != nil {
 				t.Fatalf("RunOnce: %v", err)
 			}
@@ -104,7 +104,7 @@ func TestAFailingRunOnceStillCleansUp(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Sessions: %v", err)
 			}
-			result, _, err := ol.RunOnce(ctx, "sh -c 'exit 9'")
+			result, _, err := ol.RunOnce(ctx, "sh -c 'exit 9'", nil)
 			if err != nil {
 				t.Fatalf("RunOnce: %v", err)
 			}
@@ -125,6 +125,36 @@ func TestAFailingRunOnceStillCleansUp(t *testing.T) {
 					t.Fatal("a failing throwaway run leaked its session")
 				}
 				time.Sleep(100 * time.Millisecond)
+			}
+		})
+	}
+}
+
+// §6.10 with §17.3: the run's own timeout applies to a throwaway too. A
+// throwaway that dropped it would run every command on the default budget
+// while reporting the caller's — and the shape of the bug is only visible
+// when the two differ, so this asks for one the default would never produce.
+func TestRunOnceHonorsItsRunTimeout(t *testing.T) {
+	t.Parallel()
+	for _, l := range legs(t) {
+		t.Run(l.name, func(t *testing.T) {
+			ol := l.open(t)
+			ctx := context.Background()
+
+			started := time.Now()
+			_, _, err := ol.RunOnce(ctx, "sleep 120", []olympus.RunOption{olympus.RunTimeout(2 * time.Second)})
+			elapsed := time.Since(started)
+
+			if !errors.Is(err, olympus.ErrTimeout) {
+				t.Fatalf("RunOnce gave %v, want a timeout", err)
+			}
+			// The timeout that fired must be the one asked for, not the
+			// default one arriving early for some other reason.
+			if !strings.Contains(err.Error(), "2s") {
+				t.Errorf("the timeout error %q does not name the 2s budget it was given", err)
+			}
+			if elapsed > 30*time.Second {
+				t.Errorf("the run took %s, so it waited on something other than its 2s budget", elapsed)
 			}
 		})
 	}
