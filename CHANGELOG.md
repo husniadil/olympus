@@ -18,6 +18,16 @@ All notable changes to this project are documented here. The format follows
   the shell its own configuration names — a command there is refused rather than
   typed into a shell (behavior §2.3.1).
 
+### Changed
+
+- Every backend now strips herdr's session, socket and pane-identity variables
+  on its spawn paths, alongside tmux's and zmx's (behavior §1.1). Without it a
+  session created on one backend from inside a herdr pane inherited that pane's
+  identity and reported it as its own address.
+- A backend that honours a history or poll-window request up to a ceiling
+  discloses the clamp only when the request exceeded it. A backend that ignores
+  the request entirely still discloses on every call (behavior §0.8).
+
 ## [0.1.2]
 
 ### Changed

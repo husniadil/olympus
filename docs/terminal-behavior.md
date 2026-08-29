@@ -223,6 +223,8 @@ Every session Olympus creates MUST be spawned with a sanitized environment:
 | `LANG` | defaulted to `en_US.UTF-8` when unset or empty |
 | `TMUX`, `TMUX_PANE` | stripped |
 | `ZMX_SESSION`, `ZMX_SESSION_PREFIX` | stripped |
+| `HERDR_SESSION`, `HERDR_SOCKET_PATH`, `HERDR_CLIENT_SOCKET_PATH` | stripped |
+| `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` | stripped |
 
 This applies to **every** spawn path: explicit creation, idempotent ensure, and
 throwaway sessions.
@@ -243,6 +245,19 @@ handling. An inherited `ZMX_SESSION` is worse: `zmx attach <name> <argv>` with i
 set does **not** create or attach `<name>` — it switches the *current* session's
 daemon, yanking that session's leader client over to `<name>`. Running from
 inside a zmx session without this strip hijacks a live session.
+
+The herdr variables are two different hazards under one rule. `HERDR_SESSION`
+and the two socket variables RETARGET: they select which server a herdr command
+addresses, the way `ZMX_SESSION` does for zmx. `HERDR_PANE_ID` and its siblings
+IDENTIFY: they are how a process inside a herdr pane learns where it is, so a
+session created on any backend from inside one would inherit them and then
+answer "I am in a herdr pane" when asked its own address — sending another
+program's reply to somebody else's terminal, which is precisely what §13.1's
+status exists to make reliable.
+
+This applies to Olympus's own TESTS as much as to a spawn: the suite is
+routinely run from inside one of the sessions it describes, so a case that
+reads these variables MUST clear them rather than inherit the machine's.
 
 ### 1.2 The tmux server's global environment is a second leak
 
