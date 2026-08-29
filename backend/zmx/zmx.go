@@ -83,7 +83,9 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		// annotation command, so there is nowhere a status could outlive the
 		// process that set it.
 		// zmx sizes a session from the client that attaches it.
-		SpawnSizing:     false,
+		SpawnSizing: false,
+		// `zmx attach <name> <argv>` execs argv as the session process.
+		SpawnCommand:    true,
 		SessionStatus:   false,
 		TracksAltScreen: false,
 	}

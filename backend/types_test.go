@@ -77,7 +77,7 @@ func TestCapabilitiesMarshalToTheSpecShape(t *testing.T) {
 		ServerEnv:        false,
 		ControlKeys:      false,
 		TracksAltScreen:  false,
-	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"session_status":false,"tracks_alt_screen":false}`)
+	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false}`)
 }
 
 // The tri-states are the reason several of these types exist at all. Their wire
@@ -100,6 +100,7 @@ func TestTriStateSpellings(t *testing.T) {
 		{"Tmux", string(backend.Tmux), "tmux"},
 		{"Zmx", string(backend.Zmx), "zmx"},
 		{"Meja", string(backend.Meja), "meja"},
+		{"Herdr", string(backend.Herdr), "herdr"},
 	}
 	for _, s := range spellings {
 		if s.got != s.want {

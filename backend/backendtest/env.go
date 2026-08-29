@@ -62,9 +62,52 @@ func (e *Env) StartShell() string {
 // StartCommand creates a session spawned directly onto an argv. This is the
 // second session shape the spec distinguishes (behavior §2.8.1), not a variant
 // of the first.
+//
+// It is only callable where Capabilities.SpawnCommand is true. Cases that need
+// a PROGRAM on the screen rather than the exec-versus-typed distinction itself
+// use StartProgram, which reaches the same shape on a backend that cannot spawn
+// one.
 func (e *Env) StartCommand(argv ...string) string {
 	e.T.Helper()
 	return e.start(argv)
+}
+
+// StartProgram creates a session whose process is argv rather than a shell, by
+// whichever mechanism the backend has.
+//
+// Where a backend can spawn an argv this is StartCommand. Where it cannot
+// (behavior §2.3, Capabilities.SpawnCommand false) it starts a shell and hands
+// the shell over to the program with `exec`, which reaches the same end state —
+// the session's process IS the program — at the cost of the command line being
+// echoed into the session's own output first. That echo is exactly what §2.3
+// rules out for a spawn, which is why the two are separate helpers and why the
+// case about the distinction calls Create itself.
+func (e *Env) StartProgram(argv ...string) string {
+	e.T.Helper()
+	if e.Backend.Capabilities().SpawnCommand {
+		return e.start(argv)
+	}
+
+	target := e.StartShell()
+	e.Warm(target)
+	if err := e.Backend.SendAtomic(e.ctx, target, "exec "+shellCommand(argv)); err != nil {
+		e.T.Fatalf("handing session %s over to %v: %v", target, argv, err)
+	}
+	return target
+}
+
+// shellCommand quotes an argv into one POSIX shell command line.
+//
+// Single quotes rather than any escaping scheme: inside them every byte but the
+// quote itself is literal, so the payloads these cases use — escape sequences,
+// backslashes, semicolons, `$?` — survive without a per-character rule to get
+// wrong.
+func shellCommand(argv []string) string {
+	quoted := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", `'\''`)+"'")
+	}
+	return strings.Join(quoted, " ")
 }
 
 func (e *Env) start(argv []string) string {

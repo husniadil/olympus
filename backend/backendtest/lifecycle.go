@@ -1,6 +1,7 @@
 package backendtest
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -25,6 +26,29 @@ func lifecycleCases() []Case {
 		{
 			Name: "§2.3 a command session is spawned by exec, never typed into a shell",
 			Fn: func(e *Env) {
+				if !e.Backend.Capabilities().SpawnCommand {
+					// Declared false, so the field must also be REFUSED. A
+					// backend that accepted it and typed the argv would satisfy
+					// every other case in this suite while quietly echoing the
+					// command line into the session and losing every argument
+					// carrying a shell metacharacter — which is the failure
+					// §2.3 exists to prevent, not a smaller version of it.
+					_, err := e.Backend.Create(e.Ctx(), backend.CreateSpec{
+						Name:    e.Name(),
+						Dir:     e.T.TempDir(),
+						Command: []string{"sh", "-c", "sleep 30"},
+						Cols:    80,
+						Rows:    24,
+					})
+					if err == nil {
+						e.T.Fatalf("a backend that does not advertise spawning a command accepted one anyway")
+					}
+					if !errors.Is(err, backend.ErrUnsupported) {
+						e.T.Errorf("creating a session on an argv is %q, want %q — unsupported is not unavailable", backend.CodeOf(err), backend.CodeUnsupported)
+					}
+					return
+				}
+
 				// The distinction is observable: a typed command is echoed by
 				// the PTY, so the argv itself would appear on screen. An
 				// exec-spawned one produces only its own output. Typing also
@@ -92,7 +116,7 @@ func lifecycleCases() []Case {
 				// trapped — so no delivery mechanism can help. That is a real
 				// declared outcome, and the caller must fall through to a
 				// forced kill.
-				target := e.StartCommand("sh", "-c", `printf 'running-%d\n' 1; sleep 30`)
+				target := e.StartProgram("sh", "-c", `printf 'running-%d\n' 1; sleep 30`)
 				e.WaitFor(target, "running-1")
 
 				if err := e.Backend.Interrupt(e.Ctx(), target); err != nil {

@@ -56,6 +56,11 @@ type CreateSpec struct {
 	Dir string
 	// Command is the argv to spawn. Empty means a plain login shell. It is
 	// spawned by exec, never typed into a shell (behavior §2.3).
+	//
+	// A backend whose panes always run the program its own configuration names
+	// has nowhere to put this. It rejects a non-empty Command as unsupported
+	// rather than typing it, and declares Capabilities.SpawnCommand false so a
+	// caller can branch before hitting the error.
 	Command []string
 	Cols    int
 	Rows    int

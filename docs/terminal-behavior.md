@@ -277,6 +277,10 @@ client to UTF-8.
 Creation takes a required, backend-unique name, plus optional working directory,
 initial size, and command. An empty command means the user's default shell.
 
+A command is not universally available: a backend whose panes run a program its
+own configuration chooses refuses one outright rather than typing it (§2.3.1),
+and declares `spawn_command` false so a caller can branch before asking.
+
 Initial size on zmx is accepted for interface conformance and **ignored** — zmx
 has no spawn-time sizing concept, and the PTY is sized entirely by whatever
 client attaches later. Do not paper over this.
@@ -321,6 +325,32 @@ session process with nothing typed.
 text into scrollback. tmux hides this behind alt-screen redraw; zmx's native
 scrollback shows it, putting the spawn command line into the session's own
 output.
+
+### 2.3.1 A backend that cannot spawn a command MUST refuse it, not type it
+
+Not every multiplexer lets a caller choose a session's process. herdr's panes
+run whatever its own configuration names — the `[terminal] default_shell` of a
+server-wide config file — and neither its workspace-creation nor its
+pane-splitting request carries an argv. There is nowhere for `CreateSpec.Command`
+to go.
+
+Such a backend MUST reject a non-empty command with an unsupported-class error,
+before any invocation, and MUST declare `spawn_command` false (§13). Typing the
+argv instead is the failure §2.3 exists to prevent, not a smaller version of it:
+the command line lands in the session's own output, and every argument carrying
+a shell metacharacter is reinterpreted by a shell that was never supposed to see
+it.
+
+The workaround belongs to the CALLER, not to the backend, because only the
+caller knows whether either cost matters: start a shell, then drive the program
+from inside it. The conformance suite does exactly that for the cases that need
+a program on screen rather than the exec-versus-typed distinction itself, using
+`exec <argv>` so the session's process still ends up being the program.
+
+The consequence for §2.8.1 is that the two session shapes converge: a program a
+shell `exec`s inherits an ordinary `SIGINT` disposition rather than `SIG_IGN`, so
+where zmx's exec-spawned sessions cannot be interrupted at all, herdr's can.
+Outcomes are still declared per backend and per shape.
 
 ### 2.4 zmx spawn is asynchronous, and the client's exit means nothing
 
@@ -1787,8 +1817,17 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
-server environment, control keys, spawn sizing, session status, alt-screen
-tracking.
+server environment, control keys, spawn sizing, spawn command, session status,
+alt-screen tracking.
+
+**Spawn command is a capability because a session's process is not always the
+caller's to choose.** A backend whose panes run the program its own
+configuration names has nowhere to put an argv, so `CreateSpec.Command` is a
+request it cannot honour at all (§2.3.1). It is a capability rather than a
+degraded-operation warning for the same reason control keys are: the caller's
+whole approach changes. With it, spawn the program and read only its output;
+without it, start a shell, hand it over with `exec`, and accept the echoed
+command line and the quoting that a shell in the path forces on you.
 
 **Spawn sizing is a capability because the size is silently lost otherwise.** A
 backend that sizes a session from the client that attaches it cannot honour a

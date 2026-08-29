@@ -223,6 +223,8 @@ func (m *Meja) Capabilities() backend.Capabilities {
 		// new-session takes no -x/-y: meja sizes a session from its first
 		// client, so a detached one takes a default (§2.10).
 		SpawnSizing: false,
+		// new-session takes the argv and execs it, exactly as tmux does.
+		SpawnCommand: true,
 		// No option store of any kind — no set-option, no show-options — so
 		// there is nowhere a status could outlive the process that set it.
 		SessionStatus: false,

@@ -92,7 +92,7 @@ func captureCases() []Case {
 				// Skipping the capture and returning empty is the door's rule,
 				// not this one. Asserting it here would require every backend
 				// to implement a policy that belongs one layer up.
-				target := e.StartCommand("sh", "-c", `printf '\033[?1049h'; sleep 30`)
+				target := e.StartProgram("sh", "-c", `printf '\033[?1049h'; sleep 30`)
 
 				if !e.Backend.Capabilities().TracksAltScreen {
 					// Not tracking it is an honest answer, not an
@@ -177,7 +177,7 @@ func captureCases() []Case {
 				// a while like one backend failed it. It does not: what that
 				// backend actually fails is delivering the keystroke that
 				// would have caused the repaint (§4.9).
-				target := e.StartCommand("sh", "-c",
+				target := e.StartProgram("sh", "-c",
 					`printf 'FRAME-ONE'; sleep 1; printf '\033[H\033[2JFRAME-TWO'; sleep 30`)
 
 				deadline := time.Now().Add(e.budgets.Screen)

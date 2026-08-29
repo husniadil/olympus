@@ -77,8 +77,10 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		ServerEnv:        true,
 		// send-keys delivers the control range, so a full-screen program can
 		// be driven and not merely watched.
-		ControlKeys:     true,
-		SpawnSizing:     true,
+		ControlKeys: true,
+		SpawnSizing: true,
+		// new-session takes the argv and execs it as the pane's process.
+		SpawnCommand:    true,
 		SessionStatus:   true,
 		TracksAltScreen: true,
 	}

@@ -145,6 +145,7 @@ func TestEveryCaseFailsAgainstABackendThatDoesNothing(t *testing.T) {
 			ServerEnv:       true,
 			TracksAltScreen: true,
 			ControlKeys:     true,
+			SpawnCommand:    true,
 		}),
 	}
 
@@ -237,5 +238,26 @@ func TestPlausibleEpochRejectsTheSilentZero(t *testing.T) {
 	}
 	if PlausibleEpoch(time.Now().Add(24 * time.Hour).Unix()) {
 		t.Error("a timestamp a day in the future is treated as plausible")
+	}
+}
+
+// §2.3.1 A backend that declares it cannot spawn a command must REFUSE one.
+//
+// The dangerous shape is a backend that accepts the field and types the argv
+// instead: it would satisfy every other case in this suite while echoing the
+// command line into the session and losing every argument carrying a shell
+// metacharacter. So the suite's §2.3 case must fail against a backend that
+// declares spawn_command false and then accepts a command anyway — which is
+// exactly what the inert backend does.
+func TestSpawningACommandMustBeRefusedWhereItIsNotDeclared(t *testing.T) {
+	cfg := inertConfig(backend.Capabilities{})
+	for _, c := range Cases() {
+		if !strings.Contains(c.Name, "§2.3 ") {
+			continue
+		}
+		failures := runCase(c, cfg)
+		if len(failures) == 0 || !strings.Contains(failures[0], "accepted one anyway") {
+			t.Errorf("case %q did not insist on the refusal; it reported %v", c.Name, failures)
+		}
 	}
 }

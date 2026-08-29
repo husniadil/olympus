@@ -112,7 +112,7 @@ func listingCases() []Case {
 				// where both meanings produce a value — a bare shell session
 				// legitimately carries none on a backend that reports the
 				// spawn argv.
-				target := e.StartCommand("sh", "-c", `printf 'cmd-%d\n' 2; sleep 30`)
+				target := e.StartProgram("sh", "-c", `printf 'cmd-%d\n' 2; sleep 30`)
 				e.WaitFor(target, "cmd-2")
 				for _, p := range e.panes(target) {
 					if p.CurrentCommand == "" {

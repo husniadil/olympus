@@ -6,9 +6,10 @@ package backend
 type Name string
 
 const (
-	Tmux Name = "tmux"
-	Zmx  Name = "zmx"
-	Meja Name = "meja"
+	Tmux  Name = "tmux"
+	Zmx   Name = "zmx"
+	Meja  Name = "meja"
+	Herdr Name = "herdr"
 )
 
 // A Liveness classifies whether a row's session is alive, produced by the
@@ -147,6 +148,22 @@ type Capabilities struct {
 	// resize after attaching, or accept whatever it gets. Measured — a 120x40
 	// request becomes 120x40 on tmux and 80x23 on meja.
 	SpawnSizing bool `json:"spawn_sizing"`
+	// SpawnCommand reports whether a session can be spawned directly onto an
+	// argv, executed rather than typed (behavior §2.3).
+	//
+	// It is a capability rather than an assumption because a backend can own
+	// the process it starts without letting a caller choose it: a multiplexer
+	// whose panes always run the shell its own configuration names has nowhere
+	// to put a per-session argv, and CreateSpec.Command is then a request it
+	// cannot honour at all. Measured — tmux, zmx and meja each exec the argv;
+	// herdr has no per-pane program, so it refuses the field.
+	//
+	// The caller's approach changes with it, which is what makes it a
+	// capability and not a degraded-operation warning: with it, spawn the
+	// program; without it, start a shell and drive the program from inside,
+	// accepting that the command line is echoed into the session's own output
+	// and that shell metacharacters are the caller's to quote.
+	SpawnCommand bool `json:"spawn_command"`
 	// SessionStatus reports whether a session can carry an opaque label a
 	// process inside it sets for whoever drives it from outside.
 	//
