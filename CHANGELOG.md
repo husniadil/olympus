@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1]
+
+### Fixed
+
+- The two herdr tests added in 0.2.0 assumed a headless server boots with a
+  pane of its own. It does not in a clean environment (measured: zero panes),
+  so the 0.2.0 release failed its own gate on every CI leg and published
+  nothing. The tests now find the pane they created by the id herdr answered
+  with. No behaviour change.
+
 ## [0.2.0]
 
 ### Added
@@ -226,7 +236,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/husniadil/olympus/releases/tag/v0.2.1
 [0.2.0]: https://github.com/husniadil/olympus/releases/tag/v0.2.0
 [0.1.2]: https://github.com/husniadil/olympus/releases/tag/v0.1.2
 [0.1.1]: https://github.com/husniadil/olympus/releases/tag/v0.1.1

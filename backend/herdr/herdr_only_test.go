@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -318,16 +319,27 @@ func TestAnUnlabelledPaneIsAFullSession(t *testing.T) {
 	ctx := context.Background()
 
 	// Created the way anything that is not Olympus creates one: no label.
-	raw(t, b, "workspace", "create", "--no-focus")
+	// A headless server may boot with no pane at all (measured: a fresh
+	// server in a clean environment lists zero panes), so the created pane
+	// is found by the id herdr answered with rather than by counting.
+	created := raw(t, b, "workspace", "create", "--no-focus")
+	var reply struct {
+		Result struct {
+			RootPane struct {
+				PaneID string `json:"pane_id"`
+			} `json:"root_pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(created), &reply); err != nil || reply.Result.RootPane.PaneID == "" {
+		t.Fatalf("workspace create answered no root pane id: %v\n%s", err, created)
+	}
+	target := reply.Result.RootPane.PaneID
 
 	sessions, err := b.Sessions(ctx)
 	if err != nil {
 		t.Fatalf("Sessions: %v", err)
 	}
-	if len(sessions) < 2 {
-		t.Fatalf("a server with its own pane and a split one listed %d sessions", len(sessions))
-	}
-	var target string
+	var listed bool
 	for _, s := range sessions {
 		if !backend.IndexedPaneID(s.Name) {
 			t.Errorf("an unlabelled pane is named %q, want its pane id", s.Name)
@@ -336,10 +348,12 @@ func TestAnUnlabelledPaneIsAFullSession(t *testing.T) {
 		if s.ID != s.Name {
 			t.Errorf("session %q reports id %q; an unlabelled pane's name IS its id", s.Name, s.ID)
 		}
-		target = s.Name
+		if s.Name == target {
+			listed = true
+		}
 	}
-	if target == "" {
-		t.Fatal("no unlabelled pane was listed")
+	if !listed {
+		t.Fatalf("the unlabelled pane %s is not listed among %d sessions", target, len(sessions))
 	}
 
 	if got := b.Probe(ctx, target); got != backend.StatePresent {
@@ -390,6 +404,9 @@ func TestAServerThisHandleDidNotStartIsDrivenButNotStopped(t *testing.T) {
 	if foreign.startedTheServer() {
 		t.Fatal("a handle that started nothing claims it started the server")
 	}
+	// Give the server a pane the way something that is not Olympus would;
+	// a headless server does not necessarily boot with one.
+	raw(t, owner, "workspace", "create", "--no-focus")
 
 	sessions, err := foreign.Sessions(ctx)
 	if err != nil {
