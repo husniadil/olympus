@@ -61,6 +61,7 @@ func (a *App) newCmd() *cobra.Command {
 		Short: "Create a session, failing if the name is taken",
 		Long: "Create a session, failing with a conflict if one by that name already exists." +
 			"\n\nMost callers want `start`, which creates or reuses. This is for a caller that means \"this must not already exist\": checking afterwards by reading `start`'s outcome is a race rather than a check." +
+			"\n\nA command after `--` is executed as the session's process, never typed into a shell. Not every backend can choose a pane's process; `olympus capabilities` reports it as spawn_command." +
 			scriptsNote,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

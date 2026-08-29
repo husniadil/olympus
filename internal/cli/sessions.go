@@ -28,6 +28,7 @@ func (a *App) startCmd() *cobra.Command {
 		Short: "Create a session, or reuse one that is already alive",
 		Long: "Create a session, or reuse one that is already alive." +
 			"\n\nThis is idempotent: it reports whether the session was created, reused, or reaped and replaced." +
+			"\n\nA command after `--` is executed as the session's process, never typed into a shell. Not every backend can choose a pane's process; `olympus capabilities` reports it as spawn_command, and a backend without it refuses the command rather than typing it." +
 			scriptsNote,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

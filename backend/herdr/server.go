@@ -123,6 +123,11 @@ func ManagedConfig() map[string]string {
 // An existing file is left alone. A caller who put their own configuration in
 // this directory chose it deliberately, and overwriting it would be Olympus
 // deciding it knows better about a file it does not own.
+// The "herdr" path component is the release build's application directory name;
+// a debug build of herdr uses "herdr-dev" instead, and would not read this file.
+// The cost of that mismatch is bounded to the pins not applying — a background
+// check nobody wanted still runs — rather than to anything a session depends on,
+// which is why it is recorded here rather than probed for.
 func (h *Herdr) writeManagedConfig() error {
 	dir := filepath.Join(h.StateHome(), "config", "herdr")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -154,6 +159,30 @@ func (h *Herdr) Stop(ctx context.Context) error {
 	if !h.serverAnswers(ctx) {
 		return nil
 	}
-	_, err := h.run(ctx, "server", "stop")
-	return err
+	if _, err := h.run(ctx, "server", "stop"); err != nil {
+		return err
+	}
+
+	// Waited out rather than returned from, because the stop request is
+	// acknowledged before the server has finished exiting — and a server on its
+	// way out still writes its log and its saved layout back into the
+	// configuration directory. A caller that removed that directory the moment
+	// this returned would find it recreated underneath them, which is measured:
+	// four of a test run's private directories came back, holding a session
+	// snapshot written after the tree was deleted.
+	deadline := time.Now().Add(serverStartBudget())
+	for {
+		if !h.serverAnswers(ctx) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return backend.Errorf(backend.CodeTimeout,
+				"the herdr server at %s was told to stop and is still answering after %s", h.socketPath, serverStartBudget())
+		}
+		select {
+		case <-ctx.Done():
+			return backend.Wrapf(backend.CodeTimeout, ctx.Err(), "waiting for the herdr server at %s to stop", h.socketPath)
+		case <-time.After(serverStartPoll):
+		}
+	}
 }

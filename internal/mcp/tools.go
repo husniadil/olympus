@@ -65,7 +65,7 @@ type startParams struct {
 	Dir     string   `json:"dir,omitempty" jsonschema:"working directory for the session"`
 	Cols    int      `json:"cols,omitempty" jsonschema:"initial width; ignored by backends with no spawn-time sizing"`
 	Rows    int      `json:"rows,omitempty" jsonschema:"initial height; ignored by backends with no spawn-time sizing"`
-	Command []string `json:"command,omitempty" jsonschema:"argv to spawn instead of a login shell; executed, never typed"`
+	Command []string `json:"command,omitempty" jsonschema:"argv to spawn instead of a login shell; executed, never typed. Refused on a backend that cannot choose a pane's process; capabilities reports it as spawn_command"`
 	// KeepCorpse applies on the create path only and is unsupported on a
 	// backend with no corpse concept, which rejects it before doing anything.
 	KeepCorpse bool `json:"keep_corpse,omitempty" jsonschema:"leave a dead session to inspect after its command exits"`
