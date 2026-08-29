@@ -220,6 +220,13 @@ func (a *App) openAt(here olympus.Identity) (*olympus.Olympus, error) {
 				opts = append(opts, olympus.WithSocketPath(here.Scope))
 			case backend.Zmx:
 				opts = append(opts, olympus.WithZmxDir(here.Scope))
+			case backend.Herdr:
+				// Passed explicitly rather than left to the environment. The
+				// herdr binary does read HERDR_SOCKET_PATH itself, but the
+				// backend strips it from every invocation and substitutes its
+				// own — so a reporter inside a session would otherwise be sent
+				// to Olympus's default server instead of the one it is in.
+				opts = append(opts, olympus.WithSocketPath(here.Scope))
 			}
 		}
 	}

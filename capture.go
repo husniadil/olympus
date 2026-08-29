@@ -82,6 +82,7 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 	out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureMeta)...)
 	if options.HistoryLines > 0 {
 		out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureHistory)...)
+		out.Warnings = append(out.Warnings, warnDepth(o.resolution.Backend, options.HistoryLines)...)
 		if altScreen {
 			out.Warnings = append(out.Warnings, altScreenHistoryDropped)
 		}

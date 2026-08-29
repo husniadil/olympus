@@ -636,3 +636,51 @@ func envelopeError(streams ...string) (code, message string) {
 	}
 	return "", ""
 }
+
+// PaneIDEnv is the variable herdr sets in every pane it launches, naming that
+// pane (src/pane.rs:145-152). It is how a process inside a session can learn
+// where it is.
+const PaneIDEnv = "HERDR_PANE_ID"
+
+// socketPathEnv is herdr's own socket override, read by the herdr binary
+// whether or not Olympus passes it.
+const socketPathEnv = "HERDR_SOCKET_PATH"
+
+// AmbientSocketPath is the API socket a herdr process in THIS environment would
+// address, which is what a process inside a pane needs in order to name its own
+// session from outside.
+//
+// It mirrors herdr's own resolution rather than guessing: the override first
+// (src/session.rs:173-181), then the configuration directory's `herdr.sock`
+// (src/session.rs:161-171, src/config/io.rs:29-33). A server Olympus started
+// puts the override in its own environment, and a pane inherits it — so inside
+// an Olympus session this returns Olympus's socket, and inside the operator's
+// own herdr it returns theirs.
+//
+// Deliberately NOT this backend's configured socket: a handle pointed at one
+// server cannot change which one this process is sitting in.
+func AmbientSocketPath() string {
+	if v := os.Getenv(socketPathEnv); v != "" {
+		return v
+	}
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+		return filepath.Join(v, "herdr", "herdr.sock")
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		return filepath.Join(home, ".config", "herdr", "herdr.sock")
+	}
+	return ""
+}
+
+// SessionOf reports the session name owning a pane id.
+//
+// herdr publishes a pane's ID to the pane but not its label, so a process that
+// wants to name its own session has to ask the server — of the socket it is
+// actually inside, which is what AmbientSocketPath answers.
+func (h *Herdr) SessionOf(ctx context.Context, paneID string) (string, error) {
+	row, err := h.resolvePane(ctx, paneID)
+	if err != nil {
+		return "", err
+	}
+	return row.Label, nil
+}

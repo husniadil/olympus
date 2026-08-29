@@ -449,9 +449,19 @@ func TestScreenVerbTakesSeveralTargets(t *testing.T) {
 // "nowhere", which is a result and not a failure — a script asking must be able
 // to branch on it without treating an error as the answer.
 func TestSelfOutsideASessionSucceeds(t *testing.T) {
-	t.Setenv("ZMX_SESSION", "")
-	t.Setenv("TMUX", "")
-	t.Setenv("TMUX_PANE", "")
+	// Every variable Self reads, cleared. The suite is routinely RUN from
+	// inside one of the sessions it describes — a herdr pane, a tmux session —
+	// and an inherited one would make this case fail for the environment it
+	// was run in rather than for anything the code does.
+	for _, name := range []string{
+		"ZMX_SESSION", "ZMX_DIR",
+		"TMUX", "TMUX_PANE",
+		"MEJA_SESSION_TARGET", "MEJA_SOCKET",
+		"HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID",
+		"HERDR_SESSION", "HERDR_SOCKET_PATH", "HERDR_CLIENT_SOCKET_PATH",
+	} {
+		t.Setenv(name, "")
+	}
 
 	got := run(t, "self", "--json")
 	if got.code != 0 {

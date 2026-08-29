@@ -1,6 +1,10 @@
 package olympus
 
-import "github.com/husniadil/olympus/backend"
+import (
+	"fmt"
+
+	"github.com/husniadil/olympus/backend"
+)
 
 // WarningDegraded is the code every degraded-operation disclosure carries.
 const WarningDegraded = "DEGRADED"
@@ -88,16 +92,39 @@ var degradations = map[backend.Name]map[operation][]string{
 		opCaptureMeta: {
 			"alt-screen is not tracked and is always false",
 		},
-		opCaptureHistory: {
-			"a history request deeper than 1000 lines is clamped to 1000",
-		},
-		opPollWindow: {
-			"a capture window deeper than 1000 lines is clamped to 1000",
-		},
 		opSpawnSize: {
 			"the requested size is ignored: a pane takes the server's own geometry until a client attaches",
 		},
 	},
+}
+
+// depthCaps is the deepest history a backend will return, for the backends that
+// have a ceiling at all.
+//
+// It is separate from degradations because the disclosure is CONDITIONAL: a
+// backend with a cap still honours every request below it, and warning on all
+// of them would be exactly the noise §0.8 rules out — as well as untrue, since
+// nothing about that answer is narrower than what was asked for. A request
+// above the cap really does come back short, and only that one is disclosed.
+var depthCaps = map[backend.Name]int{
+	// The server clamps silently at 1,000 lines, so Olympus clamps there too
+	// and says when a request was reduced (§6.4).
+	backend.Herdr: 1000,
+}
+
+// warnDepth discloses a history or poll-window request that will come back
+// shorter than it was written.
+func warnDepth(name backend.Name, lines int) []Warning {
+	limit, has := depthCaps[name]
+	if !has || lines <= limit {
+		return nil
+	}
+	return []Warning{{
+		Code: WarningDegraded,
+		Message: fmt.Sprintf(
+			"%d lines were asked for and %d is the deepest this backend returns, so the answer is %d lines",
+			lines, limit, limit),
+	}}
 }
 
 // warn returns the disclosures for an operation on a backend.

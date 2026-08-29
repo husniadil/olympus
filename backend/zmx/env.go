@@ -20,7 +20,19 @@ const (
 // attach path it is worse still — the name is ignored entirely and the call
 // fails with `session "<ambient>" does not exist`, where <ambient> is whatever
 // ZMX_SESSION held. It does not degrade; it silently retargets (§1.1, §1.3).
-var strippedVars = []string{"TMUX", "TMUX_PANE", "ZMX_SESSION", "ZMX_SESSION_PREFIX"}
+// strippedVars must go from every invocation's environment.
+//
+// The herdr entries are the same class of hazard as the others and were added
+// with that backend: HERDR_PANE_ID is what a process inside a herdr pane is
+// identified BY (§1.1), so a session created here from inside one would inherit
+// it and then answer "I am in a herdr pane" when asked where it is. HERDR_SESSION
+// and the two socket variables retarget herdr's own commands the way ZMX_SESSION
+// retargets zmx's.
+var strippedVars = []string{
+	"TMUX", "TMUX_PANE", "ZMX_SESSION", "ZMX_SESSION_PREFIX",
+	"HERDR_SESSION", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID",
+	"HERDR_SOCKET_PATH", "HERDR_CLIENT_SOCKET_PATH",
+}
 
 func lang() string {
 	if v := os.Getenv("LANG"); v != "" {

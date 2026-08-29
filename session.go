@@ -281,6 +281,7 @@ func (s *Session) Screen(ctx context.Context, opts ...ScreenOption) (Screen, err
 	screen.Warnings = append(screen.Warnings, warn(s.ol.resolution.Backend, opCaptureMeta)...)
 	if options.HistoryLines > 0 {
 		screen.Warnings = append(screen.Warnings, warn(s.ol.resolution.Backend, opCaptureHistory)...)
+		screen.Warnings = append(screen.Warnings, warnDepth(s.ol.resolution.Backend, options.HistoryLines)...)
 		if altScreen {
 			screen.Warnings = append(screen.Warnings, altScreenHistoryDropped)
 		}
@@ -498,7 +499,8 @@ func (j *Job) Poll(ctx context.Context, opts ...RunOption) (PollResult, error) {
 // Poll reports on a detached run by id, for a caller resuming from nothing but
 // the pair.
 func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollResult, error) {
-	got, err := s.runner(opts...).PollRun(ctx, s.name, id)
+	runner := s.runner(opts...)
+	got, err := runner.PollRun(ctx, s.name, id)
 	if err != nil {
 		return PollResult{}, err
 	}
@@ -507,7 +509,12 @@ func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollR
 		ExitCode: got.ExitCode,
 		Output:   got.Output,
 		Reason:   got.Reason,
-		Warnings: warn(s.ol.resolution.Backend, opPollWindow),
+		// Two disclosures, and they are not the same shape. One backend
+		// ignores the window entirely and says so on every poll; another
+		// honours it up to a ceiling and says so only when the request was
+		// above it (§0.8).
+		Warnings: append(warn(s.ol.resolution.Backend, opPollWindow),
+			warnDepth(s.ol.resolution.Backend, runner.Window)...),
 	}, nil
 }
 

@@ -20,9 +20,32 @@ import (
 // process actually is. A handle pointed at one socket cannot change which
 // session its own process is sitting in.
 
+// clearAmbientSessionIdentity removes every variable Self reads, so a case
+// declares its own environment rather than inheriting the machine's.
+//
+// It exists because the suite is routinely RUN from inside one of the sessions
+// it describes. A developer running it inside a herdr pane or a tmux session
+// would otherwise see a second claimant appear in every case, and the failure
+// would read as a defect in Self rather than as the test's own environment
+// leaking in (§1.1 strips the same variables on every spawn path, for the same
+// reason one layer down).
+func clearAmbientSessionIdentity(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		"ZMX_SESSION", "ZMX_DIR",
+		"TMUX", "TMUX_PANE",
+		"MEJA_SESSION_TARGET", "MEJA_SOCKET",
+		"HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID",
+		"HERDR_SESSION", "HERDR_SOCKET_PATH", "HERDR_CLIENT_SOCKET_PATH",
+	} {
+		t.Setenv(name, "")
+	}
+}
+
 // A backend that puts the session name in the environment can be answered
 // without asking anything.
 func TestSelfNamesTheSessionOnZmx(t *testing.T) {
+	clearAmbientSessionIdentity(t)
 	t.Setenv("ZMX_SESSION", "build")
 	t.Setenv("ZMX_DIR", "/tmp/zmx-private")
 	t.Setenv("TMUX", "")
@@ -50,6 +73,7 @@ func TestSelfNamesTheSessionOnZmx(t *testing.T) {
 // asks and is told "nowhere" can act on that; one that gets an error has to
 // guess whether the error meant "nowhere" or "could not tell".
 func TestSelfOutsideAnySessionIsNotAnError(t *testing.T) {
+	clearAmbientSessionIdentity(t)
 	t.Setenv("ZMX_SESSION", "")
 	t.Setenv("TMUX", "")
 	t.Setenv("TMUX_PANE", "")
@@ -94,7 +118,7 @@ func TestSelfNamesTheSessionOnTmux(t *testing.T) {
 	}
 
 	// What tmux itself puts in a pane's environment.
-	t.Setenv("ZMX_SESSION", "")
+	clearAmbientSessionIdentity(t)
 	t.Setenv("TMUX", socket+",1234,0")
 	t.Setenv("TMUX_PANE", strings.TrimSpace(string(pane)))
 
@@ -124,6 +148,7 @@ func TestSelfNamesTheSessionOnTmux(t *testing.T) {
 // telling another program where to reply, and a confident wrong address sends
 // the reply to somebody else's terminal, silently.
 func TestSelfReportsNestingRatherThanGuessing(t *testing.T) {
+	clearAmbientSessionIdentity(t)
 	t.Setenv("ZMX_SESSION", "inner-or-outer")
 	t.Setenv("ZMX_DIR", "/tmp/zmx-private")
 	t.Setenv("TMUX", "/tmp/some.sock,1234,0")

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/herdr"
 	"github.com/husniadil/olympus/backend/meja"
 	"github.com/husniadil/olympus/backend/tmux"
 )
@@ -60,6 +61,15 @@ func Self(ctx context.Context) (Identity, error) {
 	if mejaSession != "" {
 		claimants = append(claimants, backend.Meja)
 	}
+	// herdr names the PANE, and a pane is what an Olympus session is there. It
+	// does not need a second variable to establish the socket the way tmux
+	// does: the server publishes its own override into the environment a pane
+	// inherits, and herdr's own resolution supplies the answer when it does
+	// not (AmbientSocketPath).
+	herdrPane := os.Getenv(herdr.PaneIDEnv)
+	if herdrPane != "" {
+		claimants = append(claimants, backend.Herdr)
+	}
 
 	// Sessions nest, and the environment cannot say which is inner: every set
 	// of variables is present and inheritance looks the same either way.
@@ -80,6 +90,25 @@ func Self(ctx context.Context) (Identity, error) {
 			Session: zmxSession,
 			Scope:   os.Getenv("ZMX_DIR"),
 		}, nil
+	case backend.Herdr:
+		// The pane id is published; the LABEL that is its Olympus session name
+		// is not, so it has to be asked for — of the server this process is
+		// actually inside rather than whichever one a handle happens to be
+		// configured with.
+		scope := herdr.AmbientSocketPath()
+		here := Identity{Inside: true, Backend: backend.Herdr, Scope: scope}
+		if scope == "" {
+			// Inside something, with no way to address it. Both facts are
+			// returned, which is more than an error alone would say.
+			return here, backend.Errorf(backend.CodeBackendUnavailable,
+				"this process is inside herdr pane %s but nothing in the environment says which server owns it", herdrPane)
+		}
+		name, err := herdr.New(herdr.WithSocketPath(scope)).SessionOf(ctx, herdrPane)
+		if err != nil {
+			return here, err
+		}
+		here.Session = name
+		return here, nil
 	case backend.Meja:
 		// meja identifies a pane's own session by ID (MEJA_SESSION_TARGET=@1),
 		// and Olympus addresses sessions by name, so the name has to be asked

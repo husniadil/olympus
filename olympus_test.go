@@ -44,6 +44,9 @@ func legs(t *testing.T) []leg {
 	if err := exec.Command("meja", "version").Run(); err == nil {
 		out = append(out, leg{"meja", openMeja})
 	}
+	if err := exec.Command("herdr", "--version").Run(); err == nil {
+		out = append(out, leg{"herdr", openHerdr})
+	}
 	if len(out) == 0 {
 		t.Skip("no backend is installed")
 	}
@@ -88,6 +91,45 @@ func openMeja(t *testing.T) *olympus.Olympus {
 	t.Cleanup(func() {
 		_ = ol.Close()
 		_ = exec.Command("meja", "-S", socket, "kill-server").Run()
+		_ = os.RemoveAll(dir)
+	})
+	return ol
+}
+
+// openHerdr opens a handle on a herdr server nobody else uses.
+//
+// A socket PATH is the only form herdr offers, and it moves more than the
+// socket: the backend derives its configuration and state directories from it,
+// because herdr keeps a session's persisted layout in its configuration
+// directory rather than beside its socket. Without that a test server would
+// overwrite the operator's own saved workspaces while touching none of their
+// live sessions (§2.9).
+//
+// The server is stopped in cleanup rather than left to time out: unlike the
+// others there is no per-session teardown that takes the server with it, and a
+// leaked one holds a login shell open for as long as the machine runs.
+func openHerdr(t *testing.T) *olympus.Olympus {
+	t.Helper()
+	// Short, because the socket path carries a hard byte budget that a
+	// descriptive test name would exhaust on its own.
+	dir, err := os.MkdirTemp(os.TempDir(), "olyo")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	socket := filepath.Join(dir, "h.sock")
+	ol, err := olympus.Open(olympus.WithBackend("herdr"), olympus.WithSocketPath(socket))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ol.Close()
+		if stopper, ok := ol.Raw().(interface{ Stop(context.Context) error }); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := stopper.Stop(ctx); err != nil {
+				t.Errorf("stopping the test server at %s: %v", socket, err)
+			}
+		}
 		_ = os.RemoveAll(dir)
 	})
 	return ol

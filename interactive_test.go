@@ -175,11 +175,8 @@ func TestAFullScreenApplicationIsVisible(t *testing.T) {
 
 			// Enters the alternate screen and repaints, the way an editor or a
 			// full-screen client does.
-			s, err := ol.Session(ctx, name, olympus.In(t.TempDir()), olympus.Command("sh", "-c",
-				`printf '\033[?1049h'; while :; do printf '\033[H\033[2JFRAME-MARKER ready\r\n> '; sleep 1; done`))
-			if err != nil {
-				t.Fatalf("Session: %v", err)
-			}
+			s := runProgram(t, ol, name,
+				`printf '\033[?1049h'; while :; do printf '\033[H\033[2JFRAME-MARKER ready\r\n> '; sleep 1; done`)
 			t.Cleanup(func() { _, _ = s.Stop(ctx, olympus.Force()) })
 
 			deadline := time.Now().Add(20 * time.Second)
@@ -474,4 +471,38 @@ func lookPathGNUNano() (string, error) {
 		return "", fmt.Errorf("%s is not GNU nano", path)
 	}
 	return path, nil
+}
+
+// runProgram starts a session whose process is a shell script, by whichever
+// mechanism the backend has.
+//
+// Where a backend can spawn a command it is spawned; where it cannot
+// (capabilities.spawn_command false, §2.3.1) the session's shell is handed over
+// to the script with `exec`, which reaches the same end state — the session's
+// process IS the program — at the cost of the command line being echoed first.
+// The cases here read the alternate screen, which the program clears, so the
+// echo is not observable in what they assert.
+func runProgram(t *testing.T, ol *olympus.Olympus, name, script string) *olympus.Session {
+	t.Helper()
+	ctx := context.Background()
+
+	if ol.Capabilities().SpawnCommand {
+		s, err := ol.Session(ctx, name, olympus.In(t.TempDir()), olympus.Command("sh", "-c", script))
+		if err != nil {
+			t.Fatalf("Session: %v", err)
+		}
+		t.Cleanup(func() { _, _ = s.Stop(context.Background(), olympus.Force()) })
+		return s
+	}
+
+	s, err := ol.Session(ctx, name, olympus.In(t.TempDir()))
+	if err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	t.Cleanup(func() { _, _ = s.Stop(context.Background(), olympus.Force()) })
+	warmUp(t, s)
+	if err := s.Send(ctx, "exec sh -c '"+strings.ReplaceAll(script, "'", `'\''`)+"'"); err != nil {
+		t.Fatalf("handing the session over to the program: %v", err)
+	}
+	return s
 }

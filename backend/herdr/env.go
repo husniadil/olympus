@@ -25,6 +25,10 @@ const (
 var strippedVars = []string{
 	"TMUX", "TMUX_PANE", "ZMX_SESSION", "ZMX_SESSION_PREFIX",
 	"HERDR_SESSION", "HERDR_CLIENT_SOCKET_PATH", "HERDR_SOCKET_PATH",
+	// The identity of whatever herdr pane Olympus itself is running in. A
+	// server started from inside one would otherwise inherit it, and this
+	// backend's own socket override is appended after the strip.
+	"HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID",
 }
 
 func lang() string {

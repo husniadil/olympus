@@ -183,8 +183,8 @@ cases, and the backends they belong to:
 | capture metadata | herdr | the alt-screen flag is never tracked; the scroll position is real (§5.3) |
 | session creation with a size | zmx, meja, herdr | the requested size is ignored: the session takes its size from the client that attaches it (§2.1, §2.10) |
 | capture | herdr | wrapped lines cannot be rejoined, so they come back split (§5.2) |
-| capture with history | herdr | a depth over 1,000 lines is clamped to 1,000 (§6.4) |
-| detached run poll | herdr | a window over 1,000 lines is clamped to 1,000 (§6.7) |
+| capture with history | herdr | a depth over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.4) |
+| detached run poll | herdr | a window over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.7) |
 | pane listing | herdr | `current_command` is reported for a targeted listing only (§3.4) |
 | pane listing | herdr | `attached` is always false: no per-terminal client count exists (§3.4) |
 | detached run poll | zmx | the requested window size is ignored (§6.7) |
@@ -197,6 +197,13 @@ refuse work it can genuinely do.
 
 Announce once per operation, never once per row — a warning per listed pane is
 noise that trains users to ignore it.
+
+**A ceiling is disclosed CONDITIONALLY, unlike everything else in this table.** A
+backend that ignores a request warns about it every time, because every answer
+is narrower than what was asked for. A backend that honours the request up to a
+limit warns only when the request exceeded the limit: below it nothing is
+narrower, and announcing anyway would be both noise and untrue. The two look
+alike in a capability matrix and are opposite at the call.
 
 ---
 
