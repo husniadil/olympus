@@ -10,9 +10,9 @@ the rules observable through the `Backend` interface; the rest are enforced by
 each backend's own tests and marked *(backend-local)*.
 
 Reference versions: **tmux 3.3+** (floor — `allow-passthrough` landed there;
-developed against 3.7b) and **zmx 0.6.0**. Platform: macOS and Linux only. The
-default backend is **zmx**; §0 covers resolution, fallback, and the case where
-neither backend is installed.
+developed against 3.7b), **zmx 0.6.0**, **meja 0.0.25** and **herdr 0.8.2**.
+Platform: macOS and Linux only. The default backend is **zmx**; §0 covers
+resolution, fallback, and the case where no backend is installed.
 
 **How to read it.** At 2200 lines this is not read front to back, and the
 sections are not all the same kind of thing:
@@ -47,11 +47,13 @@ Terminology:
 Nothing below matters until a backend has been chosen and proven to exist. Both
 halves are contract, because both are the first thing a new user hits.
 
-Three backends are supported: **zmx**, the default; **tmux**, the fallback; and
-**meja**, which answers only when it is the last one standing. That order is
-load-bearing rather than alphabetical — sessions are backend-scoped and never
-migrate, so a backend that displaced another would move a caller's sessions to
-one they never chose.
+Four backends are supported: **zmx**, the default; **tmux**, the fallback;
+**meja**; and **herdr**, each of the last two answering only when it is the last
+one standing. That order is load-bearing rather than alphabetical — sessions are
+backend-scoped and never migrate, so a backend that displaced another would move
+a caller's sessions to one they never chose. Each new arrival therefore goes on
+the END: every host that resolved to one backend before it shipped must keep
+resolving to the same one after.
 
 ### 0.1 Resolution order
 
@@ -116,6 +118,11 @@ so the disclosure says where the answer came from, not where the sessions went.
 - **tmux ≥ 3.3** (`allow-passthrough`).
 - **zmx 0.6.0** is the reference version; support is best-effort.
 - **meja 0.0.25** is the floor (§2.10 says why it is not raised to 0.0.26).
+- **herdr 0.8.2** is the version every measurement behind that backend was taken
+  against: the verbs it drives, the error codes it classifies, the raw-byte
+  injection its key vocabulary rests on, and the terminal-id timestamp its
+  `created_at` is derived from (§3.4). Support below it is best-effort because
+  nothing was checked there.
 
 A below-floor backend MUST be reported by name and version rather than allowed to
 fail later in a way that looks like an Olympus bug. A version probe costs a
@@ -173,7 +180,13 @@ cases, and the backends they belong to:
 | capture with history | zmx | the flag is accepted and changes nothing (§5.2) |
 | capture | zmx | wrapped lines cannot be rejoined (§5.2) |
 | capture metadata | zmx, meja | always zero, never tracked (§5.3) |
-| session creation with a size | zmx, meja | the requested size is ignored: the session takes its size from the client that attaches it (§2.1, §2.10) |
+| capture metadata | herdr | the alt-screen flag is never tracked; the scroll position is real (§5.3) |
+| session creation with a size | zmx, meja, herdr | the requested size is ignored: the session takes its size from the client that attaches it (§2.1, §2.10) |
+| capture | herdr | wrapped lines cannot be rejoined, so they come back split (§5.2) |
+| capture with history | herdr | a depth over 1,000 lines is clamped to 1,000 (§6.4) |
+| detached run poll | herdr | a window over 1,000 lines is clamped to 1,000 (§6.7) |
+| pane listing | herdr | `current_command` is reported for a targeted listing only (§3.4) |
+| pane listing | herdr | `attached` is always false: no per-terminal client count exists (§3.4) |
 | detached run poll | zmx | the requested window size is ignored (§6.7) |
 | graceful kill | zmx | exec-spawned sessions cannot be interrupted (§2.8.1) |
 
@@ -527,6 +540,27 @@ underlying server out from under each other.
   leave persisted test sessions in the operator's own store, to reappear on
   their next restore. A path takes the recovery store with it.
 
+- **herdr**: a private socket path is necessary and **not sufficient**, and this
+  is the sharpest version of the trap the two entries above describe. herdr
+  keeps the unnamed session's persisted layout — the workspaces and tabs a
+  restore brings back — in its CONFIGURATION directory rather than beside its
+  socket, and that directory is chosen from the environment
+  (`XDG_CONFIG_HOME`, else `$HOME/.config/herdr`) with no reference to which
+  socket is in use. A second server on a private socket therefore overwrites
+  `~/.config/herdr/session.json` while touching none of the operator's live
+  sessions, which is a way to destroy their saved work that no amount of care
+  about session names would catch.
+
+  The configuration and state directories MUST therefore move WITH the socket,
+  and the pairing MUST be derived rather than separately configurable: a caller
+  who moved one and not the other is back to the case above, and would have no
+  way of knowing.
+
+  Two further consequences of the same fact, both good. A server on a moved
+  configuration directory reads no `config.toml` of the operator's, so unlike
+  tmux (§17.5) a private socket here IS a private configuration. And there is no
+  socket-name form to get wrong, because herdr addresses a server by path only.
+
 ### 2.10 meja routes input through a client
 
 **How much of this applies depends on the meja version**, and both answers are
@@ -629,6 +663,7 @@ make a reap decision:
 | zmx | no `err` field | `present` |
 | zmx | `err=ConnectionRefused` | `gone` |
 | zmx | any other `err` (e.g. `Timeout`) | `unknown` |
+| herdr | any listed row | `present` |
 
 `err=ConnectionRefused` is the *only* definitive death signal: zmx itself already
 deleted the stale socket this pass.
@@ -654,10 +689,27 @@ kill returns; what is required is that the listing converges.
 
 ### 3.4 Pane metadata divergences
 
-These fields exist on both backends with genuinely different meanings, and MUST
+These fields exist on every backend with genuinely different meanings, and MUST
 be documented at every door rather than reported as equivalent.
 
-**`created_at` is session-granular on both backends**, for different reasons.
+**A herdr session is a NAMED PANE, and a pane without a name is not a session.**
+The server opens a workspace of its own the moment it starts, and a human can
+split more panes off at any time; reporting those would hand a caller rows it
+never created and make an empty listing impossible (§3.3). So the label is the
+identity, listing selects on it, and creation refuses a duplicate as a usage
+error — herdr itself will happily label two panes the same, and the uniqueness
+§2.1 requires has to come from somewhere.
+
+**`created_at` on herdr is derived from the pane's terminal id**, because herdr
+exposes no creation time anywhere in its API. The id is allocated as the
+microseconds since the epoch in hex followed by a counter, so the leading
+thirteen hex digits are the timestamp — a split that holds from 2001 until well
+past 2300. This is a deliberate trade against a `ps` call per listed pane for the
+shell's process start time: it costs nothing, and if the id's shape ever moves it
+yields an implausible epoch that fails §3.4's conformance case loudly rather than
+a plausible wrong one.
+
+**`created_at` is session-granular on tmux and zmx**, for different reasons.
 tmux has no per-pane birth time: `#{pane_start_time}` and `#{pane_created}` do
 not exist and expand to the empty string *with exit 0*, so trusting a wrong
 format variable yields a silently zeroed column rather than an error. The only
@@ -684,6 +736,18 @@ statically, exactly as `current_path` reports the spawn directory.
 Liveness-by-command heuristics ("has a real command taken over from the shell?")
 therefore work on tmux only. A consumer MUST NOT read a non-empty value on zmx as
 evidence that the command is still running.
+
+On herdr both fields are LIVE, and one of them is conditional. `current_path` is
+the foreground process's own directory and follows a `cd`. `current_command` is
+the live foreground process too, but it is a second request per row, and the
+whole-server pane listing is what target resolution reads before every
+pane-id-addressed operation (§10) — so it is populated for a TARGETED listing
+only, and a whole-server listing leaves it empty rather than putting a subprocess
+per pane on the cheapest read there is. Disclosed as a degraded operation (§0.8).
+
+**`attached` is always false on herdr.** Its socket API reports no per-terminal
+client count, so the field is a declaration rather than an observation, and a
+consumer MUST NOT read false as evidence that nobody is attached.
 
 ### 3.5 Presence probe is tri-state and fails closed
 
@@ -828,14 +892,24 @@ comes.
 Measured by sending each byte to `cat -v` in a live session and reading back what
 arrived:
 
-| | tmux | zmx |
-|---|---|---|
-| printable text | delivered | delivered |
-| tab, terminator | delivered | delivered |
-| control letters (`c-a`, `c-x`, …) | delivered | **dropped** |
-| lone escape | delivered | **dropped** |
-| arrows, home | delivered | **dropped** |
-| page-up, function keys | delivered | delivered |
+| | tmux | zmx | herdr |
+|---|---|---|---|
+| printable text | delivered | delivered | delivered |
+| tab, terminator | delivered | delivered | delivered |
+| control letters (`c-a`, `c-x`, …) | delivered | **dropped** | delivered |
+| lone escape | delivered | **dropped** | delivered |
+| arrows, home | delivered | **dropped** | delivered |
+| page-up, function keys | delivered | delivered | delivered |
+| backspace, end, page-down | delivered | — | delivered |
+
+herdr delivers all of it for a structural reason worth stating, because it also
+decides how the keys are SPELLED. Its text-injection request writes the bytes it
+is given straight into the pane's PTY with no interpretation, so Olympus spells
+every key itself rather than handing a name over. That is not merely tidier: the
+backend's own key vocabulary is narrower than Olympus's — it has no home, end,
+page-up or page-down at all, and spells the control range `ctrl+a` rather than
+`c-a` — so the naming path would have refused four of Olympus's named keys while
+the byte path delivers them.
 
 The zmx boundary is irregular and is deliberately NOT specified further: what a
 caller needs is that control keys cannot be relied on there, which the
@@ -931,6 +1005,14 @@ no subprocess run to check. This is **not** an unsupported-class error — the
 caller asked a question with an honest answer on zmx ("not tracked"), so the call
 succeeds with zeroes rather than failing.
 
+herdr never reports it either, and for a different reason worth distinguishing:
+its terminal DOES track the alternate screen internally, and nothing in its
+socket API exposes that. The answer a caller gets is the same — "not tracked" —
+because what the capability describes is what Olympus can observe, not what the
+multiplexer knows. A capture of an alt-screen pane there still returns the
+visible grid, and its scrollback request comes back with the grid alone, which
+is the honest answer since there is nothing behind it.
+
 ### 5.4 Waiting for a pattern is LINE-oriented
 
 Waiting matches a caller's regular expression against **each line** of the
@@ -959,8 +1041,12 @@ asking them to reimplement what just happened.
 ### 5.5 Capture metadata
 
 Per-target metadata carries the alt-screen flag and the copy-mode scroll position
-(lines scrolled up from the live bottom; 0 when not in copy mode). tmux-only; zmx
-is always the zero value per §5.3.
+(lines scrolled up from the live bottom; 0 when not in copy mode).
+
+The two halves are not tied together, and herdr is what shows that: it reports a
+real scroll offset on every pane row and no alt-screen flag at all, so it carries
+one of the two truthfully and declares the other untracked. tmux carries both;
+zmx and meja carry neither.
 
 ### 5.6 Following is a tap on the stream, not a capture in a loop
 
@@ -971,16 +1057,31 @@ NOW, so anything printed and scrolled past between two polls is simply gone —
 which is exactly the output someone following a long build cares about — and a
 program that repaints in place has no meaningful delta between polls at all.
 
-Both backends provide a primitive for this and the backend layer uses it rather
-than emulating one: tmux pipes the pane into a command, zmx tails the session.
+Every backend provides a primitive for this and the backend layer uses it rather
+than emulating one: tmux pipes the pane into a command, zmx tails the session,
+meja hands back a headless client's PTY, and herdr streams read-only frames.
 tmux's form pipes into a COMMAND rather than a descriptor Olympus holds, so the
 tap is pointed at a temporary file the reader follows; turning the tap off MUST
 happen before that file is removed, or tmux keeps writing to a path that no
 longer exists for as long as the pane lives.
 
+herdr's form is the one that needs decoding rather than merely reading: its
+read-only stream emits one JSON envelope per frame carrying base64 ANSI, and the
+backend turns those back into the byte stream this interface promises so no
+consumer has to know about the wrapping. Following there does NOT resize the
+pane, so the frames' geometry belongs to the follower alone — measured, a pane at
+70x22 stayed 70x22 while a follower read it at 100x30.
+
 What a follower receives is raw terminal output, escape sequences included. It
 is a stream, not a rendering: a caller that wants to match on content captures or
 waits instead, and one that wants a picture renders it themselves.
+
+**On herdr it is the server's rendering of the pane** rather than the exact bytes
+the program wrote, because that is what its stream carries: a repaint reaches a
+follower as the cursor addressing that redraws it. The property following exists
+for is unaffected — output produced and scrolled past between two captures is
+still delivered — but a consumer diffing a follow against a program's own stdout
+would find them different.
 
 ---
 
@@ -1058,6 +1159,11 @@ is still producing output above them.
   screen, but its depth is governed by zmx itself, is not requestable, and its
   ceiling is unknown. A command producing enough output to scroll its own
   sentinel past whatever depth zmx retains can still be missed. No workaround.
+- **herdr**: the depth IS requestable, and capped at 1,000 lines by the server
+  rather than by Olympus. A larger request is not refused — it is silently
+  clamped — so Olympus clamps it too, and discloses the clamp (§0.8), rather
+  than asking for a number it will not get. The growing window still works
+  below the cap; above it, the remedy tmux offers does not exist.
 
 ### 6.5 The target pane MUST be running a shell
 
@@ -1324,6 +1430,18 @@ A new attach takes over from prior clients on every backend, mirroring what
   it, so the new attach may reshape what everyone else sees. An attach that
   asked to supersede therefore succeeds and MUST carry a notice saying it did
   not — silence there reads as a supersession that happened.
+- **herdr**: the backend's own, and nothing else is needed. It allows one
+  attached client per terminal and refuses a second unless it asks to take over,
+  so the guard-and-sweep §8.5 builds for zmx has no work to do here. Measured: a
+  second attach without takeover is refused with `terminal <id> already has an
+  attached client; retry with --takeover`, and with it the prior client is
+  detached cleanly and told `terminal attach taken over`.
+
+  One consequence follows and MUST be documented rather than hidden. Because the
+  refusal is the server's, a non-superseding attach onto an occupied terminal
+  fails INSIDE the client, after the PTY is running, rather than as a conflict
+  Olympus raises before spawning one — and herdr reports no per-terminal client
+  count, so there is nothing to check beforehand.
 
 ### 8.5 zmx supersession needs both a guard and a sweep
 
@@ -1427,6 +1545,13 @@ viewer attach is refused as `UNSUPPORTED` (§12) rather than downgraded to a
 controller. Dropping input silently would be worse than saying so — a watcher
 who believes they cannot type, and can, will eventually type into somebody
 else's session.
+
+**herdr's read-only stream is not a terminal client**, which reaches the same
+refusal by a different road: it emits JSON frames for a program to decode rather
+than a rendering for a human to sit in, so there is nothing to hand a PTY. A
+viewer attach is `UNSUPPORTED` there too. The stream is not wasted — it is what
+§5.6's follow is built on — but following and attaching are different operations
+and only one of them is a place to sit.
 
 ### 8.8 A spontaneous attach exit must still reap its view session
 
@@ -1533,6 +1658,14 @@ Only the SPELLING differs, so only the spelling is per-backend:
 | tmux | `%0` | The prefix cannot begin a session name Olympus would use. |
 | meja | `1` | meja rejects a session name that is entirely numeric, so a bare integer can only be a pane. |
 | zmx | the session's own name | No pane concept; the row is synthesized 1:1 from the session, so resolution is the identity. |
+| herdr | `w1:p2` | Not structurally unambiguous — see below. |
+
+herdr is the exception that has to be handled rather than declared away: it will
+accept a pane label of any spelling, `w1:p2` included, so a session could be
+shadowed by the shape that addresses panes. The backend therefore REJECTS such a
+name at creation as a usage error, which is what turns "probably a pane" into
+"certainly a pane" — the same guarantee meja gets for free from its own naming
+rule, bought explicitly.
 
 The shape MUST be passed into resolution rather than branched on inside it. One
 rule with a per-backend spelling stays one rule; a copy per backend is where the
@@ -1893,6 +2026,9 @@ The store must outlive the process that wrote it — the reporter is inside the
 session and the reader is outside, and they never run at the same moment. On
 tmux this is a session-scoped user option, which tmux keeps and never acts on.
 zmx has no per-session metadata of any kind, so it declares the capability false.
+herdr keeps display-only pane metadata on the server and hands it back on the
+pane row, which is the same shape of store as tmux's user option: written by one
+process, read by another, outliving both.
 
 Capabilities MUST NOT include whether a session outlives its command. That is a
 property of the **caller's** own wrapper — does the shell it spawned keep running
@@ -2126,6 +2262,10 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | Name | Shape | Used for |
 |---|---|---|
 | tmux socket | `olympus` (default, overridable by name or path) | §17.2 |
+| herdr socket | `<temp>/olympus-herdr/herdr.sock` (overridable by path) | §17.2 |
+| herdr state directory | `<socket dir>/<socket stem>-state` | §2.9 |
+| herdr metadata source | `olympus` | §13.1 |
+| herdr metadata token | `status` | §13.1 |
 | tmux buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1) |
 | tmux key table | `olympus-passthrough` | view scroll bindings (§9.3) |
 | tmux server marker | `@olympus_managed` | records a server Olympus started (§17.5) |
@@ -2171,8 +2311,19 @@ A genuine asymmetry, sharper because the default backend is zmx (§0.1):
   per user, selected by environment (§2.9), so Olympus shares the operator's live
   daemon and its sessions appear in the operator's own `zmx list` alongside
   everything else.
+- **herdr**: Olympus defaults to its **own socket path**, never the operator's
+  server. A session Olympus created in somebody's live herdr would appear in
+  their workspace list and their sidebar, which is a change well outside the
+  target they named — so the posture matches tmux's, not zmx's, and pointing
+  `--socket-path` at the operator's socket is how a caller opts into the other.
 
-Neither posture is wrong, but they are opposite, and a user who learns one will be
+  A socket NAME is not offered, because herdr has none: it addresses a server by
+  path only. And the path decides more here than which server answers — the
+  configuration and state directories are derived from it (§2.9), so it also
+  decides which `config.toml` a server Olympus starts reads and where the saved
+  layout lands.
+
+No posture is wrong, but they are opposite, and a user who learns one will be
 surprised by the other. The diagnostic (§0.6) MUST report which is in effect and
 where.
 
@@ -2183,8 +2334,11 @@ contract.
 
 | Value | Default | Rule |
 |---|---|---|
-| backend | `zmx`, falling back to `tmux`, then `meja` | §0.1, §0.3 |
+| backend | `zmx`, falling back to `tmux`, then `meja`, then `herdr` | §0.1, §0.3 |
 | tmux socket | `olympus` | §17.2 |
+| herdr socket | `<temp>/olympus-herdr/herdr.sock` | §17.2 |
+| herdr server start deadline | 20s, env-overridable | §17.2 |
+| herdr capture/poll window cap | 1,000 lines | §6.4, §6.7 |
 | tmux `history-limit` | 50,000 lines | §17.5 |
 | spawn `TERM` | `xterm-256color` | §1.1 |
 | spawn `LANG` | `en_US.UTF-8` when unset | §1.1 |
@@ -2337,3 +2491,24 @@ prevent. `doctor` names every pinned option and its value, in both output modes.
 
 Backends with no configuration file pin nothing, and MUST report nothing rather
 than an empty claim.
+
+#### herdr inverts this section's premise, and still discloses
+
+herdr's configuration follows its configuration DIRECTORY, and §2.9 has already
+moved that directory alongside the socket — so a private socket here IS a private
+configuration, which is exactly what tmux cannot give. Nothing of the operator's
+is inherited and nothing of theirs is overwritten.
+
+Two options are still pinned on a server Olympus starts, and still disclosed.
+Both turn off a background NETWORK check the server would otherwise run at boot,
+for its own updates and for remote agent-detection manifests. Neither has
+anything to do with driving a terminal, and a tool that silently decides when a
+program may reach the network turns "why did this call home" into an
+unanswerable question — which is the failure this disclosure exists to prevent,
+regardless of whose file is being written.
+
+The ordering rule of §17.5 applies unchanged: configuration is read at boot, so
+the file MUST be written before the server that reads it starts. Writing it
+afterwards configures the NEXT server and leaves this one exactly as unpinned as
+before. An existing file in that directory is left alone — a caller who put one
+there chose it.

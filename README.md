@@ -7,11 +7,13 @@ kind that survive you closing your laptop — and exposes that through three equ
 doors: a **Go package**, a **CLI**, and a **stdio MCP server**.
 
 It does not embed a multiplexer. It drives one you already have: [`zmx`][zmx] by
-default, [`tmux`][tmux] as the alternative, and [`meja`][meja] last.
+default, [`tmux`][tmux] as the alternative, then [`meja`][meja] and
+[`herdr`][herdr].
 
 [zmx]: https://github.com/neurosnap/zmx
 [tmux]: https://github.com/tmux/tmux
 [meja]: https://github.com/garindra/meja
+[herdr]: https://herdr.dev
 
 ---
 
@@ -147,10 +149,13 @@ tool names onto it, so it serves both doors.
 tmux and vice versa. They never migrate and never merge. `olympus doctor` always
 tells you which backend answered, and so does every `--json` envelope.
 
-**The three backends are not equivalent.** zmx is the default and the least
+**The four backends are not equivalent.** zmx is the default and the least
 capable of them — no views, no corpse-on-exit, no server environment, and no
-reliable control keys. tmux is the most capable; meja sits between the two, with
-control keys but neither views nor a server environment. Operations that
+reliable control keys. tmux is the most capable. meja sits between the two, with
+control keys but neither views nor a server environment. herdr has control keys
+and a session status, and is the one backend that cannot start a session on a
+command of your choosing: its panes run the shell its own configuration names,
+so `--command` is refused there rather than typed into a shell. Operations that
 mean less on the resolved backend say so on stderr rather than failing, so a
 successful result is never quietly narrower than you think. The capability
 matrix in `olympus doctor` is the one place that lays this out.
@@ -172,7 +177,7 @@ it will time out. Drive a REPL or a full-screen program with `send`, `press` and
 should not require a trailing space: write `^>>>\s*$`, not `^>>> $`, because
 whether that space survives into a capture differs by backend.
 
-**Driving a full-screen program needs tmux or meja.** All three backends *show*
+**Driving a full-screen program needs tmux, meja or herdr.** All four backends *show*
 you one correctly — a repaint is captured as it currently looks. But zmx does not
 reliably deliver control keys, so an editor opened there can be typed into and
 read, and never saved or exited: Ctrl-O and Ctrl-X simply do not arrive.
@@ -185,11 +190,21 @@ sessions do not show up in a plain `tmux ls`. On zmx there is no socket
 equivalent — sessions are global to your daemon and appear in your own
 `zmx list`. `olympus doctor` states which is in effect.
 
-A third backend, [**meja**][meja], is supported and comes last in that order: it
-answers only when neither zmx nor tmux is installed, since sessions never
-migrate between backends. Address it with `--socket-path`, which is the only form
-offered there — meja keeps a server's saved sessions beside its socket, so a
-named profile would write into your own store.
+Two more backends are supported and come last in that order, each answering only
+when nothing before it is installed, since sessions never migrate between
+backends. Both take `--socket-path`, which is the only form offered on either.
+
+[**meja**][meja] keeps a server's saved sessions beside its socket, so a named
+profile would write into your own store.
+
+[**herdr**][herdr] needs the path for a sharper reason: it keeps a session's
+saved layout in its *configuration* directory rather than beside its socket, so
+Olympus moves that directory along with the socket. Without that, a second server
+would overwrite your own `~/.config/herdr/session.json` — your saved workspaces —
+while touching none of your live sessions. Olympus defaults to a socket of its
+own there, so its workspaces never appear in your herdr unless you point
+`--socket-path` at your server yourself. An Olympus session is one named herdr
+pane, and a herdr session name may not be spelled like a pane id (`w1:p2`).
 
 A private socket is not a private configuration: tmux fixes a server's settings
 at boot from your `tmux.conf`, so your file reaches Olympus's sessions whichever

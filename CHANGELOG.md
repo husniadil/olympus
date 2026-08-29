@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A fourth backend, **herdr**. It resolves last, after meja, so no host changes
+  which backend answers, and `--backend herdr` selects it explicitly. An Olympus
+  session is one named herdr pane; `--socket-path` addresses the server, and the
+  configuration and state directories move with it because herdr keeps a saved
+  layout in its configuration directory rather than beside its socket.
+- `spawn_command` in `capabilities`: whether a session can be started ON a
+  command. It is true on tmux, zmx and meja and false on herdr, whose panes run
+  the shell its own configuration names — a command there is refused rather than
+  typed into a shell (behavior §2.3.1).
+
 ## [0.1.2]
 
 ### Changed

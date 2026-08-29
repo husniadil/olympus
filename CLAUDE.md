@@ -2,8 +2,8 @@
 
 A terminal you can drive from code. Olympus creates, drives, observes and tears
 down real terminal sessions on top of a multiplexer it does not embed — zmx by
-default, tmux as the alternative, and meja last — and exposes that through three
-equal doors: a Go package, a CLI, and a stdio MCP server.
+default, tmux as the alternative, then meja and herdr — and exposes that through
+three equal doors: a Go package, a CLI, and a stdio MCP server.
 
 ## Commands
 
@@ -27,15 +27,15 @@ green `make test` is not a green gate. Nothing is committed on it alone.
 
 Tests skip rather than fail when a backend is absent, and the whole suite passes
 with none installed at all. Each leg skips loudly when its binary is missing or
-not runnable. All three carry a version floor, reported by `doctor` rather than
+not runnable. All four carry a version floor, reported by `doctor` rather than
 enforced on the hot path (behavior §0.5, `floors` in `doctor.go`): tmux 3.3, zmx
-0.6.0, meja 0.0.25. CI pins the backend versions and runs a floor leg — `@latest`
+0.6.0, meja 0.0.25, herdr 0.8.2. CI pins the backend versions and runs a floor leg — `@latest`
 once moved meja from 0.0.25 to 0.0.26 and took a structural change with it, so
 the gate changed subject without a commit. "On PATH" and "runnable" are checked
 separately: a version-manager shim satisfies a lookup and fails every call.
 
-macOS and Linux only. tmux, zmx and meja are Unix programs, and the attach path
-is termios and flock all the way down.
+macOS and Linux only. tmux, zmx, meja and herdr are Unix programs — herdr has a
+Windows build, but Olympus's attach path is termios and flock all the way down.
 
 ## The specification comes first
 
@@ -90,7 +90,11 @@ is worse than no spec, because it is still believed.
    private temp dir. meja tests must use a socket PATH (`-S`), never a profile
    name (`-L`): meja stores a server's session recovery files beside its socket,
    so a named profile leaves persisted test sessions in the operator's own store
-   to reappear on their next restore. Session-name namespacing alone is not
+   to reappear on their next restore. herdr needs a private socket path AND the
+   configuration and state directories moved with it, because it keeps a
+   session's saved layout in its configuration directory rather than beside its
+   socket — a private socket alone still overwrites the operator's
+   `~/.config/herdr/session.json`. Session-name namespacing alone is not
    sufficient for any of them. See spec §2.9.
 
 6. **Both audiences are first-class.** A human typing a verb and reading prose,
@@ -130,6 +134,7 @@ mechanical: package backend — the interface backends implement
                     ├── backend/tmux
                     ├── backend/zmx
                     ├── backend/meja
+                    ├── backend/herdr
                     └── backend/backendtest — the conformance suite
 ```
 

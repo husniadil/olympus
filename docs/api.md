@@ -245,9 +245,9 @@ Both are documented in the affected operation's `--help`, not only here.
 
 | CLI | Environment | Applies to |
 |---|---|---|
-| `--backend <name>` | `OLYMPUS_BACKEND` | all (`zmx`, `tmux`, `meja`) |
+| `--backend <name>` | `OLYMPUS_BACKEND` | all (`zmx`, `tmux`, `meja`, `herdr`) |
 | `--socket <name>` | `OLYMPUS_SOCKET` (MCP door only) | tmux backend only |
-| `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` (MCP door only) | tmux and meja backends |
+| `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` (MCP door only) | tmux, meja and herdr backends |
 | `--zmx-dir <dir>` | `ZMX_DIR` | zmx backend only |
 | `--json` | — | all |
 | `--no-lock` | — | operations that take the write lock |
@@ -368,15 +368,25 @@ only on `start`, and is `created` | `reused` | `reaped`.
 ```
 
 `current_path` and `current_command` carry different meanings per backend
-(behavior spec §3.4) and trigger warnings on zmx per §0.8.
+(behavior spec §3.4) and trigger warnings on zmx and herdr per §0.8. Two are
+worth knowing before you branch on them: on herdr `current_command` is populated
+for a listing that named a target and left empty for a whole-server listing, and
+`attached` is always false there because no per-terminal client count exists.
+`created_at` on herdr is derived from the pane's terminal id, which is the only
+creation time it publishes.
 
 Panes and windows are **reported, never created**. No verb, tool or method makes
-either: every session Olympus creates is single-window and single-pane. tmux and
-meja have both concepts; zmx has neither, and its row is synthesized from the
-session, so `pane_id` is the session's name and `window_index` is always 0.
+either: every session Olympus creates is single-window and single-pane. tmux,
+meja and herdr have both concepts — on herdr a window is a tab, and
+`window_index` is the tab's number; zmx has neither, and its row is synthesized
+from the session, so `pane_id` is the session's name and `window_index` is
+always 0.
 
 `pane_id` works as a target anywhere a session name does, in each backend's own
-spelling — `%7` on tmux, `7` on meja, the session's name on zmx. It addresses the
+spelling — `%7` on tmux, `7` on meja, `w1:p2` on herdr, the session's name on
+zmx. A herdr session may not be NAMED like a pane id, and creation rejects one
+that is: the two shapes overlap there, and resolution has to be able to tell them
+apart. It addresses the
 **session that owns the pane**, not the pane: after a second window exists, an
 operation still runs against the session's active window. Behavior spec §10.1
 explains why precision here would cost the write lock.
@@ -475,6 +485,14 @@ for those.
                         "server_env": false, "control_keys": false,
                         "spawn_sizing": false, "spawn_command": true,
                         "session_status": false, "tracks_alt_screen": false } },
+    { "name": "herdr", "installed": true, "version": "0.8.2", "floor": "0.8.2",
+      "below_floor": false,
+      "isolation": "socket at /tmp/olympus-herdr/herdr.sock; its configuration and saved layout live beside it, invisible to your own herdr",
+      "capabilities": { "native_scrollback": false, "views": false, "remain_on_exit": false,
+                        "server_env": false, "control_keys": true,
+                        "spawn_sizing": false, "spawn_command": false,
+                        "session_status": true, "tracks_alt_screen": false },
+      "managed_options": { "update.manifest_check": "false", "update.version_check": "false" } },
     { "name": "tmux", "installed": true, "version": "3.7b", "floor": "3.3",
       "below_floor": false,
       "isolation": "private socket \"olympus\"; these sessions do not appear in a plain `tmux ls`",
@@ -494,8 +512,10 @@ for those.
 else can see them — which socket or directory answers, and whether the sessions
 show up in the user's own plain listing.
 
-`managed_options` is every option Olympus pins on servers **it starts**,
-overriding the operator's own configuration. `resolved.pinned` says whether the
+`managed_options` is every option Olympus pins on servers **it starts**. On tmux
+that overrides the operator's own configuration; on herdr it does not, because
+that backend's configuration directory moves with its socket, so the file being
+written is one Olympus owns. It is disclosed either way. `resolved.pinned` says whether the
 server answering right now is one of them, and `resolved.effective_options`
 reports what those options are actually set to there — which on a server Olympus
 merely found is whatever that server was given, and is the only thing that
@@ -508,6 +528,11 @@ left alone, and nothing at all is pinned on a server that was already running:
 `set-option -g` reaches every session on a server, so a caller who named one
 session would otherwise have all the operator's others changed with it. Behavior
 spec §17.5 has the measurements and the rule.
+
+On herdr the two pinned entries are `update.version_check` and
+`update.manifest_check`, both false: they turn off a background network check a
+freshly started server would otherwise make, which has nothing to do with
+driving a terminal and which nobody asked for.
 
 `reason` names the resolution rule that applied (`flag`, `env`, `default`,
 `fallback`), satisfying the disclosure requirement of behavior spec §0.4.

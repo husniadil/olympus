@@ -1,11 +1,11 @@
 # Adding a backend
 
-Olympus drives a multiplexer it does not embed. Three ship — zmx, tmux, meja —
-and the interface they implement is public, along with the conformance suite
-that judges them. A fourth is a normal contribution, not a fork.
+Olympus drives a multiplexer it does not embed. Four ship — zmx, tmux, meja,
+herdr — and the interface they implement is public, along with the conformance
+suite that judges them. A fifth is a normal contribution, not a fork.
 
-This is the route, written from what the third one actually cost rather than
-from what the interface looks like.
+This is the route, written from what the third and fourth ones actually cost
+rather than from what the interface looks like.
 
 ---
 
@@ -41,6 +41,17 @@ So before implementing:
   meja does too. Learn the offset now, not from a failing test later.
 - **Kill the server and list sessions.** No server running must be an empty list,
   never an error (§3.3).
+- **List sessions on a server nobody has used yet.** It may not be empty. herdr's
+  server opens a workspace of its own the moment it starts, so "everything the
+  multiplexer knows about" and "everything Olympus created" are different sets,
+  and the second one needs a marker — a name, a label — to select on. Deciding
+  that late means changing what a session IS.
+- **Try to spawn a command.** Not every multiplexer lets you choose a pane's
+  process; herdr does not, and no amount of reading its help says so as plainly
+  as the absence of an argv in its creation request. If yours cannot, say so
+  through a capability and REFUSE the field (§2.3.1) — typing the argv into a
+  shell instead passes most of the suite while echoing the command line into the
+  session and reinterpreting every metacharacter.
 - **Run something that repaints in place** — an editor, not a `printf` of escape
   sequences. A synthetic alt-screen test proves nothing about editors: it never
   presses a control key and never repaints, which are exactly the paths that
@@ -63,6 +74,7 @@ else addresses, and how you get one is backend-specific:
 | tmux | a socket at a private **path** inside a directory the test owns |
 | zmx | `ZMX_DIR` pointed at a private temp dir — it has no socket flag at all |
 | meja | `-S <path>`, never `-L <profile>` |
+| herdr | a private socket path **and** the configuration and state directories moved with it |
 
 Two traps that have already been paid for:
 
@@ -75,6 +87,23 @@ Two traps that have already been paid for:
   profile would leave persisted sessions in the operator's own store, to come
   back on their next restore. Check this explicitly; do not assume one flag moves
   everything.
+
+- **A private socket can still write the operator's files, and this is the worst
+  version of the trap above.** herdr keeps the unnamed session's persisted layout
+  in its CONFIGURATION directory, chosen from the environment with no reference
+  to the socket. A test server on a private socket therefore overwrites
+  `~/.config/herdr/session.json` — destroying the operator's saved workspaces —
+  while touching none of their live sessions, so every check about session names
+  and sockets passes and the damage happens anyway.
+
+  The way to find this is not to reason about it: start a server pointed at a
+  private everything, run one session, and then `find` the directories it was
+  supposed to be isolated FROM. Whatever appears there is what your isolation
+  does not cover.
+
+  The fix has a shape worth copying: derive the state location from the socket
+  rather than exposing a second option for it. A pairing that can be half-applied
+  will be, and the caller who half-applies it has no way of knowing.
 
 If your backend offers no way to isolate a server, say so in the pull request
 rather than working around it. A backend that cannot be tested without touching
@@ -250,3 +279,16 @@ Each of these was found by a failure here, not by reading.
 - **"I cannot test that" deserves one check first.** `command -v` before
   declaring a limit. Driving a real editor end to end found two defects that a
   synthetic test could not have.
+
+- **A unit test that reaches the create path may start a real server.** One here
+  asserted that ordinary session names are ACCEPTED, by calling Create and
+  checking the error — and every accepted name booted a server that nothing ever
+  stopped. It left no failure behind, only processes. Assert against the
+  validator, not through the operation, and check `ps` after a test run rather
+  than trusting that cleanup ran.
+
+- **Ask the backend a real question to decide whether it is up.** A socket file
+  that exists proves nothing: it survives its server, and a server mid-boot
+  accepts a connection before it can serve. The cheapest request the backend
+  already parses is the honest probe, and it is what makes an idempotent
+  "ensure a server" safe to call on every create.

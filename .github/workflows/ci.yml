@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }} · zmx ${{ matrix.zmx }} · meja ${{ matrix.meja }}
+    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }} · zmx ${{ matrix.zmx }} · meja ${{ matrix.meja }} · herdr ${{ matrix.herdr }}
     runs-on: ${{ matrix.os }}
     # A hung test would otherwise burn the default six hours. This is not
     # hypothetical: `doctor` could hang forever on a backend binary that never
@@ -32,6 +32,7 @@ jobs:
         tmux: [system]
         zmx: ["0.7.0"]
         meja: ["0.0.26"]
+        herdr: ["0.8.2"]
         include:
           # The floor is tmux 3.3, for allow-passthrough. Building it is only
           # worth the CI minutes on one platform.
@@ -44,6 +45,10 @@ jobs:
             tmux: "3.3"
             zmx: "0.6.0"
             meja: "0.0.25"
+            # herdr's floor and its newest release are the same version today,
+            # so both legs run 0.8.2. When they diverge this row is where the
+            # floor goes, exactly as it does for tmux and zmx.
+            herdr: "0.8.2"
 
     steps:
       - uses: actions/checkout@v7
@@ -98,6 +103,47 @@ jobs:
             echo "meja present: $(meja version | head -1)"
           else
             echo "::warning::meja could not be installed on this runner; its conformance leg is SKIPPED, not passing"
+          fi
+
+      # herdr publishes a bare prebuilt executable per platform, and the two it
+      # builds for Unix are exactly the two this matrix runs on. Pinned to a
+      # release TAG rather than to `latest`, for the reason recorded in
+      # CLAUDE.md: `@latest` once moved meja across a structural change and the
+      # gate changed subject without a commit.
+      #
+      # Unlike zmx it publishes no checksum file, so there is nothing to verify
+      # the download against beyond the version the binary reports. Said rather
+      # than quietly skipped: the leg below is the whole integrity check.
+      #
+      # Allowed to fail, like the other two: a third-party download that breaks
+      # must not take the gate with it.
+      - name: Install herdr ${{ matrix.herdr }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            macOS) platform=macos ;;
+            Linux) platform=linux ;;
+          esac
+          case "$(uname -m)" in
+            arm64 | aarch64) arch=aarch64 ;;
+            x86_64) arch=x86_64 ;;
+          esac
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/herdr" \
+            "https://github.com/herdrdev/herdr/releases/download/v${{ matrix.herdr }}/herdr-${platform}-${arch}"
+          chmod +x "$HOME/.local/bin/herdr"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # On PATH and runnable are separate questions, and the version call
+      # answers the second — which here is also the only evidence that the
+      # pinned download is the binary it claims to be.
+      - name: Note the herdr leg
+        run: |
+          if herdr --version >/dev/null 2>&1; then
+            echo "herdr present: $(herdr --version | head -1)"
+          else
+            echo "::warning::herdr is not installed or not runnable on this runner; its conformance leg is SKIPPED, not passing"
           fi
 
       # zmx is not in any runner's package manager, but it publishes a prebuilt

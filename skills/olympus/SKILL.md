@@ -5,7 +5,7 @@ description: Drive real, persistent terminal sessions with the `olympus` CLI (or
 
 # Olympus
 
-`olympus` creates, drives, reads, and tears down terminal sessions on a multiplexer you already have (zmx by default, tmux, then meja). A session outlives the call that made it: start one now, come back to it from another call, another process, or tomorrow.
+`olympus` creates, drives, reads, and tears down terminal sessions on a multiplexer you already have (zmx by default, tmux, then meja, then herdr). A session outlives the call that made it: start one now, come back to it from another call, another process, or tomorrow.
 
 Use it when the normal shell tool is the wrong shape:
 
@@ -26,6 +26,7 @@ Otherwise run the command directly.
 - `wait` matches per line against the screen. Match something the program itself prints, never your prompt: `'\$\s*$'` is your prompt and fails under zsh, fish, and themed prompts. Do not require a trailing space: `^>>>\s*$`, not `^>>> $`.
 - Degraded operations warn, they do not fail. Read stderr (or `warnings` in the envelope) so a narrower result is not mistaken for a full one.
 - Control keys (`c-c`, `c-o`, `c-x`) are not deliverable on zmx. Check `olympus capabilities` for `control_keys` before driving an editor or anything that needs them; use `--backend tmux` if it does.
+- Starting a session ON a command (`--command`) is refused on herdr: its panes run the shell its own configuration names. Check `olympus capabilities` for `spawn_command`; without it, start a plain session and run the program inside it.
 - Stop what you started. `olympus stop <name>` is graceful first, `--force` skips that. Leave a session only when the user wants it to persist.
 
 Exit codes worth recognizing: 3 session does not exist, 4 backend unreachable, 5 timed out, 6 someone else holds the session, 7 backend has no such concept. `run` without `--json` exits with the command's own status so it composes in a pipeline.
