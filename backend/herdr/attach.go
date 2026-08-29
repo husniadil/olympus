@@ -56,6 +56,17 @@ func (h *Herdr) Attach(ctx context.Context, target string, spec backend.AttachSp
 		args = append(args, "--takeover")
 	}
 	cmd := exec.CommandContext(ctx, "herdr", args...)
-	cmd.Env = h.env(attachEnv())
+	if h.startedTheServer() {
+		// Our server, our configuration directory: it is the one that server
+		// was booted against, and there is nothing of anybody else's in it.
+		cmd.Env = h.env(attachEnv())
+	} else {
+		// A server this handle did not start belongs to whoever runs it, and
+		// the attach client is the one invocation whose behaviour its
+		// configuration decides. Imposing a directory of Olympus's own would
+		// hand a human their own terminal configured like a fresh install
+		// (src/client/mod.rs:1225-1234).
+		cmd.Env = h.socketEnv(attachEnv())
+	}
 	return backend.Attachment{Cmd: cmd}, nil
 }

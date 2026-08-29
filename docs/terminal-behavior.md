@@ -583,6 +583,37 @@ underlying server out from under each other.
   tmux (§17.5) a private socket here IS a private configuration. And there is no
   socket-name form to get wrong, because herdr addresses a server by path only.
 
+#### 2.9.1 Driving a server Olympus did not start
+
+Pointing a socket path at a server that is ALREADY running is a first-class
+mode, not a degraded one: a box's own headless herdr, or an operator's, holding
+panes that other tools created. It is the case the backend exists for, and the
+rules are all about restraint.
+
+- **A server that answers is never started, restarted or reconfigured.** The
+  create path probes first and, finding one, uses it. Managed configuration
+  (§17.5) MUST NOT be written for it: that server was booted against a
+  directory of somebody else's and would never read the file, so writing one
+  would be a claim rather than a change.
+- **Only the handle that started a server may stop it.** Stopping takes every
+  pane on the server down, including every one the caller never mentioned, so a
+  request to stop a server this handle did not start MUST be refused as
+  `CONFLICT` rather than obeyed.
+- **Ownership is RECORDED, never inferred**, for the reason §17.5 already gives
+  about tmux: nothing observable distinguishes a server Olympus booted from one
+  it found, and a server started by an earlier Olympus process is not this
+  handle's either. The fact is written down when the server is started and read
+  back from there.
+- **The configuration directory follows ownership for the ATTACH client, and
+  only for it.** Every other verb this backend runs is a JSON request over the
+  socket and reads no configuration; the attach client loads it and takes its
+  mouse capture, scroll lines, focus-redraw, host-cursor, sound and paste-key
+  settings from there (`src/client/mod.rs:1225-1234`, reached from
+  `run_terminal_attach` at `src/client/mod.rs:940-947`). So an attach onto a
+  server this handle started uses this backend's own directory, and an attach
+  onto anybody else's uses the ambient one — otherwise a human attaching to
+  their own terminal would find it configured like a fresh install.
+
 ### 2.10 meja routes input through a client
 
 **How much of this applies depends on the meja version**, and both answers are
@@ -714,13 +745,39 @@ kill returns; what is required is that the listing converges.
 These fields exist on every backend with genuinely different meanings, and MUST
 be documented at every door rather than reported as equivalent.
 
-**A herdr session is a NAMED PANE, and a pane without a name is not a session.**
-The server opens a workspace of its own the moment it starts, and a human can
-split more panes off at any time; reporting those would hand a caller rows it
-never created and make an empty listing impossible (§3.3). So the label is the
-identity, listing selects on it, and creation refuses a duplicate as a usage
-error — herdr itself will happily label two panes the same, and the uniqueness
-§2.1 requires has to come from somewhere.
+**On herdr EVERY pane is a session, and its name is its label where it has one
+and its pane id where it has not.**
+
+An earlier revision listed only the panes carrying a label, reasoning that a
+session is something Olympus named. That removed the reason the backend exists.
+The panes worth driving are usually the ones something else created — a box's
+own headless herdr opens a workspace the moment it starts, a human splits more,
+another tool creates a tab per worker — and **none of them carry a pane label**.
+Measured on a live server: three panes, none labelled, so the listing answered
+nothing and even a pane id resolved to not-found.
+
+A label is not the only thing that looks like a name, and the near-miss is worth
+naming because it is the one a consumer will hit. A pane row's `label` is the
+TERMINAL's own manual label, set by `herdr pane rename`
+(`src/app/creation.rs:457`, from `terminal.manual_label`). A TAB's label —
+`herdr tab create --label <name>`, which is how at least one consumer names its
+workers — is a property of the tab (`src/app/api/tabs.rs:112`, `:158`, via
+`tab.set_custom_name`) and never appears on a pane row at all. Measured:
+`tab create --label worker-1` produced a tab row carrying that label and a pane
+row carrying none.
+
+Olympus MUST NOT substitute the tab's label for the pane's. A tab can hold
+several panes, so the name would not identify one, and it would be a name taken
+from a different object than the one being addressed. The pane id is the honest
+answer.
+
+Both spellings address the same pane: a labelled one answers to its label AND to
+its pane id, an unlabelled one to its pane id alone. The two namespaces cannot
+collide because creation refuses a name shaped like a pane id (§10). A label is
+not unique — herdr will let two panes carry the same one, and panes Olympus did
+not create are not held to the uniqueness §2.1 asks of creation — so resolution
+prefers an exact pane id and otherwise takes the oldest match, which at least
+makes the answer stable across calls.
 
 **`created_at` on herdr is derived from the pane's terminal id**, because herdr
 exposes no creation time anywhere in its API. The id is allocated as the
@@ -1680,7 +1737,7 @@ Only the SPELLING differs, so only the spelling is per-backend:
 | tmux | `%0` | The prefix cannot begin a session name Olympus would use. |
 | meja | `1` | meja rejects a session name that is entirely numeric, so a bare integer can only be a pane. |
 | zmx | the session's own name | No pane concept; the row is synthesized 1:1 from the session, so resolution is the identity. |
-| herdr | `w1:p2` | Not structurally unambiguous — see below. |
+| herdr | `w1:p2` | Not structurally unambiguous — see below. It is also the NAME of any pane nothing has labelled (§3.4). |
 
 herdr is the exception that has to be handled rather than declared away: it will
 accept a pane label of any spelling, `w1:p2` included, so a session could be
@@ -2338,6 +2395,10 @@ A genuine asymmetry, sharper because the default backend is zmx (§0.1):
   their workspace list and their sidebar, which is a change well outside the
   target they named — so the posture matches tmux's, not zmx's, and pointing
   `--socket-path` at the operator's socket is how a caller opts into the other.
+
+  That opt-in is a supported mode rather than an escape hatch, and §2.9.1 says
+  what changes when it is taken: the server is driven and never started,
+  reconfigured or stopped.
 
   A socket NAME is not offered, because herdr has none: it addresses a server by
   path only. And the path decides more here than which server answers — the

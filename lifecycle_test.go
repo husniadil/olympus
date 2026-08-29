@@ -51,11 +51,6 @@ func TestRunOnceUsesAThrowawaySessionAndCleansUp(t *testing.T) {
 			ol := l.open(t)
 			ctx := context.Background()
 
-			before, err := ol.Sessions(ctx)
-			if err != nil {
-				t.Fatalf("Sessions: %v", err)
-			}
-
 			result, warnings, err := ol.RunOnce(ctx, `printf 'throwaway-%d\n' 3`, nil)
 			if err != nil {
 				t.Fatalf("RunOnce: %v", err)
@@ -67,26 +62,7 @@ func TestRunOnceUsesAThrowawaySessionAndCleansUp(t *testing.T) {
 				t.Errorf("cleanup reported a problem: %s", w.Message)
 			}
 
-			// Killed afterwards: the session count must come back to where it
-			// started, or every run leaks one.
-			deadline := time.Now().Add(10 * time.Second)
-			for {
-				after, err := ol.Sessions(ctx)
-				if err != nil {
-					t.Fatalf("Sessions: %v", err)
-				}
-				if len(after) == len(before) {
-					return
-				}
-				if time.Now().After(deadline) {
-					var names []string
-					for _, s := range after {
-						names = append(names, s.Name)
-					}
-					t.Fatalf("the throwaway session was not cleaned up; sessions are now %v", names)
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
+			waitForNoThrowaway(t, ol, "the throwaway session was not cleaned up")
 		})
 	}
 }
@@ -100,10 +76,6 @@ func TestAFailingRunOnceStillCleansUp(t *testing.T) {
 			ol := l.open(t)
 			ctx := context.Background()
 
-			before, err := ol.Sessions(ctx)
-			if err != nil {
-				t.Fatalf("Sessions: %v", err)
-			}
 			result, _, err := ol.RunOnce(ctx, "sh -c 'exit 9'", nil)
 			if err != nil {
 				t.Fatalf("RunOnce: %v", err)
@@ -112,20 +84,7 @@ func TestAFailingRunOnceStillCleansUp(t *testing.T) {
 				t.Errorf("exit code %d, want 9", result.ExitCode)
 			}
 
-			deadline := time.Now().Add(10 * time.Second)
-			for {
-				after, err := ol.Sessions(ctx)
-				if err != nil {
-					t.Fatalf("Sessions: %v", err)
-				}
-				if len(after) == len(before) {
-					return
-				}
-				if time.Now().After(deadline) {
-					t.Fatal("a failing throwaway run leaked its session")
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
+			waitForNoThrowaway(t, ol, "a failing throwaway run leaked its session")
 		})
 	}
 }
@@ -157,5 +116,41 @@ func TestRunOnceHonorsItsRunTimeout(t *testing.T) {
 				t.Errorf("the run took %s, so it waited on something other than its 2s budget", elapsed)
 			}
 		})
+	}
+}
+
+// waitForNoThrowaway blocks until no session carries the reserved throwaway
+// prefix of §17.1.
+//
+// The reserved NAME rather than a session count. A count assumes the listing
+// holds nothing Olympus did not create, and on a backend whose server opens a
+// pane of its own — or whose socket a caller deliberately pointed at somebody
+// else's server (§2.9.1) — that is simply untrue, so the count never returns to
+// where it started and the case fails for a session it was never about. The
+// prefix is also the stronger assertion: it names exactly what must not be left
+// behind, where a count that happened to match could hide one leak beside one
+// disappearance.
+func waitForNoThrowaway(t *testing.T, ol *olympus.Olympus, complaint string) {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		sessions, err := ol.Sessions(ctx)
+		if err != nil {
+			t.Fatalf("Sessions: %v", err)
+		}
+		var leaked []string
+		for _, s := range sessions {
+			if strings.HasPrefix(s.Name, "olympus-run-") {
+				leaked = append(leaked, s.Name)
+			}
+		}
+		if len(leaked) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s; these remain: %v", complaint, leaked)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

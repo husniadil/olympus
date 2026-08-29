@@ -19,11 +19,20 @@ import (
 // against an empty socket is simply empty (§3.3). A listing or a probe must
 // never boot a server: a caller asking what exists would then create the thing
 // it was asking about.
+//
+// A server that is ALREADY answering is left entirely alone: not restarted, not
+// reconfigured, and not marked as ours. That is the existing-server mode this
+// backend exists for — a box's own headless herdr, or an operator's, driven by
+// a caller who pointed a socket path at it (§2.9).
 func (h *Herdr) ensureServer(ctx context.Context) error {
 	if err := h.validateSocketPath(); err != nil {
 		return err
 	}
 	if h.serverAnswers(ctx) {
+		// Deliberately NOT recorded as ours. Whoever started it keeps the
+		// right to stop it, and its configuration is whatever it was booted
+		// with — writing pins into a directory it never read would be a claim
+		// rather than a change (§17.5).
 		return nil
 	}
 	if err := h.writeManagedConfig(); err != nil {
@@ -44,6 +53,7 @@ func (h *Herdr) ensureServer(ctx context.Context) error {
 	// process, and leaving it unwaited would leave a zombie behind for as long
 	// as the caller runs.
 	go func() { _ = cmd.Wait() }()
+	h.noteStarted()
 
 	deadline := time.Now().Add(serverStartBudget())
 	for {
@@ -114,6 +124,33 @@ func ManagedConfig() map[string]string {
 	}
 }
 
+// EffectiveOptions reports what the pins are actually set to on the server
+// answering right now, and whether Olympus put them there (§17.5).
+//
+// It answers from the FILE this backend writes rather than from the values a
+// server reports, because herdr publishes no configuration through its API and
+// because §17.5 requires ownership to be recorded rather than inferred: a
+// server started somewhere else never had this file written for it, so its
+// absence is evidence and its presence is a record.
+//
+// The one case it reads wrong is a socket where an Olympus server was replaced
+// by somebody else's. Recorded rather than fixed: there is no server-side mark
+// to carry the fact, and the alternative — comparing values — fails on the
+// likelier case of an operator who set the same options themselves.
+func (h *Herdr) EffectiveOptions(ctx context.Context) (map[string]string, bool, error) {
+	if !h.serverAnswers(ctx) {
+		return nil, false, nil
+	}
+	if _, err := os.Stat(h.managedConfigPath()); err != nil {
+		return nil, false, nil
+	}
+	return ManagedConfig(), true, nil
+}
+
+func (h *Herdr) managedConfigPath() string {
+	return filepath.Join(h.StateHome(), "config", "herdr", "config.toml")
+}
+
 // writeManagedConfig lays the pins down before the server that reads them boots.
 //
 // Configuration is read at boot, so writing it afterwards would configure the
@@ -133,7 +170,7 @@ func (h *Herdr) writeManagedConfig() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return backend.Wrapf(backend.CodeUnexpected, err, "preparing the herdr configuration directory")
 	}
-	path := filepath.Join(dir, "config.toml")
+	path := h.managedConfigPath()
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -151,6 +188,15 @@ func (h *Herdr) writeManagedConfig() error {
 // tearing an isolated server down deliberately. It is NOT part of the Backend
 // interface: killing a whole server is a different operation from killing a
 // session, and every other backend leaves it to the multiplexer's own command.
+//
+// It refuses a server this handle did not start, and the refusal is the point:
+// the whole reason this backend can be pointed at an existing server is that
+// something else owns it — a box's headless herdr with a fleet of agents in it,
+// or the operator's own. Stopping that would take every pane on it down,
+// including every one this caller never mentioned. The fact is recorded when
+// the server is started rather than inferred afterwards, because there is
+// nothing observable that distinguishes a server Olympus booted from one it
+// found (§2.9, and §17.5 on recording ownership rather than guessing it).
 func (h *Herdr) Stop(ctx context.Context) error {
 	// Asked before it is told, because `server stop` against a socket with
 	// nothing behind it fails in prose rather than through the error envelope
@@ -158,6 +204,11 @@ func (h *Herdr) Stop(ctx context.Context) error {
 	// unexpected failure for having been in the desired state already.
 	if !h.serverAnswers(ctx) {
 		return nil
+	}
+	if !h.startedTheServer() {
+		return backend.Errorf(backend.CodeConflict,
+			"the herdr server at %s was not started by this handle, so it is not this handle's to stop: every pane on it would go with it. Close the sessions you own instead",
+			h.socketPath)
 	}
 	if _, err := h.run(ctx, "server", "stop"); err != nil {
 		return err

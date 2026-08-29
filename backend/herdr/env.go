@@ -61,6 +61,16 @@ func invocationEnv() []string {
 // It does NOT force TERM: an interactive attach must inherit the operator's
 // real terminal, since forcing one would misrepresent the terminal the human is
 // sitting at. The strips and the LANG default still apply.
+//
+// It is also the ONE invocation whose configuration directory matters, which is
+// why Attach chooses between two environments rather than using one. Every
+// other verb this backend runs is a JSON request over the socket and reads no
+// configuration at all; the attach client loads it and takes its mouse capture,
+// scroll lines, focus-redraw, host-cursor, sound and paste-key settings from
+// there (src/client/mod.rs:1225-1234, reached from run_terminal_attach at
+// src/client/mod.rs:940-947). Pointing that at a directory of Olympus's own
+// would hand a human attaching to their own server a client configured like a
+// fresh install.
 func attachEnv() []string {
 	out := make([]string, 0, len(os.Environ())+1)
 	hasLang := os.Getenv("LANG") != ""

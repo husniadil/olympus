@@ -26,9 +26,17 @@ func listingCases() []Case {
 				// nothing — a backend that always answers "nothing here"
 				// satisfies it perfectly — so the case also requires the
 				// listing to notice a session appearing and disappearing.
+				//
+				// MEMBERSHIP, not a count. A backend whose server opens panes
+				// of its own — herdr's does, the moment it starts, and so does
+				// every human who splits one — has rows in the listing that
+				// this case never created, and every one of them is a real
+				// session a caller can address (§3.4). Counting would assert
+				// that no such backend may exist, which is a rule about the
+				// suite's convenience rather than about listings.
 				target := e.StartShell()
-				if got := len(e.sessions()); got != 1 {
-					e.T.Fatalf("listing returned %d sessions after creating one, want 1", got)
+				if !e.listed(target) {
+					e.T.Fatalf("a session that was just created is not in the listing")
 				}
 				if err := e.Backend.Kill(e.Ctx(), target); err != nil {
 					e.T.Fatalf("killing: %v", err)
@@ -42,11 +50,11 @@ func listingCases() []Case {
 				// yet either. What is required is that the listing converges.
 				deadline := time.Now().Add(e.budgets.Screen)
 				for {
-					if len(e.sessions()) == 0 {
+					if !e.listed(target) {
 						return
 					}
 					if time.Now().After(deadline) {
-						e.T.Errorf("the listing still reports a session after the only one was killed, so it is not tracking reality")
+						e.T.Errorf("the listing still reports a session that was killed, so it is not tracking reality")
 						return
 					}
 					time.Sleep(e.budgets.Poll)
@@ -172,4 +180,15 @@ func (e *Env) sessions() []backend.Session {
 		e.T.Fatalf("listing sessions: %v", err)
 	}
 	return sessions
+}
+
+// listed reports whether a name is in the session listing.
+func (e *Env) listed(name string) bool {
+	e.T.Helper()
+	for _, s := range e.sessions() {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
 }

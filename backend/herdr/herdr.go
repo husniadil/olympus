@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
@@ -67,8 +68,33 @@ const waitDelay = 2 * time.Second
 
 // A Herdr is a backend driving one herdr server, identified by its API socket
 // path.
+//
+// The server may be one this backend started or one it merely found, and the
+// difference is RECORDED rather than inferred (§2.9): only the handle that
+// started a server may stop it, and only a server this handle started is given
+// this backend's own configuration directory to read.
 type Herdr struct {
 	socketPath string
+
+	mu sync.Mutex
+	// started is set when this handle brought the server up itself. It is
+	// never set by observing one — a server that was already answering might
+	// be a box's own headless herdr, an operator's, or one an earlier Olympus
+	// process left behind, and none of those are ours to stop.
+	started bool
+}
+
+// startedTheServer reports whether this handle brought the answering server up.
+func (h *Herdr) startedTheServer() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.started
+}
+
+func (h *Herdr) noteStarted() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.started = true
 }
 
 // An Option configures a backend.
@@ -313,7 +339,7 @@ func (h *Herdr) Sessions(ctx context.Context) ([]backend.Session, error) {
 	sessions := make([]backend.Session, 0, len(rows))
 	for _, row := range rows {
 		sessions = append(sessions, backend.Session{
-			Name: row.Label,
+			Name: displayName(row),
 			// The pane id is the server's own identity for the terminal and
 			// survives a rename, so it is a real id distinct from the name.
 			ID: row.PaneID,
@@ -332,12 +358,20 @@ func (h *Herdr) Sessions(ctx context.Context) ([]backend.Session, error) {
 	return sessions, nil
 }
 
-// paneRows lists the panes that are Olympus sessions.
+// paneRows lists every pane on the server. Each one is an Olympus session.
 //
-// A pane WITHOUT a label is not one. herdr's server opens a workspace of its
-// own the moment it starts, and panes a human splits off carry no label either;
-// reporting those as sessions would hand a caller rows it never created and
-// make an empty listing impossible (§3.3).
+// An earlier revision listed only the panes carrying a LABEL, on the reasoning
+// that a session is something Olympus named. That was wrong, and wrong in the
+// direction that removed the reason this backend exists: the panes worth
+// driving are usually the ones something else created — a box's own headless
+// herdr, a human's `pane split`, another tool's workspace — and none of them
+// carry a label. Measured on a live server: three panes, none labelled, so a
+// listing answered nothing and even a pane id resolved to not-found.
+//
+// So every pane is a session and the NAME is the label where there is one, the
+// pane id where there is not (§3.4). Both spellings address the same pane, and
+// the two namespaces cannot collide because creation refuses a name shaped like
+// a pane id (§10).
 func (h *Herdr) paneRows(ctx context.Context) ([]paneRow, error) {
 	out, err := h.run(ctx, "pane", "list")
 	if err != nil {
@@ -355,14 +389,19 @@ func (h *Herdr) paneRows(ctx context.Context) ([]paneRow, error) {
 	if err := json.Unmarshal([]byte(out), &listed); err != nil {
 		return nil, backend.Wrapf(backend.CodeUnexpected, err, "reading the pane listing")
 	}
-	rows := make([]paneRow, 0, len(listed.Result.Panes))
-	for _, row := range listed.Result.Panes {
-		if row.Label == "" {
-			continue
-		}
-		rows = append(rows, row)
+	return listed.Result.Panes, nil
+}
+
+// displayName is the name a pane answers to.
+//
+// The label when a pane carries one, because that is what a human or another
+// tool chose to call it; the pane id otherwise, because a session has to have a
+// name and inventing one would be a name nothing else in the system knows.
+func displayName(row paneRow) string {
+	if row.Label != "" {
+		return row.Label
 	}
-	return rows, nil
+	return row.PaneID
 }
 
 func (h *Herdr) Panes(ctx context.Context, target string) ([]backend.Pane, error) {
@@ -372,12 +411,12 @@ func (h *Herdr) Panes(ctx context.Context, target string) ([]backend.Pane, error
 	}
 	panes := []backend.Pane{}
 	for _, row := range rows {
-		if target != "" && row.Label != target && row.PaneID != target {
+		if target != "" && !addresses(row, target) {
 			continue
 		}
 		pane := backend.Pane{
 			ID:          row.PaneID,
-			SessionName: row.Label,
+			SessionName: displayName(row),
 			SessionID:   row.PaneID,
 			WindowIndex: tabIndex(row.TabID),
 			Dead:        false,
@@ -491,7 +530,7 @@ func (h *Herdr) Probe(ctx context.Context, target string) backend.State {
 		return backend.StateError
 	}
 	for _, row := range rows {
-		if row.Label == target || row.PaneID == target {
+		if addresses(row, target) {
 			return backend.StatePresent
 		}
 	}
@@ -501,18 +540,44 @@ func (h *Herdr) Probe(ctx context.Context, target string) backend.State {
 	return backend.StateAbsent
 }
 
-// resolvePane turns a session name into the pane id every herdr verb addresses.
+// addresses reports whether a target names this pane, by either spelling.
+//
+// A labelled pane answers to its label AND to its pane id, the same way a tmux
+// session answers to its name and to "%0". An unlabelled one answers to its
+// pane id alone, which is the only name it has.
+func addresses(row paneRow, target string) bool {
+	return row.PaneID == target || (row.Label != "" && row.Label == target)
+}
+
+// resolvePane turns a session name into the pane every herdr verb addresses.
+//
+// A label is not unique — herdr will let two panes carry the same one, and
+// panes this backend did not create are not held to the uniqueness Create
+// enforces (§2.1). The oldest match wins, so the answer is at least stable
+// across calls rather than following whatever order the server listed them in.
+// A pane id matches at most one row, so the tie-break never applies there.
 func (h *Herdr) resolvePane(ctx context.Context, target string) (paneRow, error) {
 	rows, err := h.paneRows(ctx)
 	if err != nil {
 		return paneRow{}, err
 	}
-	for _, row := range rows {
-		if row.Label == target || row.PaneID == target {
-			return row, nil
+	var found *paneRow
+	for i := range rows {
+		if !addresses(rows[i], target) {
+			continue
+		}
+		if rows[i].PaneID == target {
+			// An exact pane id is unambiguous and beats any label match.
+			return rows[i], nil
+		}
+		if found == nil || createdAt(rows[i].TerminalID) < createdAt(found.TerminalID) {
+			found = &rows[i]
 		}
 	}
-	return paneRow{}, backend.Errorf(backend.CodeSessionNotFound, "no session %s", target)
+	if found == nil {
+		return paneRow{}, backend.Errorf(backend.CodeSessionNotFound, "no session %s", target)
+	}
+	return *found, nil
 }
 
 func (h *Herdr) Kill(ctx context.Context, target string) error {
@@ -542,15 +607,29 @@ func (h *Herdr) command(ctx context.Context, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// env points every invocation at this backend's own server, configuration and
+// env points an invocation at this backend's own server, configuration and
 // state.
+//
+// The configuration and state directories travel with the socket because herdr
+// keeps a session's persisted layout in the CONFIGURATION directory rather than
+// beside its socket, so a server started here would otherwise overwrite the
+// operator's saved workspaces (§2.9).
 func (h *Herdr) env(base []string) []string {
 	home := h.StateHome()
-	return append(base,
-		"HERDR_SOCKET_PATH="+h.socketPath,
+	return append(h.socketEnv(base),
 		"XDG_CONFIG_HOME="+filepath.Join(home, "config"),
 		"XDG_STATE_HOME="+filepath.Join(home, "state"),
 	)
+}
+
+// socketEnv points an invocation at this backend's server and leaves the
+// configuration directory alone.
+//
+// Used where the ambient configuration is the right one to read: an attach onto
+// a server this handle did not start belongs to whoever runs that server, and
+// the client reads real settings out of that directory (see attachEnv).
+func (h *Herdr) socketEnv(base []string) []string {
+	return append(base, "HERDR_SOCKET_PATH="+h.socketPath)
 }
 
 func (h *Herdr) run(ctx context.Context, args ...string) (string, error) {

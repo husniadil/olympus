@@ -203,8 +203,16 @@ Olympus moves that directory along with the socket. Without that, a second serve
 would overwrite your own `~/.config/herdr/session.json` — your saved workspaces —
 while touching none of your live sessions. Olympus defaults to a socket of its
 own there, so its workspaces never appear in your herdr unless you point
-`--socket-path` at your server yourself. An Olympus session is one named herdr
-pane, and a herdr session name may not be spelled like a pane id (`w1:p2`).
+`--socket-path` at your server yourself — which is a supported mode, and the
+reason this backend is interesting: it lets you list, read, drive and attach to
+panes that other tools created on a herdr you already run. Olympus never starts,
+reconfigures or stops a server it found; asking it to stop one is refused,
+because that would take every pane on it down.
+
+Every pane there is a session. Its name is the pane's label if `herdr pane
+rename` gave it one, and its pane id (`w25:p8`) otherwise — which is most of
+them, since a *tab* label is a property of the tab and never reaches a pane. You
+cannot *create* a session whose name is spelled like a pane id.
 
 A private socket is not a private configuration: tmux fixes a server's settings
 at boot from your `tmux.conf`, so your file reaches Olympus's sessions whichever

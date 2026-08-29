@@ -27,6 +27,7 @@ Otherwise run the command directly.
 - Degraded operations warn, they do not fail. Read stderr (or `warnings` in the envelope) so a narrower result is not mistaken for a full one.
 - Control keys (`c-c`, `c-o`, `c-x`) are not deliverable on zmx. Check `olympus capabilities` for `control_keys` before driving an editor or anything that needs them; use `--backend tmux` if it does.
 - Starting a session ON a command (`--command`) is refused on herdr: its panes run the shell its own configuration names. Check `olympus capabilities` for `spawn_command`; without it, start a plain session and run the program inside it.
+- On herdr every pane is a session, named by its pane label or, far more often, by its pane id (`w25:p8`). To drive a herdr you already run, point `--socket-path` at its socket (`~/.config/herdr/herdr.sock` by default); `olympus ls` then shows every pane on it. Olympus will not stop a server it did not start — close the sessions you own instead.
 - Stop what you started. `olympus stop <name>` is graceful first, `--force` skips that. Leave a session only when the user wants it to persist.
 
 Exit codes worth recognizing: 3 session does not exist, 4 backend unreachable, 5 timed out, 6 someone else holds the session, 7 backend has no such concept. `run` without `--json` exits with the command's own status so it composes in a pipeline.

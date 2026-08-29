@@ -367,6 +367,14 @@ only on `start`, and is `created` | `reused` | `reaped`.
 }
 ```
 
+**On herdr every pane is a session**, and its `name` is its pane label where it
+has one and its `pane_id` where it has not — `w25:p8` is a perfectly ordinary
+session name there. Most panes on a real herdr server carry no label, because a
+label comes only from `herdr pane rename`; a TAB's label, which is how some
+tools name their workers, is a property of the tab and never appears on a pane
+row. Both spellings address the same pane, and a session may not be *created*
+with a name shaped like a pane id.
+
 `current_path` and `current_command` carry different meanings per backend
 (behavior spec §3.4) and trigger warnings on zmx and herdr per §0.8. Two are
 worth knowing before you branch on them: on herdr `current_command` is populated
@@ -532,7 +540,17 @@ spec §17.5 has the measurements and the rule.
 On herdr the two pinned entries are `update.version_check` and
 `update.manifest_check`, both false: they turn off a background network check a
 freshly started server would otherwise make, which has nothing to do with
-driving a terminal and which nobody asked for.
+driving a terminal and which nobody asked for. Nothing is pinned on a server
+that was already answering — `resolved.pinned` is false there, and that server
+never read a file Olympus wrote.
+
+**Pointing `--socket-path` at a herdr server that is already running is a
+supported mode.** It is how you drive a box's own headless herdr, or an
+operator's, and read and attach to panes other tools created. Olympus never
+starts, reconfigures or stops such a server: a request to stop one it did not
+start is refused with `CONFLICT`, because stopping takes every pane on the
+server down including every one you never named. Close the sessions you own
+instead. Behavior spec §2.9.1.
 
 `reason` names the resolution rule that applied (`flag`, `env`, `default`,
 `fallback`), satisfying the disclosure requirement of behavior spec §0.4.

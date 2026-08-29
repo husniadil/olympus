@@ -20,6 +20,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- On herdr every pane is a session, named by its pane label where it has one and
+  by its pane id (`w25:p8`) where it has not. Only panes carrying a label were
+  listed before, which hid every pane another tool created — the case the
+  backend exists for (behavior §3.4).
+- Pointing `--socket-path` at a herdr server that is already running is a
+  supported mode: Olympus drives it and never starts, reconfigures or stops it,
+  and refuses a stop it did not start with `CONFLICT` (behavior §2.9.1).
 - Every backend now strips herdr's session, socket and pane-identity variables
   on its spawn paths, alongside tmux's and zmx's (behavior §1.1). Without it a
   session created on one backend from inside a herdr pane inherited that pane's
