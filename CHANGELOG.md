@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0]
+
 ### Added
 
 - A fourth backend, **herdr**. It resolves last, after meja, so no host changes
@@ -224,7 +226,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/husniadil/olympus/releases/tag/v0.2.0
 [0.1.2]: https://github.com/husniadil/olympus/releases/tag/v0.1.2
 [0.1.1]: https://github.com/husniadil/olympus/releases/tag/v0.1.1
 [0.1.0]: https://github.com/husniadil/olympus/releases/tag/v0.1.0
