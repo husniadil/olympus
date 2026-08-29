@@ -21,12 +21,16 @@ const BackendEnv = "OLYMPUS_BACKEND"
 // preference is the order backends are tried when nothing was chosen: the
 // default first, then the fallbacks (behavior §0.3).
 //
-// meja is LAST, and that placement is load-bearing rather than alphabetical. A
-// backend that displaced zmx or tmux would move a caller's sessions to one they
-// never chose, and sessions never migrate between backends — so meja answers
-// only when it is the last one standing, which beats refusing to run on a host
-// that does have a working multiplexer.
-var preference = []backend.Name{backend.Zmx, backend.Tmux, backend.Meja}
+// The two additions are LAST, and that placement is load-bearing rather than
+// alphabetical. A backend that displaced zmx or tmux would move a caller's
+// sessions to one they never chose, and sessions never migrate between backends
+// — so each of them answers only when it is the last one standing, which beats
+// refusing to run on a host that does have a working multiplexer.
+//
+// herdr comes after meja for the same reason meja came after tmux: it is the
+// newest arrival, and every host that had a working default before it shipped
+// must keep resolving to the same backend after.
+var preference = []backend.Name{backend.Zmx, backend.Tmux, backend.Meja, backend.Herdr}
 
 // A Reason names the resolution rule that applied, satisfying the disclosure
 // requirement of behavior §0.4.
@@ -143,7 +147,7 @@ func knownNames() []string {
 func errNoBackendInstalled() error {
 	var b strings.Builder
 	b.WriteString("no terminal multiplexer is installed.\n")
-	b.WriteString("Olympus drives an existing multiplexer rather than embedding one, so it needs one of zmx, tmux or meja.\n")
+	b.WriteString("Olympus drives an existing multiplexer rather than embedding one, so it needs one of zmx, tmux, meja or herdr.\n")
 	for _, name := range preference {
 		fmt.Fprintf(&b, "  %s: %s\n", name, installHint(name))
 	}
@@ -174,6 +178,14 @@ func installHint(name backend.Name) string {
 		return "install it from https://zmx.sh and make sure `zmx` is on your PATH"
 	case backend.Meja:
 		return "install it with `go install github.com/garindra/meja@latest` and make sure `meja` is on your PATH"
+	case backend.Herdr:
+		// Checked against the project's own install section rather than
+		// guessed: a wrong command in the first message a new user reads is
+		// worse than none.
+		if runtime.GOOS == "darwin" {
+			return "install it with `brew install herdr`, or `curl -fsSL https://herdr.dev/install.sh | sh`"
+		}
+		return "install it with `curl -fsSL https://herdr.dev/install.sh | sh`, or see https://herdr.dev"
 	default:
 		return "no install instructions are known"
 	}
@@ -193,6 +205,11 @@ var addressing = map[backend.Name][]string{
 	backend.Tmux: {"socket", "socket-path"},
 	backend.Zmx:  {"zmx-dir"},
 	backend.Meja: {"socket-path"},
+	// herdr takes the same --socket-path, and on this backend it moves more
+	// than the socket: the configuration and state directories are derived
+	// from it, because herdr keeps a session's persisted layout in its
+	// configuration directory rather than beside its socket (§2.9).
+	backend.Herdr: {"socket-path"},
 }
 
 // checkAddressing rejects an addressing option the resolved backend cannot use.

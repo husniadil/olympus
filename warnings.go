@@ -73,6 +73,31 @@ var degradations = map[backend.Name]map[operation][]string{
 			"the requested size is ignored: meja sizes a session from its first client",
 		},
 	},
+	// Listed for the gaps herdr shares with the others, and for two it has on
+	// its own. The alt-screen entry is narrower than zmx's and meja's on
+	// purpose: herdr's scroll position IS real, and repeating their wording
+	// would tell a caller a true field is not tracked.
+	backend.Herdr: {
+		opPaneListing: {
+			"current_command is reported for a targeted pane listing only; a whole-server listing leaves it empty",
+			"attached is always false: no per-terminal client count is reported",
+		},
+		opCapture: {
+			"a line wrapped at the terminal's width cannot be rejoined, so it comes back split",
+		},
+		opCaptureMeta: {
+			"alt-screen is not tracked and is always false",
+		},
+		opCaptureHistory: {
+			"a history request deeper than 1000 lines is clamped to 1000",
+		},
+		opPollWindow: {
+			"a capture window deeper than 1000 lines is clamped to 1000",
+		},
+		opSpawnSize: {
+			"the requested size is ignored: a pane takes the server's own geometry until a client attaches",
+		},
+	},
 }
 
 // warn returns the disclosures for an operation on a backend.

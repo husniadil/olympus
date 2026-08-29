@@ -461,12 +461,23 @@ func TestDiagnoseNamesTheResolvedBackendAndWhy(t *testing.T) {
 // has to say what. A tool that quietly overrides a line in somebody's tmux.conf
 // and never mentions it turns "my config is being ignored" into an unanswerable
 // question — which is the exact failure `doctor` exists to prevent.
+//
+// Keyed by backend rather than written for tmux alone: two backends pin now,
+// and the one that arrived second pins a file Olympus itself owns rather than
+// the operator's. The disclosure rule does not weaken for that — a background
+// network check somebody did not ask for is exactly the kind of decision this
+// report exists to surface.
 func TestDiagnoseDisclosesWhatItPins(t *testing.T) {
 	t.Parallel()
-	diagnosis := olympus.Diagnose(context.Background())
+	pins := map[backend.Name][]string{
+		backend.Tmux:  {"history-limit", "default-command"},
+		backend.Herdr: {"update.version_check", "update.manifest_check"},
+	}
 
+	diagnosis := olympus.Diagnose(context.Background())
 	for _, report := range diagnosis.Backends {
-		if report.Name != backend.Tmux {
+		want, pinning := pins[report.Name]
+		if !pinning {
 			// Nothing is pinned on a backend that takes no configuration file,
 			// and inventing an entry there would be a claim, not a disclosure.
 			if len(report.Managed) != 0 {
@@ -477,11 +488,10 @@ func TestDiagnoseDisclosesWhatItPins(t *testing.T) {
 		if !report.Installed {
 			continue
 		}
-		if report.Managed["history-limit"] == "" {
-			t.Errorf("doctor does not disclose that Olympus pins history-limit: %v", report.Managed)
-		}
-		if _, ok := report.Managed["default-command"]; !ok {
-			t.Errorf("doctor does not disclose that Olympus pins default-command: %v", report.Managed)
+		for _, option := range want {
+			if _, ok := report.Managed[option]; !ok {
+				t.Errorf("doctor does not disclose that Olympus pins %s on %s: %v", option, report.Name, report.Managed)
+			}
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/herdr"
 	"github.com/husniadil/olympus/backend/meja"
 	"github.com/husniadil/olympus/backend/tmux"
 	"github.com/husniadil/olympus/backend/zmx"
@@ -33,6 +34,12 @@ var floors = map[backend.Name]string{
 	// would buy nothing: copy mode still refuses without a client, and Follow
 	// attaches one on every version.
 	backend.Meja: "0.0.25",
+	// The version every measurement behind this backend was taken against:
+	// the pane, workspace and terminal-session verbs it drives, the error
+	// codes it classifies, the raw-byte injection its key vocabulary rests on,
+	// and the terminal-id timestamp its created_at is derived from. Support
+	// below it is best-effort because nothing was checked there.
+	backend.Herdr: "0.8.2",
 }
 
 // versionProbeBudget bounds a SINGLE version probe.
@@ -190,6 +197,13 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 
 func buildBackend(name backend.Name, cfg config) (backend.Backend, string) {
 	switch name {
+	case backend.Herdr:
+		var options []herdr.Option
+		if cfg.socketPath != "" {
+			options = append(options, herdr.WithSocketPath(cfg.socketPath))
+		}
+		built := herdr.New(options...)
+		return built, built.Scope()
 	case backend.Meja:
 		var options []meja.Option
 		if cfg.socketPath != "" {
@@ -225,6 +239,17 @@ func buildBackend(name backend.Name, cfg config) (backend.Backend, string) {
 // managedOf reports what Olympus pins, for the backend that has a configuration
 // file to be pinned against.
 func managedOf(name backend.Name) map[string]string {
+	if name == backend.Herdr {
+		// herdr is the one backend whose configuration follows its
+		// configuration DIRECTORY, which this backend moves alongside the
+		// socket — so what is pinned here is a file Olympus owns rather than
+		// the operator's. It is disclosed anyway: both entries turn off a
+		// background network check the server would otherwise run at boot, and
+		// a tool that silently decides when a program may reach the network
+		// turns "why did this call home" into an unanswerable question
+		// (§17.5).
+		return herdr.ManagedConfig()
+	}
 	if name != backend.Tmux {
 		return nil
 	}
@@ -268,6 +293,13 @@ func effectiveOf(ctx context.Context, b backend.Backend) (map[string]string, boo
 // both are surprising if you learned the other first (behavior §17.2).
 func isolationOf(name backend.Name, scope string) string {
 	switch name {
+	case backend.Herdr:
+		// Worth stating separately from tmux's and meja's: pointing the socket
+		// somewhere private is not enough on its own here, because herdr keeps
+		// a session's persisted layout in its configuration directory rather
+		// than beside the socket. Olympus moves that directory with the socket,
+		// and this says where it went.
+		return "socket at " + scope + "; its configuration and saved layout live beside it, invisible to your own herdr"
 	case backend.Meja:
 		if strings.HasPrefix(scope, "/") {
 			// Worth stating separately from tmux's: meja keeps each server's

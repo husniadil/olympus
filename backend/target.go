@@ -23,12 +23,34 @@ func PrefixedPaneID(target string) bool { return strings.HasPrefix(target, paneI
 // be read as a pane when the caller meant a session of the same spelling. meja
 // rejects such names outright — "session name must not be entirely numeric" —
 // which is what makes the shape unambiguous there rather than merely unlikely.
-func NumericPaneID(target string) bool {
-	if target == "" {
+func NumericPaneID(target string) bool { return allDigits(target) }
+
+// IndexedPaneID is the shape used by backends whose pane ids name the window
+// and the pane by index: "w<digits>:p<digits>".
+//
+// Unlike the other two shapes this one is not structurally unambiguous — the
+// backend that uses it will let a caller name a session anything, that spelling
+// included. So the backend REJECTS such a name at creation rather than leaving
+// resolution to guess, which is what turns "probably a pane" into "certainly a
+// pane" here.
+func IndexedPaneID(target string) bool {
+	rest, ok := strings.CutPrefix(target, "w")
+	if !ok {
 		return false
 	}
-	for i := 0; i < len(target); i++ {
-		if target[i] < '0' || target[i] > '9' {
+	window, pane, ok := strings.Cut(rest, ":p")
+	if !ok {
+		return false
+	}
+	return allDigits(window) && allDigits(pane)
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
 			return false
 		}
 	}

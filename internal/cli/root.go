@@ -158,9 +158,9 @@ release. Scripts should use --json, whose shape is semver-bound.`),
 	})
 
 	flags := root.PersistentFlags()
-	flags.StringVar(&a.backendName, "backend", "", "backend to use (zmx, tmux or meja); overrides "+olympus.BackendEnv)
+	flags.StringVar(&a.backendName, "backend", "", "backend to use (zmx, tmux, meja or herdr); overrides "+olympus.BackendEnv)
 	flags.StringVar(&a.socket, "socket", "", "tmux socket NAME, resolved inside tmux's own directory (tmux backend only)")
-	flags.StringVar(&a.socketPath, "socket-path", "", "server socket PATH, used verbatim; puts the socket where you choose (tmux and meja backends)")
+	flags.StringVar(&a.socketPath, "socket-path", "", "server socket PATH, used verbatim; puts the socket where you choose (tmux, meja and herdr backends)")
 	flags.StringVar(&a.zmxDir, "zmx-dir", "", "zmx socket directory (zmx backend only)")
 	flags.BoolVar(&a.json, "json", false, "emit the structured envelope on stdout")
 	flags.BoolVar(&a.noLock, "no-lock", false, "skip the per-session write lock (for callers that serialize their own writes)")

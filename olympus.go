@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/herdr"
 	"github.com/husniadil/olympus/backend/meja"
 	"github.com/husniadil/olympus/backend/tmux"
 	"github.com/husniadil/olympus/backend/zmx"
@@ -75,9 +76,13 @@ func WithSocket(name string) Option {
 // counterpart to choosing a directory on a directory-addressed backend, and on
 // tmux it overrides any name.
 //
-// On meja it is the ONLY form offered, because meja keeps a server's session
-// recovery files beside its socket: a named profile Olympus drove would leave
-// persisted sessions in the operator's own store.
+// On meja and herdr it is the ONLY form offered. meja keeps a server's session
+// recovery files beside its socket, so a named profile Olympus drove would
+// leave persisted sessions in the operator's own store; herdr does the
+// opposite, keeping them in its CONFIGURATION directory rather than beside the
+// socket, so this option moves that directory too — pointing only the socket
+// somewhere private would still have Olympus overwrite the operator's saved
+// workspaces (§2.9).
 func WithSocketPath(path string) Option {
 	return func(c *config) { c.socketPath = path }
 }
@@ -176,6 +181,21 @@ func open(cfg config, opts ...Option) (*Olympus, error) {
 		built := meja.New(options...)
 		o.backend = built
 		o.scope = built.Scope()
+	case backend.Herdr:
+		// The same --socket-path again, for the same reason: it addresses a
+		// server by an exact path, and a second option meaning the same thing
+		// would be a second contract to keep in step. It carries more weight
+		// here than on the others — herdr's configuration and state
+		// directories are derived from it, because a session's persisted
+		// layout lives in the configuration directory rather than beside the
+		// socket (§2.9).
+		var options []herdr.Option
+		if cfg.socketPath != "" {
+			options = append(options, herdr.WithSocketPath(cfg.socketPath))
+		}
+		built := herdr.New(options...)
+		o.backend = built
+		o.scope = built.Scope()
 	}
 
 	if !cfg.noLock {
@@ -242,6 +262,13 @@ func (o *Olympus) resolveTarget(ctx context.Context, target string) (string, err
 		// that is entirely numeric — so the shape is unambiguous rather than
 		// merely probable, and no session can be shadowed by a pane.
 		return backend.ResolveTarget(target, backend.NumericPaneID, lister)
+	case backend.Herdr:
+		// herdr spells pane ids "w<workspace>:p<pane>". herdr itself would
+		// accept a session label of that spelling, so the backend refuses one
+		// at creation — which is what makes the shape unambiguous here rather
+		// than merely probable, the same guarantee meja gets from its own
+		// naming rule.
+		return backend.ResolveTarget(target, backend.IndexedPaneID, lister)
 	}
 	return backend.ResolveTarget(target, backend.PrefixedPaneID, lister)
 }
