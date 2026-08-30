@@ -166,27 +166,37 @@ func session(t *testing.T, ol *olympus.Olympus) *olympus.Session {
 }
 
 // warmUp blocks until the shell has provably executed something (§16).
+//
+// The probe is retried through TypeAndSubmit, not through Type followed by
+// Submit: two lock acquisitions with a gap between them and an unretried
+// terminator is exactly what §4.4 forbids, and the failure it forbids is the
+// one a retry loop meets first — a dropped Enter leaves the probe in the input
+// line for the next attempt to concatenate onto.
 func warmUp(t *testing.T, s *olympus.Session) {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(20 * time.Second)
+	var last string
 	for time.Now().Before(deadline) {
-		if err := s.Type(ctx, `printf 'ready-%d\n' 7`); err != nil {
-			t.Fatalf("warming: %v", err)
-		}
-		if err := s.Submit(ctx); err != nil {
+		if err := s.TypeAndSubmit(ctx, `printf 'ready-%d\n' 7`); err != nil {
 			t.Fatalf("warming: %v", err)
 		}
 		end := time.Now().Add(2 * time.Second)
 		for time.Now().Before(end) {
 			screen, err := s.Screen(ctx)
-			if err == nil && strings.Contains(screen.Text, "ready-7") {
-				return
+			if err == nil {
+				last = screen.Text
+				if strings.Contains(screen.Text, "ready-7") {
+					return
+				}
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	t.Fatal("the shell never executed a command")
+	// The screen is the whole diagnosis: a shell that has not started yet, a
+	// line editor sitting in a continuation, and a probe that never arrived all
+	// report identically without it.
+	t.Fatalf("the shell never executed a command. Screen was:\n%s", last)
 }
 
 // Session is ensure-semantics: create, reuse, or replace-if-dead, with no
@@ -260,8 +270,14 @@ func TestSendVerifiesBeforeSubmitting(t *testing.T) {
 			if err := s.Send(ctx, `printf 'sent-%d\n' 9`); err != nil {
 				t.Fatalf("Send: %v", err)
 			}
-			if _, err := s.WaitFor(ctx, `sent-9`, olympus.WaitTimeout(10*time.Second)); err != nil {
-				t.Errorf("the sent text was never executed: %v", err)
+			// The screen goes with the failure. WaitFor's error names the
+			// pattern and the budget, which is the one thing already known —
+			// what a timeout here cannot say on its own is whether the text is
+			// sitting unsubmitted in the input line, ran and printed something
+			// else, or never arrived at all.
+			screen, err := s.WaitFor(ctx, `sent-9`, olympus.WaitTimeout(10*time.Second))
+			if err != nil {
+				t.Errorf("the sent text was never executed: %v. Screen was:\n%s", err, screen.Text)
 			}
 		})
 	}
@@ -955,26 +971,31 @@ func TestTheTunablesReachTheBackend(t *testing.T) {
 				t.Errorf("an impossible verify budget failed as %v, want TIMEOUT", olympus.CodeOf(err))
 			}
 			// That probe leaves whatever it managed to type on the input line,
-			// and a verified send resends once — so the line can hold the text
-			// twice over. Clearing it is not tidiness: the next assertion counts
-			// occurrences of ITS marker, and a dirty line makes that count a
-			// measurement of the previous step.
+			// where the next injection would concatenate onto it (§4.4).
+			// Clearing it is not tidiness: the next step asserts about what its
+			// own text did, and a dirty line makes that a statement about this
+			// one.
 			if err := s.Press(ctx, backend.KeyCtrlC); err != nil {
 				t.Fatalf("clearing the line after the budget probe: %v", err)
 			}
 
 			// WithoutSubmit: the text lands and is NOT executed.
-			marker := "unsubmitted-marker"
-			if err := s.Send(ctx, "echo "+marker, olympus.WithoutSubmit()); err != nil {
+			//
+			// Asserted on the EXPANSION, never on the typed string (§16). PTY
+			// echo paints the typed bytes onto the screen, so counting how many
+			// times the literal appears counts how many times it was TYPED —
+			// and §7.4 lets a verified send type it twice, which made a legal
+			// resend read as a submit that never happened. Only the substituted
+			// output distinguishes execution from echo, and here it must be
+			// absent.
+			if err := s.Send(ctx, `printf 'unsubmitted-%d\n' 2`, olympus.WithoutSubmit()); err != nil {
 				t.Fatalf("Send without submit: %v", err)
 			}
 			screen, err := s.Screen(ctx)
 			if err != nil {
 				t.Fatalf("Screen: %v", err)
 			}
-			// The command is on the line; its OUTPUT would be a second
-			// occurrence on its own line, which is what submitting would add.
-			if strings.Count(screen.Text, marker) > 1 {
+			if strings.Contains(screen.Text, "unsubmitted-2") {
 				t.Errorf("WithoutSubmit submitted anyway:\n%s", screen.Text)
 			}
 			if err := s.Press(ctx, backend.KeyCtrlC); err != nil {

@@ -2310,6 +2310,16 @@ Beyond §2.9's isolation rules:
   bytes onto the screen, so asserting on a literal string proves only that it was
   typed. Use `printf 'marker-%d\n' 42` and assert on `marker-42`.
 
+  This binds the NEGATIVE assertion too, and there the trap is counting rather
+  than matching. "The text appears once, so it was not executed" measures how
+  many times the text was *typed*, and §7.4 licenses two: a verified send whose
+  first window is lost to load resends the same text, and the second copy on the
+  input line reads as an execution that never happened. Measured on meja under
+  load, a line holding `echo unsubmitted-markerecho unsubmitted-marker` failed a
+  did-not-submit assertion with nothing ever submitted. Assert that the
+  expansion is ABSENT instead; that is the only evidence execution leaves, and
+  it is unaffected by how many times the source line was typed.
+
 - **Anchor sessions on a shared tmux socket.** Killing the last session on a
   socket tears down the whole server, so tests that kill sessions MUST keep an
   anchor session alive.
