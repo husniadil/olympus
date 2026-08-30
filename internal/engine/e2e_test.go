@@ -97,10 +97,9 @@ func e2eWarm(t *testing.T, b backend.Backend, target string) {
 	ctx := context.Background()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := b.Type(ctx, target, `printf 'ready-%d\n' 7`); err != nil {
-			t.Fatalf("warming: %v", err)
-		}
-		if err := b.Submit(ctx, target); err != nil {
+		// One atomic submit, the way backendtest.Env.Warm does it (§16): a
+		// retried probe must never leave a typed line behind to double.
+		if err := b.SendAtomic(ctx, target, `printf 'ready-%d\n' 7`); err != nil {
 			t.Fatalf("warming: %v", err)
 		}
 		end := time.Now().Add(2 * time.Second)

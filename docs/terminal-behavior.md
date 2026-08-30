@@ -2306,6 +2306,16 @@ Beyond §2.9's isolation rules:
   expansion-based: the typed line shows the format string verbatim, so only the
   substituted output proves execution rather than echo.
 
+  **The probe MUST be sent with the atomic submit of §4.7, never composed out of
+  injection and a separate terminator.** No production caller composes those two
+  — every inject-then-submit path goes through one verb that owns its terminator
+  and retries it (§4.4) — so a harness composing them itself would be proving a
+  path nothing ships, and the conformance suite exists to exercise the operation
+  callers actually use. Atomic delivery is also the only shape that is safe to
+  re-send: this probe is retried until its expansion appears, and §4.7 is the
+  guarantee that a retried invocation leaves no typed-but-unsubmitted line for
+  the next attempt to concatenate onto.
+
 - **Assert the substituted output, never the typed string.** PTY echo paints typed
   bytes onto the screen, so asserting on a literal string proves only that it was
   typed. Use `printf 'marker-%d\n' 42` and assert on `marker-42`.

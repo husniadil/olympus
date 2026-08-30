@@ -140,6 +140,15 @@ func (e *Env) start(argv []string) string {
 // execution. Without this, a one-shot send lands before the shell is ready, the
 // deadline expires, and the flake rotates between cases rather than reproducing
 // in one.
+//
+// The probe is delivered with SendAtomic rather than composed out of Type and
+// Submit. No production caller composes those two: every inject-then-submit
+// path above this interface goes through one door verb that owns its terminator
+// and retries it (§4.4), so a harness composing them itself would prove a path
+// nothing ships. Atomic delivery is the shape this loop needs anyway — it
+// retries the WHOLE probe until the expansion appears, and §4.7 is precisely
+// the guarantee that a retried invocation cannot leave a typed-but-unsubmitted
+// line behind for the next attempt to concatenate onto.
 func (e *Env) Warm(target string) {
 	e.T.Helper()
 	const probe = `printf 'ready-%d\n' 7`
@@ -147,11 +156,8 @@ func (e *Env) Warm(target string) {
 
 	deadline := time.Now().Add(e.budgets.Warm)
 	for time.Now().Before(deadline) {
-		if err := e.Backend.Type(e.ctx, target, probe); err != nil {
-			e.T.Fatalf("warming %s: typing the probe: %v", target, err)
-		}
-		if err := e.Backend.Submit(e.ctx, target); err != nil {
-			e.T.Fatalf("warming %s: submitting the probe: %v", target, err)
+		if err := e.Backend.SendAtomic(e.ctx, target, probe); err != nil {
+			e.T.Fatalf("warming %s: sending the probe: %v", target, err)
 		}
 		if _, ok := e.screenContains(target, want, e.budgets.Settle); ok {
 			return

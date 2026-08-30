@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The conformance suite's shell-warming probe (`backendtest.Env.Warm`) now goes
+  through the backend's atomic submit instead of composing an injection with a
+  separate terminator. No production caller composes those two — every
+  inject-then-submit path goes through one verb that owns its terminator and
+  retries it — so the harness was proving a path nothing ships. Atomic delivery
+  is also the only shape that is safe to re-send, which is what the warming loop
+  does. Recorded in the behavior specification, §16.
+
 ## [0.2.1]
 
 ### Fixed
