@@ -1067,7 +1067,29 @@ func TestExitMarkersReadTheRightOne(t *testing.T) {
 				t.Error("a marker was found before any command wrote one")
 			}
 
-			if err := s.Send(ctx, "sh -c 'exit 3'; echo "+marker+"$?"); err != nil {
+			// The marker-bearing line is ONE simple command whose code is an
+			// argument, never a sequence ending in `echo MARK:$?`.
+			//
+			// §7.4 licenses a verified send to type its text twice, and the
+			// two copies land concatenated on the input line (§4.4). A
+			// sequence doubled that way ends in a second, complete
+			// `echo OLYDONE:$?` whose `$?` is the previous echo's, so the
+			// LAST marker on screen reads OLYDONE:0 — and an assertion about
+			// which marker wins then accuses a stale marker of winning when
+			// nothing stale did. Measured in sh, bash and zsh:
+			//
+			//     OLYDONE:3sh -c exit 3
+			//     OLYDONE:0
+			//
+			// Doubling one printf glues into its ARGUMENT list instead, where
+			// format reuse still emits the requested code last (OLYDONE:0,
+			// OLYDONE:0, OLYDONE:3 in all three shells). The evidence this
+			// test reads is therefore unaffected by how many times the line
+			// was typed, which is what §16 requires of it. It stays
+			// expansion-based for the same section's other half: the typed
+			// line shows `%d`, so only the substituted output proves the
+			// command ran.
+			if err := s.Send(ctx, `printf 'OLYDONE:%d\n' 3`); err != nil {
 				t.Fatalf("Send: %v", err)
 			}
 			if _, err := s.WaitFor(ctx, marker+"3", olympus.WaitTimeout(15*time.Second)); err != nil {
@@ -1075,13 +1097,17 @@ func TestExitMarkersReadTheRightOne(t *testing.T) {
 			}
 			code, found, err := s.ExitStatus(ctx, marker, 200)
 			if err != nil || !found || code != 3 {
-				t.Fatalf("first marker: code=%d found=%v err=%v, want 3/true/nil", code, found, err)
+				// The screen goes with it: a marker that was never written, one
+				// written with a code the parser refused, and a line the send
+				// left doubled all report identically as code=0 found=false.
+				t.Fatalf("first marker: code=%d found=%v err=%v, want 3/true/nil. Screen was:\n%s",
+					code, found, err, mustScreen(t, s).Text)
 			}
 
 			// A second command writes a second marker. The LATEST must win —
 			// reading the older one reports a status for a command that already
 			// finished, which is the whole hazard.
-			if err := s.Send(ctx, "sh -c 'exit 7'; echo "+marker+"$?"); err != nil {
+			if err := s.Send(ctx, `printf 'OLYDONE:%d\n' 7`); err != nil {
 				t.Fatalf("Send: %v", err)
 			}
 			if _, err := s.WaitFor(ctx, marker+"7", olympus.WaitTimeout(15*time.Second)); err != nil {
@@ -1093,7 +1119,7 @@ func TestExitMarkersReadTheRightOne(t *testing.T) {
 			}
 			if code != 7 {
 				t.Errorf("exit status %d, want 7 — a stale marker won, so a finished command reports "+
-					"the previous command's status", code)
+					"the previous command's status. Screen was:\n%s", code, mustScreen(t, s).Text)
 			}
 		})
 	}

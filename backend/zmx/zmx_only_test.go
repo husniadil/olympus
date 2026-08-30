@@ -184,21 +184,34 @@ func TestRequestingHistoryIsAByteIdenticalNoOp(t *testing.T) {
 	}
 	waitFor(t, b, name, "h-60")
 
-	without, err := b.Screen(ctx, name, backend.ScreenOpts{})
-	if err != nil {
-		t.Fatalf("capturing: %v", err)
-	}
-	with, err := b.Screen(ctx, name, backend.ScreenOpts{HistoryLines: 500})
-	if err != nil {
-		t.Fatalf("capturing with history: %v", err)
-	}
-	if without.Text != with.Text {
-		t.Errorf("requesting history changed the output, but on this backend it must be a no-op")
-	}
-	// Both must already carry the scrolled-off lines, which is why the request
-	// has nothing left to do.
-	if !strings.Contains(without.Text, "h-1\n") {
-		t.Errorf("the default capture does not reach back to the first line, so it is not full scrollback")
+	// The two captures are taken as a PAIR and the pair is retried. Both read a
+	// live session, and the session repaints between them — the prompt lands
+	// after the last line of output — so a single disagreeing pair says nothing
+	// about the flag. Only a whole budget of disagreement is the backend
+	// honouring a request it must ignore (§16).
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		without, err := b.Screen(ctx, name, backend.ScreenOpts{})
+		if err != nil {
+			t.Fatalf("capturing: %v", err)
+		}
+		with, err := b.Screen(ctx, name, backend.ScreenOpts{HistoryLines: 500})
+		if err != nil {
+			t.Fatalf("capturing with history: %v", err)
+		}
+		if without.Text == with.Text {
+			// Both must already carry the scrolled-off lines, which is why the
+			// request has nothing left to do.
+			if !strings.Contains(without.Text, "h-1\n") {
+				t.Errorf("the default capture does not reach back to the first line, so it is not full scrollback")
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("requesting history changed the output, but on this backend it must be a no-op. "+
+				"Without:\n%s\nWith:\n%s", without.Text, with.Text)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

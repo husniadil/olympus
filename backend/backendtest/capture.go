@@ -41,16 +41,6 @@ func captureCases() []Case {
 				}
 				e.WaitFor(target, "ln-200")
 
-				// Settle first. Comparing two captures of a live session
-				// otherwise asserts that the shell did not repaint between
-				// them, which fails intermittently and has nothing to do with
-				// the rule under test.
-				visible := e.Quiesce(target)
-				withHistory, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{HistoryLines: 500})
-				if err != nil {
-					e.T.Fatalf("capturing with history: %v", err)
-				}
-
 				if e.Backend.Capabilities().NativeScrollback {
 					// A backend whose capture is already full scrollback has
 					// no separate viewport mode to opt into, so BOTH states
@@ -58,13 +48,48 @@ func captureCases() []Case {
 					// regression guard §5.2 asks for: a backend that started
 					// honouring the request would be silently changing what
 					// every existing caller gets back.
-					if visible != withHistory.Text {
-						e.T.Errorf("this backend reports native scrollback, so requesting history must be a no-op, but the two captures differ")
+					//
+					// The two captures are taken as a PAIR and the pair is
+					// retried, because byte-equality ACROSS TIME is not what
+					// the rule says. Both calls read a live session, and a
+					// live session repaints between any two reads — the prompt
+					// lands after the last line of output, a line is redrawn.
+					// Settling before the first read cannot promise the second
+					// read sees the same screen, so one disagreeing pair is a
+					// race rather than evidence. Every pair disagreeing for a
+					// whole budget is the backend honouring a request it must
+					// ignore, which is the regression this exists to catch.
+					deadline := time.Now().Add(e.budgets.Screen)
+					for {
+						visible := e.Screen(target).Text
+						withHistory, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{HistoryLines: 500})
+						if err != nil {
+							e.T.Fatalf("capturing with history: %v", err)
+						}
+						if visible == withHistory.Text {
+							if !strings.Contains(visible, "ln-1\n") {
+								e.T.Errorf("a native-scrollback capture does not contain the first line")
+							}
+							return
+						}
+						if time.Now().After(deadline) {
+							e.T.Errorf("this backend reports native scrollback, so requesting history must be a no-op, "+
+								"but no pair of captures agreed within the budget. Without history:\n%s\nWith history:\n%s",
+								visible, withHistory.Text)
+							return
+						}
+						time.Sleep(e.budgets.Poll)
 					}
-					if !strings.Contains(visible, "ln-1\n") {
-						e.T.Errorf("a native-scrollback capture does not contain the first line")
-					}
-					return
+				}
+
+				// Settle first. Comparing the visible screen with a history
+				// capture otherwise asserts that the shell did not repaint
+				// between them, which fails intermittently and has nothing to
+				// do with the rule under test.
+				visible := e.Quiesce(target)
+				withHistory, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{HistoryLines: 500})
+				if err != nil {
+					e.T.Fatalf("capturing with history: %v", err)
 				}
 
 				if strings.Contains(visible, "ln-1\n") {

@@ -2320,6 +2320,26 @@ Beyond §2.9's isolation rules:
   expansion is ABSENT instead; that is the only evidence execution leaves, and
   it is unaffected by how many times the source line was typed.
 
+- **A probe that must survive a resend is ONE simple command, never a sequence.**
+  §7.4's resend types the same text a second time onto a line that still holds
+  the first (§4.4), so the shell runs the concatenation. A sequence doubled that
+  way ends in a complete trailing copy of its LAST command, which runs on its
+  own: `sh -c 'exit 3'; echo MARK:$?` twice over prints `MARK:3sh -c exit 3`
+  and then `MARK:0`, so the newest marker on screen carries a code no command
+  returned. Measured identically in sh, bash and zsh. Doubling ONE simple
+  command glues into its argument list instead, where the assertion still
+  holds: `printf 'MARK:%d\n' 3` twice over prints `MARK:0`, `MARK:0`, `MARK:3`,
+  and the last marker is still the requested one.
+
+- **Two captures of a live session are never equal by settling; retry the
+  PAIR.** A rule that compares captures — history against viewport on a
+  native-scrollback backend, for instance — is asserting a property of one
+  screen, but reads two, and the session repaints between them: a prompt lands
+  after the last line of output, a row is redrawn. Settling before the first
+  read says nothing about the second. Take both, retry the pair while they
+  disagree, and fail only when no pair agrees within the budget — one
+  disagreeing pair is the race, a whole budget of them is the defect.
+
 - **Anchor sessions on a shared tmux socket.** Killing the last session on a
   socket tears down the whole server, so tests that kill sessions MUST keep an
   anchor session alive.
