@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.2]
+
 ### Changed
 
 - The conformance suite's shell-warming probe (`backendtest.Env.Warm`) now goes
