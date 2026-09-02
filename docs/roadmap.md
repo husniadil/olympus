@@ -27,7 +27,9 @@ deliberately not hidden inside it:
   and the slot is arbitrated across real processes including a holder killed
   with SIGKILL. What is still exercised only by hand is a HUMAN attaching —
   keystroke feel, detach keys, and how a full-screen program looks to a person.
-- **CI runs all three backends on both platforms**, and found defects across
+- **CI runs every backend on Linux** (macOS was dropped from the matrix for
+  cost; the darwin build is still proved by the cross-compile check in the
+  gate), and found defects across
   its first runs — nearly every one a test that was wrong about its environment
   rather than a bug in the code under it. tmux is covered at the
   3.3 floor and at each platform's system version; zmx at 0.6.0 (the floor) and
@@ -199,7 +201,7 @@ that a legacy `initialize` still negotiates and serves the same tools.
 
 ## Phase 9 — release readiness
 
-- CI: macOS and Linux, tmux matrix, zmx leg skipping loudly when absent.
+- CI: Linux, tmux matrix, zmx leg skipping loudly when absent.
 - README with the three doors at equal billing, opening on a quickstart.
 - CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue and PR templates.
 - Shell completions and man pages generated from the CLI.

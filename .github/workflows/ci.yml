@@ -16,33 +16,34 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} · tmux ${{ matrix.tmux }} · zmx ${{ matrix.zmx }} · meja ${{ matrix.meja }} · herdr ${{ matrix.herdr }}
-    runs-on: ${{ matrix.os }}
+    name: tmux ${{ matrix.tmux }} · zmx ${{ matrix.zmx }} · meja ${{ matrix.meja }} · herdr ${{ matrix.herdr }}
+    # Linux only. macOS minutes cost ten times as much, and the darwin build is
+    # already proved by the cross-compile check inside `make test-full`; what a
+    # macOS runner added was the conformance suite on a second kernel, which is
+    # what a developer machine runs before every commit.
+    runs-on: ubuntu-latest
     # A hung test would otherwise burn the default six hours. This is not
     # hypothetical: `doctor` could hang forever on a backend binary that never
     # answered, and the local run that found it sat at 600s before anyone looked.
     # The full gate takes ~100s on a developer machine.
     timeout-minutes: 20
     strategy:
-      # One backend or platform failing should not hide the others: the whole
-      # point of the matrix is knowing WHICH combination broke.
+      # One backend failing should not hide the others: the whole point of the
+      # matrix is knowing WHICH combination broke.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         tmux: [system]
         zmx: ["0.7.0"]
         meja: ["0.0.26"]
         herdr: ["0.8.2"]
         include:
-          # The floor is tmux 3.3, for allow-passthrough. Building it is only
-          # worth the CI minutes on one platform.
+          # The floor is tmux 3.3, for allow-passthrough.
           #
           # That leg carries the zmx floor too, so the two versions this repo
           # names — the oldest supported and the newest released — are each
           # exercised somewhere rather than only the one a developer happens to
           # have installed.
-          - os: ubuntu-latest
-            tmux: "3.3"
+          - tmux: "3.3"
             zmx: "0.6.0"
             meja: "0.0.25"
             # herdr's floor and its newest release are the same version today,
@@ -61,11 +62,7 @@ jobs:
       - name: Install tmux (system)
         if: matrix.tmux == 'system'
         run: |
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            brew install tmux
-          else
-            sudo apt-get update && sudo apt-get install -y tmux
-          fi
+          sudo apt-get update && sudo apt-get install -y tmux
           tmux -V
 
       - name: Build tmux ${{ matrix.tmux }} (the version floor)
@@ -105,8 +102,7 @@ jobs:
             echo "::warning::meja could not be installed on this runner; its conformance leg is SKIPPED, not passing"
           fi
 
-      # herdr publishes a bare prebuilt executable per platform, and the two it
-      # builds for Unix are exactly the two this matrix runs on. Pinned to a
+      # herdr publishes a bare prebuilt executable per platform. Pinned to a
       # release TAG rather than to `latest`, for the reason recorded in
       # CLAUDE.md: `@latest` once moved meja across a structural change and the
       # gate changed subject without a commit.
@@ -121,17 +117,13 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          case "$RUNNER_OS" in
-            macOS) platform=macos ;;
-            Linux) platform=linux ;;
-          esac
           case "$(uname -m)" in
             arm64 | aarch64) arch=aarch64 ;;
             x86_64) arch=x86_64 ;;
           esac
           mkdir -p "$HOME/.local/bin"
           curl -fsSL -o "$HOME/.local/bin/herdr" \
-            "https://github.com/herdrdev/herdr/releases/download/v${{ matrix.herdr }}/herdr-${platform}-${arch}"
+            "https://github.com/herdrdev/herdr/releases/download/v${{ matrix.herdr }}/herdr-linux-${arch}"
           chmod +x "$HOME/.local/bin/herdr"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
@@ -147,9 +139,8 @@ jobs:
           fi
 
       # zmx is not in any runner's package manager, but it publishes a prebuilt
-      # binary per platform — and the two it builds are exactly the two this
-      # matrix runs on. Without this the DEFAULT backend was the only one CI
-      # never touched, which is the worst possible one to leave unproven.
+      # binary per platform. Without this the DEFAULT backend was the only one
+      # CI never touched, which is the worst possible one to leave unproven.
       #
       # Allowed to fail, like meja: a third-party download that breaks must not
       # take the gate with it, and the leg below says plainly when it is absent.
@@ -157,10 +148,6 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          case "$RUNNER_OS" in
-            macOS) platform=macos ;;
-            Linux) platform=linux ;;
-          esac
           case "$(uname -m)" in
             arm64 | aarch64) arch=aarch64 ;;
             x86_64) arch=x86_64 ;;
@@ -168,7 +155,7 @@ jobs:
           # Into RUNNER_TEMP, not the checkout: an untracked tarball in the repo
           # root is a dirty tree, which is harmless here but broke the first
           # release tag outright. Same reason both places, so same handling.
-          name="zmx-${{ matrix.zmx }}-${platform}-${arch}.tar.gz"
+          name="zmx-${{ matrix.zmx }}-linux-${arch}.tar.gz"
           base="https://github.com/neurosnap/zmx/releases/download/v${{ matrix.zmx }}"
           curl -fsSL -o "$RUNNER_TEMP/$name" "$base/$name"
           cd "$RUNNER_TEMP"
@@ -177,11 +164,7 @@ jobs:
           # the file by the build machine's own cache path, so `-c` would look
           # for ./.zig-cache/o/<hash>/... and fail on a file that is fine.
           expected=$(curl -fsSL "$base/$name.sha256" | awk '{print $1}')
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            actual=$(shasum -a 256 "$name" | awk '{print $1}')
-          else
-            actual=$(sha256sum "$name" | awk '{print $1}')
-          fi
+          actual=$(sha256sum "$name" | awk '{print $1}')
           [ "$expected" = "$actual" ] || { echo "sha256 mismatch: want $expected, got $actual"; exit 1; }
 
           mkdir -p "$HOME/.local/bin"
