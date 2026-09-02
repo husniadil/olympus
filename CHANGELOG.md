@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.4]
+
+### Fixed
+
+- **A herdr pane id past the ninth allocation was not recognised as one.**
+  herdr spells every public id — workspace, tab and pane — as a base-32 number
+  over the alphabet `123456789ABCDEFGHJKMNPQRSTVWXYZ0`: digits for the first
+  nine, letters from the tenth, so the tenth workspace is `wA` and the tenth
+  pane of a workspace is `w1:pA`. The workspace counter also survives a server
+  restart. The pane-id predicate read digits alone, so on any server that had
+  lived long enough a real id such as `w4Y:p1` (workspace 158) was taken for a
+  session name: `start` accepted it as one, and the pane-id branch of target
+  resolution never ran for it. Both segments now accept the alphabet, and the
+  spelling is recorded in the behavior specification, §10.
+
+- The window index of a herdr pane was 0 from the tenth tab onward, for the
+  same reason: the tab segment was parsed as decimal. It is now decoded with
+  the same alphabet, exported as `backend.PublicNumber`, so `w1:tA` reports
+  window 10. Measured on a private server by creating nine tabs.
+
+- The herdr package comment still described listing as reporting only the
+  panes that carry a label; every pane is listed, under its label or its id
+  (§3.4).
+
 ## [0.2.3]
 
 ### Fixed
@@ -303,7 +327,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/husniadil/olympus/releases/tag/v0.2.4
 [0.2.3]: https://github.com/husniadil/olympus/releases/tag/v0.2.3
 [0.2.2]: https://github.com/husniadil/olympus/releases/tag/v0.2.2
 [0.2.1]: https://github.com/husniadil/olympus/releases/tag/v0.2.1

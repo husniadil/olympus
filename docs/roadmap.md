@@ -1,7 +1,7 @@
 # Implementation roadmap
 
 Ordered phases from an empty module to a releasable v0.1.0, the first of the cut
-releases; the latest is v0.2.3. Each phase is a checkpoint: it ends green, it
+releases; the latest is v0.2.4. Each phase is a checkpoint: it ends green, it
 ends committed, and it ends with the specs updated if implementation disproved
 them.
 
@@ -43,7 +43,7 @@ deliberately not hidden inside it:
   changed subject without a commit, and this line was briefly wrong about what
   CI had run. The floor leg is also what keeps the transient-client path
   covered now that the newest release no longer takes it.
-- **v0.1.0 is cut**, and every release after it through v0.2.3, from a tag and
+- **v0.1.0 is cut**, and every release after it through v0.2.4, from a tag and
   nowhere else: the version every door reports is stamped from it, so a build
   from anything but a tag would publish binaries that misreport what they are.
   The release workflow installs all four backends and refuses to proceed if any is
