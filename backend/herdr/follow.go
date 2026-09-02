@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/husniadil/olympus/backend"
@@ -61,8 +62,12 @@ func (h *Herdr) Follow(ctx context.Context, target string) (io.ReadCloser, error
 // decodeFrames turns the envelope stream into the bytes the frames carry.
 //
 // A frame that does not decode is skipped rather than fatal: the stream also
-// carries non-frame envelopes (a server shutdown notice, for one), and killing
-// a follow because it saw one would drop output the caller is still owed.
+// carries non-frame envelopes, and killing a follow because it saw one would
+// drop output the caller is still owed. The one exception is the server's own
+// notice that it has stopped watching — a terminal that is gone, or a server on
+// its way down — which the client exits 0 after printing. That ends the stream
+// with the reason rather than with a clean EOF, so "no more output" and "no
+// longer watching" stay different answers.
 func decodeFrames(source io.Reader, sink *io.PipeWriter) {
 	scanner := bufio.NewScanner(source)
 	// A full repaint of a large pane is far past bufio's default 64 KiB line,
@@ -70,11 +75,16 @@ func decodeFrames(source io.Reader, sink *io.PipeWriter) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
 		var frame struct {
-			Type  string `json:"type"`
-			Bytes string `json:"bytes"`
+			Type   string `json:"type"`
+			Bytes  string `json:"bytes"`
+			Reason string `json:"reason"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &frame); err != nil {
 			continue
+		}
+		if frame.Type == "terminal.closed" {
+			_ = sink.CloseWithError(fmt.Errorf("the follow was ended by the server: %s", frame.Reason))
+			return
 		}
 		if frame.Type != "terminal.frame" {
 			continue

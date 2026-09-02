@@ -82,6 +82,10 @@ type Herdr struct {
 	// be a box's own headless herdr, an operator's, or one an earlier Olympus
 	// process left behind, and none of those are ours to stop.
 	started bool
+	// serverExited is set when the child this handle spawned has exited with
+	// an error, which a server of its own never does: it lost the start to
+	// somebody else's server, and the one answering is not ours to claim.
+	serverExited bool
 }
 
 // startedTheServer reports whether this handle brought the answering server up.
@@ -91,10 +95,32 @@ func (h *Herdr) startedTheServer() bool {
 	return h.started
 }
 
+// noteStarted records the answering server as this handle's own, unless the
+// child it spawned has already died — in which case the answer is somebody
+// else's. Both facts are read and written under one lock so the order in which
+// the child's exit and the server's first answer are observed cannot leave the
+// claim standing.
 func (h *Herdr) noteStarted() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.started = true
+	if !h.serverExited {
+		h.started = true
+	}
+}
+
+// noteSpawning clears the record of a lost start, so a handle that lost once
+// and starts again on a socket gone empty can claim the server it brings up.
+func (h *Herdr) noteSpawning() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.serverExited = false
+}
+
+func (h *Herdr) noteServerExited() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.serverExited = true
+	h.started = false
 }
 
 // An Option configures a backend.
@@ -328,6 +354,7 @@ type paneRow struct {
 	Tokens        map[string]string `json:"tokens"`
 	Scroll        *struct {
 		OffsetFromBottom int `json:"offset_from_bottom"`
+		ViewportRows     int `json:"viewport_rows"`
 	} `json:"scroll"`
 }
 
@@ -755,11 +782,13 @@ func AmbientSocketPath() string {
 //
 // herdr publishes a pane's ID to the pane but not its label, so a process that
 // wants to name its own session has to ask the server — of the socket it is
-// actually inside, which is what AmbientSocketPath answers.
+// actually inside, which is what AmbientSocketPath answers. The answer is the
+// same name a listing gives the pane, so an unlabelled one is named by its id
+// here too rather than by nothing.
 func (h *Herdr) SessionOf(ctx context.Context, paneID string) (string, error) {
 	row, err := h.resolvePane(ctx, paneID)
 	if err != nil {
 		return "", err
 	}
-	return row.Label, nil
+	return displayName(row), nil
 }

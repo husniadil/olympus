@@ -1254,9 +1254,12 @@ is still producing output above them.
   ceiling is unknown. A command producing enough output to scroll its own
   sentinel past whatever depth zmx retains can still be missed. No workaround.
 - **herdr**: the depth IS requestable, and capped at 1,000 lines by the server
-  rather than by Olympus. A larger request is not refused — it is silently
-  clamped — so Olympus clamps it too, and discloses the clamp (§0.8), rather
-  than asking for a number it will not get. The growing window still works
+  rather than by Olympus. The server counts those lines from the bottom of the
+  grid, visible screen included, while a depth here is scrollback *above* the
+  screen — so Olympus adds the viewport height before asking, and the history
+  actually available at the cap is 1,000 less the viewport. A larger request is
+  not refused — it is silently clamped — so Olympus clamps it too, and
+  discloses the clamp (§0.8), rather than asking for a number it will not get. The growing window still works
   below the cap; above it, the remedy tmux offers does not exist.
 
 Above the cap, §6.2's relaxation recovers the run whenever the completion is

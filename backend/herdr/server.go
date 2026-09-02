@@ -35,6 +35,22 @@ func (h *Herdr) ensureServer(ctx context.Context) error {
 		// rather than a change (§17.5).
 		return nil
 	}
+	return h.startServer(ctx)
+}
+
+// startServer boots a server on this backend's socket and waits for it to
+// answer.
+//
+// Ownership is recorded only once the server answers, and withdrawn again if
+// the child exits with an error: two handles can each see an empty socket and
+// each spawn, and herdr refuses the second with "already running". A server
+// this handle started never exits with an error on its own, so a child that
+// does was never the one answering — and the server that IS answering belongs
+// to whoever won. There is nothing in herdr's API that names the answering
+// server's process, so this is the closest an honest record can get; a Stop
+// issued before the loser has exited still reaches the winner, and the window
+// is the child's own startup.
+func (h *Herdr) startServer(ctx context.Context) error {
 	if err := h.writeManagedConfig(); err != nil {
 		return err
 	}
@@ -46,18 +62,23 @@ func (h *Herdr) ensureServer(ctx context.Context) error {
 	// server that died when the caller pressed Ctrl-C would take every session
 	// on it down too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	h.noteSpawning()
 	if err := cmd.Start(); err != nil {
 		return backend.Wrapf(backend.CodeBackendUnavailable, err, "starting a herdr server at %s", h.socketPath)
 	}
 	// Reaped rather than waited on: the server is meant to outlive this
 	// process, and leaving it unwaited would leave a zombie behind for as long
 	// as the caller runs.
-	go func() { _ = cmd.Wait() }()
-	h.noteStarted()
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			h.noteServerExited()
+		}
+	}()
 
 	deadline := time.Now().Add(serverStartBudget())
 	for {
 		if h.serverAnswers(ctx) {
+			h.noteStarted()
 			return nil
 		}
 		if time.Now().After(deadline) {

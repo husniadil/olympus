@@ -7,7 +7,10 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
-// readLineCap is the deepest history herdr will return.
+// readLineCap is the most lines herdr will return in one read, the visible
+// screen INCLUDED: its `--lines` counts up from the bottom of the grid rather
+// than from the top of the screen, so the history behind the screen is this
+// less the viewport height.
 //
 // A larger request is not an error: the server clamps it silently
 // (src/app/api_helpers.rs:117). Clamping here too keeps the number Olympus
@@ -28,7 +31,15 @@ func (h *Herdr) Screen(ctx context.Context, target string, opts backend.ScreenOp
 		// requested depth. It is not the default here because the default has
 		// a depth of its own — 80 lines — and a caller who asked for the
 		// visible screen would silently get history they did not want.
+		//
+		// The depth is scrollback ABOVE the screen, and herdr counts from the
+		// bottom of the grid, so the viewport is added before asking. Handing
+		// the depth over verbatim returned fewer lines than a plain capture
+		// whenever it was shorter than the screen. Measured.
 		lines := opts.HistoryLines
+		if row.Scroll != nil {
+			lines += row.Scroll.ViewportRows
+		}
 		if lines > readLineCap {
 			lines = readLineCap
 		}

@@ -108,7 +108,8 @@ var degradations = map[backend.Name]map[operation][]string{
 // above the cap really does come back short, and only that one is disclosed.
 var depthCaps = map[backend.Name]int{
 	// The server clamps silently at 1,000 lines, so Olympus clamps there too
-	// and says when a request was reduced (§6.4).
+	// and says when a request was reduced (§6.4). The 1,000 includes the
+	// visible screen, so a request at the cap is already over it.
 	backend.Herdr: 1000,
 }
 

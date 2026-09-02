@@ -557,3 +557,121 @@ func attachAndType(t *testing.T, b *Herdr, target, marker string) {
 	}
 	waitForScreen(t, b, target, marker+"-3")
 }
+
+// §5.2 A history depth counts scrollback ABOVE the visible screen.
+//
+// herdr's own `--lines` counts from the bottom of the grid, screen included, so
+// handing it the requested depth verbatim returned FEWER lines than a plain
+// capture whenever the depth was shorter than the viewport. Measured before
+// the fix: a 39-row screen, a request for 10 lines of history, 10 lines back.
+func TestAHistoryDepthIsCountedAboveTheVisibleScreen(t *testing.T) {
+	b := liveBackend(t)
+	ctx := context.Background()
+	const name = "oly-history-depth"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Cols: 80, Rows: 24}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Kill(context.Background(), name) })
+	warmShell(t, b, name)
+	if err := b.SendAtomic(ctx, name, `clear; for i in $(seq 1 60); do echo depth-$i; done`); err != nil {
+		t.Fatalf("SendAtomic: %v", err)
+	}
+	waitForScreen(t, b, name, "depth-60")
+
+	visible, err := b.Screen(ctx, name, backend.ScreenOpts{})
+	if err != nil {
+		t.Fatalf("Screen: %v", err)
+	}
+	withHistory, err := b.Screen(ctx, name, backend.ScreenOpts{HistoryLines: 5})
+	if err != nil {
+		t.Fatalf("Screen with history: %v", err)
+	}
+	count := func(s string) int { return len(strings.Split(strings.TrimRight(s, "\n"), "\n")) }
+	if got, want := count(withHistory.Text), count(visible.Text); got < want {
+		t.Errorf("5 lines of history returned %d lines, fewer than the %d-line visible screen", got, want)
+	}
+	if !strings.Contains(withHistory.Text, "depth-60") {
+		t.Error("a capture with history lost the bottom of the visible screen")
+	}
+}
+
+// §5.6 A follow that the server ends is an error, never a clean end of stream.
+//
+// The observe stream carries a `terminal.closed` envelope when the terminal is
+// gone or the server is shutting down, and it exits 0 having said so. Skipping
+// it with the other non-frame envelopes handed the caller io.EOF, which reads
+// as "no more output" when the truth was "no longer watching".
+func TestAClosedFollowReportsWhyItEnded(t *testing.T) {
+	t.Parallel()
+	frames := `{"type":"terminal.frame","bytes":"aGVsbG8="}` + "\n" +
+		`{"type":"terminal.closed","reason":"terminal target term_x not found"}` + "\n"
+	reader, writer := io.Pipe()
+	go decodeFrames(strings.NewReader(frames), writer)
+	got, err := io.ReadAll(reader)
+	if string(got) != "hello" {
+		t.Errorf("frames before the close decoded to %q, want %q", got, "hello")
+	}
+	if err == nil || !strings.Contains(err.Error(), "term_x not found") {
+		t.Errorf("a closed follow ended with %v, want the server's reason", err)
+	}
+}
+
+// §3.4 A process inside an unlabelled pane is told the same name a listing
+// gives that pane: its id. Answering with nothing would have `self` inside a
+// pane and `ls` outside it disagree about what the pane is called.
+func TestSessionOfAnUnlabelledPaneIsItsID(t *testing.T) {
+	b := liveBackend(t)
+	created := raw(t, b, "workspace", "create", "--no-focus")
+	var reply struct {
+		Result struct {
+			RootPane struct {
+				PaneID string `json:"pane_id"`
+			} `json:"root_pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(created), &reply); err != nil || reply.Result.RootPane.PaneID == "" {
+		t.Fatalf("workspace create answered no root pane id: %v\n%s", err, created)
+	}
+	target := reply.Result.RootPane.PaneID
+	t.Cleanup(func() { _ = b.Kill(context.Background(), target) })
+
+	name, err := b.SessionOf(context.Background(), target)
+	if err != nil {
+		t.Fatalf("SessionOf(%s): %v", target, err)
+	}
+	if name != target {
+		t.Errorf("SessionOf(%s) = %q, want the pane id", target, name)
+	}
+}
+
+// §2.9 A handle that LOST the race to start a server has not started one.
+//
+// Two handles on one empty socket both see nothing answering and both spawn a
+// server; herdr refuses the second with "already running" and it exits. Before
+// the fix the loser had already recorded the server as its own, so its Stop
+// would have taken the winner's server down with every pane on it. This drives
+// the loser's spawn directly against a server that is already up, which is
+// exactly the state the race leaves it in.
+func TestALostStartRaceDoesNotClaimTheServer(t *testing.T) {
+	owner := liveBackend(t)
+	ctx := context.Background()
+	loser := New(WithSocketPath(owner.socketPath))
+
+	if err := loser.startServer(ctx); err != nil {
+		t.Fatalf("startServer against a live socket: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for loser.startedTheServer() && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if loser.startedTheServer() {
+		t.Fatal("the handle whose server exited still claims to have started the one answering")
+	}
+	err := loser.Stop(ctx)
+	if !errors.Is(err, backend.ErrConflict) {
+		t.Errorf("Stop from the loser is %v, want %q", err, backend.CodeConflict)
+	}
+	if !owner.serverAnswers(ctx) {
+		t.Fatal("the winner's server is gone")
+	}
+}
