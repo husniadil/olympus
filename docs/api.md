@@ -464,9 +464,11 @@ never a fake zero. Consumers branch on `status` first.
 
 The identifier is spelled **`command_id` coming back and `id` going in** on the
 MCP door: `start_run` returns the first, `poll_run` takes the second. Both are
-shipped and therefore fixed (§7), so the asymmetry is documented rather than
-corrected — renaming either would break every client that already pairs them.
-The CLI takes the id positionally and has no such split.
+shipped and therefore fixed (§7), so neither is renamed — that would break every
+client that already pairs them. `poll_run` also accepts **`command_id`** as an
+alias for `id`, so a caller can hand back exactly what `start_run` returned;
+when both are sent, `id` wins. The CLI takes the id positionally and has no such
+split.
 
 **View row** (`view create`, `view ls`):
 
