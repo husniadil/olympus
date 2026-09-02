@@ -14,6 +14,8 @@ import (
 func (a *App) attachCmd() *cobra.Command {
 	var viewer bool
 	var keepOthers bool
+	var client bool
+	var bare bool
 	var cols, rows int
 
 	cmd := &cobra.Command{
@@ -22,6 +24,7 @@ func (a *App) attachCmd() *cobra.Command {
 		Long: "Hand this terminal to a session until you detach.\n\n" +
 			"Detaching is the multiplexer's own key, not this terminal's: Ctrl+C is forwarded into the session rather than interpreted here.\n\n" +
 			"Other clients are displaced by default; use --keep-others to co-attach instead.\n\n" +
+			"SESSION CLIENT (herdr): --client attaches herdr's own session client, with mouse selection, scroll and copy, instead of the raw per-pane stream; the target is then a herdr SESSION name rather than an Olympus pane. --bare adds that client with its chrome hidden, so it renders as a plain pane, and implies --client.\n\n" +
 			"EXIT CODE: once the session is confirmed to exist, this hands off to the multiplexer's own client and exits with ITS status. An exit of 3 here is not necessarily a missing session.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,22 +45,27 @@ func (a *App) attachCmd() *cobra.Command {
 					"attach hands this terminal to the session, so it has no --json form: "+
 						"drop --json to attach, or use `info` to ask about the session instead")
 			}
-			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
-				var opts []olympus.AttachOption
-				if viewer {
-					opts = append(opts, olympus.AsViewer())
-				}
-				if keepOthers {
-					opts = append(opts, olympus.KeepOtherClients())
-				}
-				if cols > 0 && rows > 0 {
-					opts = append(opts, olympus.AttachSize(cols, rows))
-				}
+			var opts []olympus.AttachOption
+			if viewer {
+				opts = append(opts, olympus.AsViewer())
+			}
+			if keepOthers {
+				opts = append(opts, olympus.KeepOtherClients())
+			}
+			if bare {
+				opts = append(opts, olympus.AsBare())
+			} else if client {
+				opts = append(opts, olympus.WithSessionClient())
+			}
+			if cols > 0 && rows > 0 {
+				opts = append(opts, olympus.AttachSize(cols, rows))
+			}
 
-				in, _ := a.In.(*os.File)
-				out, _ := a.Out.(*os.File)
-				errOut, _ := a.Err.(*os.File)
+			in, _ := a.In.(*os.File)
+			out, _ := a.Out.(*os.File)
+			errOut, _ := a.Err.(*os.File)
 
+			runAttach := func(s *olympus.Session) error {
 				code, err := s.Attach(cmd.Context(), in, out, errOut, opts...)
 				if err != nil {
 					return err
@@ -67,11 +75,31 @@ func (a *App) attachCmd() *cobra.Command {
 					return &exitCodeError{code: exitCode(code)}
 				}
 				return nil
+			}
+
+			// The session client addresses the backend's own named session,
+			// which lives outside Olympus's socket-addressed pane registry, so
+			// it must NOT go through withSession — that resolves the name to a
+			// pane and probes for it, and a herdr session name is neither. The
+			// backend's own client reports a missing session itself.
+			if client || bare {
+				ol, err := a.open()
+				if err != nil {
+					return err
+				}
+				defer ol.Close()
+				return runAttach(ol.OpenSessionName(args[0]))
+			}
+
+			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
+				return runAttach(s)
 			})
 		},
 	}
 	cmd.Flags().BoolVar(&viewer, "viewer", false, "attach read-only: no input, and no resizing")
 	cmd.Flags().BoolVar(&keepOthers, "keep-others", false, "co-attach instead of displacing other clients")
+	cmd.Flags().BoolVar(&client, "client", false, "attach the multiplexer's session client (selection, scroll, copy); target is a session name (herdr only)")
+	cmd.Flags().BoolVar(&bare, "bare", false, "attach the session client with its chrome hidden, as a plain pane; implies --client (herdr only)")
 	cmd.Flags().IntVar(&cols, "cols", 0, "initial width, for a caller whose stdin is not a terminal")
 	cmd.Flags().IntVar(&rows, "rows", 0, "initial height, for a caller whose stdin is not a terminal")
 	return cmd

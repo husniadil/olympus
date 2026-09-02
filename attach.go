@@ -39,6 +39,23 @@ func KeepOtherClients() AttachOption {
 	return func(s *backend.AttachSpec) { s.Supersede = false }
 }
 
+// WithSessionClient asks for the multiplexer's own session client — its own UI,
+// with selection, scrollback and copy — rather than a raw per-pane stream.
+//
+// Only herdr distinguishes the two; the other backends always hand their
+// session client, so this is a no-op there and Attach rejects it on a backend
+// that has no separate session client. When set, the target names the backend's
+// own session rather than an Olympus-resolved pane.
+func WithSessionClient() AttachOption {
+	return func(s *backend.AttachSpec) { s.SessionClient = true }
+}
+
+// AsBare asks for a chrome-hidden session client, rendered as a plain pane. It
+// implies WithSessionClient, since chrome is the session client's to hide.
+func AsBare() AttachOption {
+	return func(s *backend.AttachSpec) { s.SessionClient, s.Bare = true, true }
+}
+
 // Attach hands the caller's terminal to a session until the client exits, and
 // returns the CLIENT's exit code.
 //
@@ -49,6 +66,14 @@ func (s *Session) Attach(ctx context.Context, in, out *os.File, errOut *os.File,
 	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, Cols: DefaultCols, Rows: DefaultRows}
 	for _, opt := range opts {
 		opt(&spec)
+	}
+
+	// Only herdr has a separate session client; on every other backend the
+	// ordinary attach IS the session client, so asking for one there is a
+	// caller mistake rather than a silent no-op.
+	if spec.SessionClient && s.ol.Backend() != backend.Herdr {
+		return 0, backend.Errorf(backend.CodeUnsupported,
+			"the %s backend has no separate session client: its attach already hands you one", s.ol.Backend())
 	}
 
 	// The supersession handler is installed BEFORE anything else, so a steal

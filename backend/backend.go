@@ -114,6 +114,18 @@ type AttachSpec struct {
 	Supersede bool
 	Cols      int
 	Rows      int
+	// SessionClient asks for the multiplexer's own session client — with its
+	// selection, scrollback and copy — rather than a raw per-pane stream. Only
+	// herdr draws the distinction: its default attach is a bare terminal stream
+	// and its session client carries chrome, so the two are different clients.
+	// tmux, zmx and meja always hand their session client and ignore this
+	// field. When it is set the target names the backend's own session, which
+	// on herdr lives outside the socket-addressed panes Olympus resolves.
+	SessionClient bool
+	// Bare hides the session client's chrome so it renders as a plain pane. It
+	// is meaningful only together with SessionClient and only on a backend
+	// whose client draws chrome (herdr); elsewhere it is ignored.
+	Bare bool
 }
 
 // An Attachment is what to run in order to be attached, not something already
