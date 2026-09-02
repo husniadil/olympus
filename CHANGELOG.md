@@ -6,7 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.3]
+
 ### Fixed
+
+- **A history depth on herdr returned fewer lines than no history at all.**
+  herdr's `--lines` counts up from the bottom of the grid, visible screen
+  included, while a depth is scrollback above the screen — so a request
+  shorter than the viewport came back shorter than a plain capture. The
+  viewport height is now added before asking. The server's cap of 1,000 lines
+  includes the screen, so the history behind it is 1,000 less the viewport;
+  recorded in the behavior specification, §6.4.
+
+- A follow on herdr that the server ended — the terminal closed, or the server
+  shutting down — reached the caller as a clean end of stream. It now ends
+  with the server's own reason, so "no more output" and "no longer watching"
+  are different answers.
+
+- `self` inside an unlabelled herdr pane reported no session name, while a
+  listing outside named that pane by its id. Both now give the id.
+
+- A herdr handle that lost the race to start a server on an empty socket still
+  recorded that server as its own, so its `Stop` would have taken somebody
+  else's server down with every pane on it. Ownership is now recorded once the
+  server answers and withdrawn when the spawned child exits with an error.
 
 - A detached poll never disclosed a backend's read-depth cap on its own default
   window. The disclosure was computed from the raw `--lines` option, which is
@@ -280,7 +303,9 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/husniadil/olympus/releases/tag/v0.2.3
+[0.2.2]: https://github.com/husniadil/olympus/releases/tag/v0.2.2
 [0.2.1]: https://github.com/husniadil/olympus/releases/tag/v0.2.1
 [0.2.0]: https://github.com/husniadil/olympus/releases/tag/v0.2.0
 [0.1.2]: https://github.com/husniadil/olympus/releases/tag/v0.1.2
