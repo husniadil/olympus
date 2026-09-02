@@ -57,15 +57,26 @@ func IndexedPaneID(target string) bool {
 const publicNumberAlphabet = "123456789ABCDEFGHJKMNPQRSTVWXYZ0"
 
 func publicNumber(s string) bool {
+	_, ok := PublicNumber(s)
+	return ok
+}
+
+// PublicNumber decodes one id segment: "1" is 1, "9" is 9, "A" is 10, "0" is
+// 32, "11" is 33. It lives beside the shape so the alphabet has one home; a
+// second copy is where the two would silently stop agreeing.
+func PublicNumber(s string) (int, bool) {
 	if s == "" {
-		return false
+		return 0, false
 	}
+	n := 0
 	for i := 0; i < len(s); i++ {
-		if !strings.ContainsRune(publicNumberAlphabet, rune(s[i])) {
-			return false
+		digit := strings.IndexByte(publicNumberAlphabet, s[i])
+		if digit < 0 {
+			return 0, false
 		}
+		n = n*len(publicNumberAlphabet) + digit + 1
 	}
-	return true
+	return n, true
 }
 
 func allDigits(s string) bool {

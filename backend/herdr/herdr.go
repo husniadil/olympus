@@ -7,9 +7,10 @@
 // One structural difference shapes most of this file. herdr's server owns
 // workspaces, tabs and panes rather than sessions, and a pane's process is the
 // shell its own configuration names — there is no per-pane argv anywhere in its
-// request vocabulary. So an Olympus session is a NAMED PANE: creation makes a
-// workspace and labels its root pane, listing reports the panes that carry a
-// label, and a command at creation is refused rather than typed (§2.3.1).
+// request vocabulary. So an Olympus session is a PANE: creation makes a
+// workspace and labels its root pane, listing reports every pane under its
+// label or, where it has none, its pane id (§3.4), and a command at creation
+// is refused rather than typed (§2.3.1).
 package herdr
 
 import (
@@ -474,14 +475,15 @@ func (h *Herdr) Panes(ctx context.Context, target string) ([]backend.Pane, error
 }
 
 // tabIndex reads the window index out of a tab id, which herdr spells
-// "w<workspace>:t<tab>".
+// "w<workspace>:t<tab>" with the tab as a public number: the tenth tab is
+// "tA", and a decimal parse there answered 0 (§3.4).
 func tabIndex(tabID string) int {
 	_, tab, found := strings.Cut(tabID, ":t")
 	if !found {
 		return 0
 	}
-	n, err := strconv.Atoi(tab)
-	if err != nil {
+	n, ok := backend.PublicNumber(tab)
+	if !ok {
 		return 0
 	}
 	return n

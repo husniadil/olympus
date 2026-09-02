@@ -675,3 +675,49 @@ func TestALostStartRaceDoesNotClaimTheServer(t *testing.T) {
 		t.Fatal("the winner's server is gone")
 	}
 }
+
+// §3.4 The window index of a pane in the tenth tab is 10, not 0.
+//
+// herdr spells a tab number as a public number, so the tenth tab of a
+// workspace is "w1:tA". Measured on a private server.
+func TestTheTenthTabHasWindowIndexTen(t *testing.T) {
+	b := liveBackend(t)
+	ctx := context.Background()
+
+	created, err := b.Create(ctx, backend.CreateSpec{Name: "tabs"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var tenth string
+	for i := 0; i < 9; i++ {
+		out := raw(t, b, "tab", "create", "--workspace", strings.SplitN(created.ID, ":", 2)[0])
+		var reply struct {
+			Result struct {
+				Tab struct {
+					TabID string `json:"tab_id"`
+				} `json:"tab"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(out), &reply); err != nil || reply.Result.Tab.TabID == "" {
+			t.Fatalf("tab create answered no tab id: %v\n%s", err, out)
+		}
+		tenth = reply.Result.Tab.TabID
+	}
+	if !strings.HasSuffix(tenth, ":tA") {
+		t.Fatalf("the tenth tab is %q, expected it to be spelled tA", tenth)
+	}
+
+	panes, err := b.Panes(ctx, "")
+	if err != nil {
+		t.Fatalf("Panes: %v", err)
+	}
+	var found bool
+	for _, p := range panes {
+		if strings.HasPrefix(p.ID, strings.TrimSuffix(tenth, "tA")) && p.WindowIndex == 10 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no pane reports window index 10 for tab %s; rows: %+v", tenth, panes)
+	}
+}

@@ -158,3 +158,21 @@ func TestIndexedPaneIDAcceptsHerdrsPublicNumbers(t *testing.T) {
 		}
 	}
 }
+
+// §3.4: a herdr tab number is a public number too, so the tenth tab is "tA".
+// A window index read with a decimal parser is 0 from there on, which is a
+// plausible wrong answer rather than a loud one.
+func TestPublicNumberDecodesHerdrsAlphabet(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]int{"1": 1, "9": 9, "A": 10, "Z": 31, "0": 32, "11": 33, "4Y": 158} {
+		got, ok := backend.PublicNumber(in)
+		if !ok || got != want {
+			t.Errorf("PublicNumber(%q) = %d, %v; want %d, true", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"", "a", "I", "1I", "-1", "t1"} {
+		if got, ok := backend.PublicNumber(in); ok {
+			t.Errorf("PublicNumber(%q) = %d, true; want false", in, got)
+		}
+	}
+}
