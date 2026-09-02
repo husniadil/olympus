@@ -1121,3 +1121,136 @@ func TestTheREADMEJQPipelineWouldFindNames(t *testing.T) {
 		t.Errorf("`.data[].name` would not have found the session that exists: %v", rows)
 	}
 }
+
+// The output a run has to produce to push its own start marker out of the
+// deepest window the run will ask for. tmux keeps 50,000 lines of history, so
+// the completion marker is still there to be read — it is the WINDOW that
+// cannot reach the start, which is the case §6.2's relaxation is for.
+const linesPastTheRunWindow = "seq 1 12000"
+
+func disclosesTruncation(warnings []olympus.Warning) bool {
+	for _, w := range warnings {
+		if strings.Contains(w.Message, "output begins partway through") {
+			return true
+		}
+	}
+	return false
+}
+
+// §6.2: a run that recovered its exit code without its start marker owes the
+// caller a disclosure, and the door is where that disclosure either reaches
+// them or is dropped. The ergonomic layer produced it correctly while the CLI
+// passed nil in its place, so nothing below this line could have caught it.
+func TestATruncatedRunDisclosesItselfOnBothPaths(t *testing.T) {
+	flags := isolation(t)
+	target := name()
+	if got := run(t, append(flags, "start", target)...); got.code != 0 {
+		t.Fatalf("start: exit %d, stderr %q", got.code, got.stderr)
+	}
+	t.Cleanup(func() { run(t, append(flags, "stop", target, "--force")...) })
+
+	// Warm the shell, or the injected line lands before it is reading (§16).
+	if got := run(t, append(flags, "run", target, `printf 'warm-%d\n' 1`)...); got.code != 0 {
+		t.Fatalf("warming run: exit %d, stderr %q", got.code, got.stderr)
+	}
+
+	structured := run(t, append(flags, "run", target, linesPastTheRunWindow, "--json")...)
+	if structured.code != 0 {
+		t.Fatalf("the run exited %d: %s", structured.code, structured.stderr)
+	}
+	e := structured.envelope(t)
+	if !e.OK {
+		t.Fatalf("the run reported failure: %+v", e.Error)
+	}
+	// The whole point: it is an ANSWER, not a timeout. Before the relaxation
+	// this run burned its full budget and returned nothing.
+	data, _ := e.Data.(map[string]any)
+	if code, ok := data["exit_code"].(float64); !ok || int(code) != 0 {
+		t.Errorf("data.exit_code is %v, want 0", data["exit_code"])
+	}
+	if output, _ := data["output"].(string); !strings.Contains(output, "12000") {
+		t.Error("the output does not reach the end of the command, so it is not the tail that survived")
+	}
+	if !disclosesTruncation(e.Warnings) {
+		t.Errorf("warnings are %v, want one saying the output begins partway through", e.Warnings)
+	}
+
+	human := run(t, append(flags, "run", target, linesPastTheRunWindow)...)
+	if human.code != 0 {
+		t.Fatalf("the human path exited %d: %s", human.code, human.stderr)
+	}
+	if !strings.Contains(human.stderr, "output begins partway through") {
+		t.Errorf("stderr %q carries no truncation disclosure", human.stderr)
+	}
+}
+
+// The throwaway path builds its warnings separately, so it can drop the run's
+// own while still reporting a cleanup failure.
+func TestATruncatedThrowawayRunDisclosesItself(t *testing.T) {
+	flags := isolation(t)
+
+	got := run(t, append(flags, "run", linesPastTheRunWindow, "--json")...)
+	if got.code != 0 {
+		t.Fatalf("the throwaway run exited %d: %s", got.code, got.stderr)
+	}
+	e := got.envelope(t)
+	if !e.OK {
+		t.Fatalf("the throwaway run reported failure: %+v", e.Error)
+	}
+	if !disclosesTruncation(e.Warnings) {
+		t.Errorf("warnings are %v, want one saying the output begins partway through", e.Warnings)
+	}
+}
+
+// §6.2 on the detached path. A poll never grows its window, so before the
+// relaxation this run answered pending on every poll, forever, while the exit
+// code sat on the screen it had just read.
+func TestATruncatedDetachedRunPollsAsCompleted(t *testing.T) {
+	flags := isolation(t)
+	target := name()
+	if got := run(t, append(flags, "start", target)...); got.code != 0 {
+		t.Fatalf("start: exit %d, stderr %q", got.code, got.stderr)
+	}
+	t.Cleanup(func() { run(t, append(flags, "stop", target, "--force")...) })
+
+	if got := run(t, append(flags, "run", target, `printf 'warm-%d\n' 1`)...); got.code != 0 {
+		t.Fatalf("warming run: exit %d, stderr %q", got.code, got.stderr)
+	}
+
+	started := run(t, append(flags, "run", target, linesPastTheRunWindow, "--detach", "--json")...)
+	if started.code != 0 {
+		t.Fatalf("the detached run exited %d: %s", started.code, started.stderr)
+	}
+	var start struct {
+		CommandID string `json:"command_id"`
+	}
+	if err := json.Unmarshal(mustData(t, started.envelope(t)), &start); err != nil {
+		t.Fatalf("decoding the start payload: %v", err)
+	}
+
+	// Polled until the command finishes, not once: the command takes time to
+	// produce its output, and pending is the right answer while it does.
+	deadline := time.Now().Add(30 * time.Second)
+	var last cli.Envelope
+	for {
+		polled := run(t, append(flags, "poll", target, start.CommandID, "--json")...)
+		if polled.code != 0 {
+			t.Fatalf("poll exited %d: %s", polled.code, polled.stderr)
+		}
+		last = polled.envelope(t)
+		data, _ := last.Data.(map[string]any)
+		if state, _ := data["status"].(string); state == "completed" {
+			if code, ok := data["exit_code"].(float64); !ok || int(code) != 0 {
+				t.Errorf("data.exit_code is %v, want 0", data["exit_code"])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the poll never reported completed: %s", polled.stdout)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !disclosesTruncation(last.Warnings) {
+		t.Errorf("warnings are %v, want one saying the output begins partway through", last.Warnings)
+	}
+}

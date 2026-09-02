@@ -530,3 +530,56 @@ func TestPollRunWithNoIDAtAllIsAUsageError(t *testing.T) {
 		t.Errorf("polling with no id is %q, want a usage error", text)
 	}
 }
+
+// §6.2: the run tool's targeted branch used to go through withSession, which
+// has no warnings channel — so a run that recovered its exit code without the
+// start marker reported a partial output as if it were whole. The throwaway
+// branch had its own channel and was fine, which is exactly the asymmetry a
+// door test exists to catch.
+//
+// 12,000 lines is what it takes to push the start marker out of the deepest
+// window a run asks for. tmux still holds the completion in its 50,000 lines of
+// history, so the exit code is readable and only the start is out of reach.
+func TestATruncatedRunToolDisclosesItsPartialOutput(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+
+	target := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": target})
+
+	// Warm the shell, or the injected line lands before it is reading (§16).
+	w.callTool(t, "run_command", map[string]any{"target": target, "command": `printf 'warm-%d\n' 1`})
+
+	got := w.callTool(t, "run_command", map[string]any{
+		"target": target, "command": "seq 1 12000", "timeout_seconds": 60,
+	})
+
+	data, _ := got["data"].(map[string]any)
+	if code, ok := data["exit_code"].(float64); !ok || int(code) != 0 {
+		t.Errorf("data.exit_code is %v, want 0", data["exit_code"])
+	}
+	if !disclosesTruncation(got) {
+		t.Errorf("warnings are %v, want one saying the output begins partway through", got["warnings"])
+	}
+
+	// The throwaway branch reaches the same disclosure by a different path.
+	throwaway := w.callTool(t, "run_command", map[string]any{
+		"command": "seq 1 12000", "throwaway": true, "timeout_seconds": 60,
+	})
+	if !disclosesTruncation(throwaway) {
+		t.Errorf("the throwaway run's warnings are %v, want the same disclosure", throwaway["warnings"])
+	}
+}
+
+// disclosesTruncation reads the envelope's warnings out of a tool's structured
+// content, which is where the door puts them.
+func disclosesTruncation(structured map[string]any) bool {
+	warnings, _ := structured["warnings"].([]any)
+	for _, entry := range warnings {
+		warning, _ := entry.(map[string]any)
+		if message, _ := warning["message"].(string); strings.Contains(message, "output begins partway through") {
+			return true
+		}
+	}
+	return false
+}
