@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- A detached poll never disclosed a backend's read-depth cap on its own default
+  window. The disclosure was computed from the raw `--lines` option, which is
+  zero until the engine substitutes its default of 10,000 — so on herdr, whose
+  server caps a read at 1,000 lines, every poll that did not pass `--lines`
+  searched a tenth of the depth it reported nothing about. The window is now
+  resolved in one place (`engine.Runner.PollWindow`) and both the search and the
+  disclosure read it from there.
+
+- A run whose output outgrew the backend's read depth timed out while the
+  completion marker — and the exit code it carries — was legible on the screen
+  it had just captured. Parsing required both markers at every window, a rule
+  that is right while the window can still grow and wrong once it cannot: on
+  herdr, whose server caps a read at 1,000 lines, any command producing more
+  than that failed after the full timeout, and its detached form reported
+  pending forever. A run at its maximum window, and every poll, now take the
+  exit code the completion carries, report the output that remained above it,
+  and disclose that the output begins partway through. The exit code is exact.
+  Recorded in the behavior specification, §6.2.
+
+### Added
+
+- A run that times out with no start marker on its deepest capture now says so
+  instead of reporting a bare timeout indistinguishable from a slow command.
+  The message reports what was observed and names both causes it cannot tell
+  apart: output scrolled past the backend's read depth, and a full-screen
+  program covering the screen. Measured on herdr, those produce an identical
+  capture and that backend does not track the alternate screen, so asserting
+  either one would be a guess. A timeout whose start marker is on screen is
+  left alone. Recorded in the behavior specification, §6.4.
+
 ## [0.2.2]
 
 ### Changed

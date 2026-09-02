@@ -360,6 +360,9 @@ func (s *Session) WaitFor(ctx context.Context, pattern string, opts ...WaitOptio
 type Result struct {
 	ExitCode int    `json:"exit_code"`
 	Output   string `json:"output"`
+	// Warnings never reaches the payload: the run's shape is semver-bound and
+	// disclosure travels on the envelope, exactly as it does for a capture.
+	Warnings []Warning `json:"-"`
 }
 
 // A RunOption configures Exec and Start.
@@ -392,7 +395,11 @@ func (s *Session) Exec(ctx context.Context, command string, opts ...RunOption) (
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{ExitCode: result.ExitCode, Output: result.Output}, nil
+	out := Result{ExitCode: result.ExitCode, Output: result.Output}
+	if result.Truncated {
+		out.Warnings = append(out.Warnings, truncatedRunOutput)
+	}
+	return out, nil
 }
 
 func (s *Session) runner(opts ...RunOption) engine.Runner {
@@ -504,7 +511,7 @@ func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollR
 	if err != nil {
 		return PollResult{}, err
 	}
-	return PollResult{
+	out := PollResult{
 		State:    string(got.Status),
 		ExitCode: got.ExitCode,
 		Output:   got.Output,
@@ -512,10 +519,17 @@ func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollR
 		// Two disclosures, and they are not the same shape. One backend
 		// ignores the window entirely and says so on every poll; another
 		// honours it up to a ceiling and says so only when the request was
-		// above it (§0.8).
+		// above it (§0.8). The ceiling is judged against the EFFECTIVE window,
+		// never the raw option: the field is zero until the engine substitutes
+		// its default, so reading it raw silenced the disclosure on the one
+		// path nobody passes a window on.
 		Warnings: append(warn(s.ol.resolution.Backend, opPollWindow),
-			warnDepth(s.ol.resolution.Backend, runner.Window)...),
-	}, nil
+			warnDepth(s.ol.resolution.Backend, runner.PollWindow())...),
+	}
+	if got.Truncated {
+		out.Warnings = append(out.Warnings, truncatedRunOutput)
+	}
+	return out, nil
 }
 
 // ExitStatus reads a caller-supplied completion marker off the screen.

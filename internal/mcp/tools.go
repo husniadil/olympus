@@ -437,9 +437,15 @@ func register(s *sdk.Server) {
 				result, warnings, err := ol.RunOnce(ctx, in.Command, opts)
 				return result, warnings, err
 			}
-			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (olympus.Result, error) {
-				return s.Exec(ctx, in.Command, opts...)
-			})
+			// Not through withSession: it has no warnings channel, and a run
+			// that recovered its exit code without the start marker owes the
+			// caller that disclosure (§6.2).
+			session, err := ol.Open(ctx, in.Target)
+			if err != nil {
+				return olympus.Result{}, nil, err
+			}
+			result, err := session.Exec(ctx, in.Command, opts...)
+			return result, result.Warnings, err
 		})
 
 	addTool(s, "start_run", "Start a command and return an id to poll. Nothing is written down; the id is the whole handle.",

@@ -34,6 +34,11 @@ type fakeBackend struct {
 	submits  int
 	// submitFailures is how many of the next terminators are dropped.
 	submitFailures int
+	// onType runs after each Type, so a case that needs the screen to react
+	// the way a pane's echo would can script it. A run's sentinel id is
+	// generated inside the engine, so this is the only way a test can put that
+	// run's own markers on the screen.
+	onType func(f *fakeBackend, text string)
 }
 
 // fakeOlympus wires a fake under the ergonomic layer, with no lock: these cases
@@ -63,6 +68,9 @@ func (f *fakeBackend) Interrupt(context.Context, string) error { return nil }
 
 func (f *fakeBackend) Type(_ context.Context, _, text string) error {
 	f.typed = append(f.typed, text)
+	if f.onType != nil {
+		f.onType(f, text)
+	}
 	return nil
 }
 

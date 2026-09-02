@@ -335,3 +335,110 @@ func TestAnInjectedRunRetriesADroppedTerminatorOnce(t *testing.T) {
 		t.Errorf("the terminator landed %d times, want 1 — the retry did not run", submits)
 	}
 }
+
+// §6.4: a run that times out with no start marker on its deepest capture has
+// hit something a plain timeout cannot express, and the caller has no way to
+// tell it from a slow command. The message reports what was OBSERVED and names
+// both causes: measured on herdr, output scrolling past the server's read cap
+// and a full-screen program covering the screen produce the same capture, and
+// that backend does not track the alternate screen, so nothing here can tell
+// them apart. Naming one would be a guess presented as a diagnosis.
+func TestATimeoutSaysWhenTheStartMarkerIsNotOnTheDeepestCapture(t *testing.T) {
+	f := &fakeBackend{onType: func(f *fakeBackend, line string) {
+		// No markers at all: the command is still running and the start marker
+		// is out of reach, so there is no completion to recover either.
+		f.setScreen("line 998\nline 999\nline 1000\n")
+	}}
+	_, err := runner(f, nil).Exec(context.Background(), "build", "seq 1 100000")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if !strings.Contains(err.Error(), "is not on the deepest screen this backend returns") {
+		t.Errorf("timeout said %q, want it to report the missing start marker", err.Error())
+	}
+	if !strings.Contains(err.Error(), "full-screen program") {
+		t.Errorf("timeout said %q, want it to name the cause it cannot rule out", err.Error())
+	}
+}
+
+// The same timeout on a command that is merely slow must NOT claim the depth is
+// at fault: its start marker is right there on screen. Diagnosing every timeout
+// this way would be worse than diagnosing none.
+func TestASlowCommandsTimeoutDoesNotBlameTheDepth(t *testing.T) {
+	f := &fakeBackend{onType: func(f *fakeBackend, line string) {
+		f.setScreen(line + "\nOLY_S_" + idFromLine(line) + "\nstill working\n")
+	}}
+	_, err := runner(f, nil).Exec(context.Background(), "build", "sleep 100")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if strings.Contains(err.Error(), "is not on the deepest screen this backend returns") {
+		t.Errorf("timeout said %q, but the start marker was on screen the whole time", err.Error())
+	}
+}
+
+// §6.2 and §6.4: once the window has stopped growing, a completion whose start
+// marker is out of reach is the best answer that will ever exist — waiting
+// longer cannot bring it back, and the exit code is sitting on the capture. The
+// run reports it, marked truncated, instead of timing out on an answer it can
+// already read.
+func TestARunTakesTheExitCodeItCanStillReadOnceTheWindowStopsGrowing(t *testing.T) {
+	f := &fakeBackend{onType: func(f *fakeBackend, line string) {
+		// The start marker and the command-line echo have both scrolled past
+		// what this backend returns. The completion is still on screen.
+		f.setScreen("line 998\nline 999\nOLY_D_" + idFromLine(line) + "_3_\n")
+	}}
+	got, err := runner(f, nil).Exec(context.Background(), "build", "seq 1 100000")
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if got.ExitCode != 3 {
+		t.Errorf("exit code %d, want the 3 the completion carried", got.ExitCode)
+	}
+	if !got.Truncated {
+		t.Error("the result was not marked truncated, so the caller cannot tell its output is partial")
+	}
+	// The relaxation waits for the window to stop growing. Taking it on the
+	// first capture would apply it while a deeper look was still available,
+	// which is exactly the case §6.2 refuses.
+	if n := len(f.screenOpts); n < 4 {
+		t.Errorf("the run relaxed after %d captures, want it to grow the window to its maximum first", n)
+	}
+	if last := f.screenOpts[len(f.screenOpts)-1].HistoryLines; last != 10000 {
+		t.Errorf("the last capture asked for %d lines, want the maximum window", last)
+	}
+}
+
+// A complete run is never marked truncated. The flag drives a disclosure, and a
+// disclosure on an answer that lost nothing is noise.
+func TestACompleteRunIsNotMarkedTruncated(t *testing.T) {
+	f := &fakeBackend{onType: completes("built ok", 0)}
+	got, err := runner(f, nil).Exec(context.Background(), "build", "make build")
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if got.Truncated {
+		t.Error("a run that parsed both markers was marked truncated")
+	}
+}
+
+// The detached path searches the maximum window on every poll, so the same
+// relaxation applies from the first one: pending forever is the wrong answer
+// when the exit code is readable.
+func TestAPollTakesTheExitCodeItCanStillRead(t *testing.T) {
+	f := &fakeBackend{screen: "line 998\nline 999\nOLY_D_abc123_5_\n"}
+	f.sessions = []backend.Session{{Name: "build", Liveness: backend.LivenessPresent}}
+	got, err := runner(f, nil).PollRun(context.Background(), "build", "abc123")
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if got.Status != engine.PollCompleted {
+		t.Fatalf("status %q, want completed", got.Status)
+	}
+	if got.ExitCode == nil || *got.ExitCode != 5 {
+		t.Errorf("exit code %v, want 5", got.ExitCode)
+	}
+	if !got.Truncated {
+		t.Error("the poll result was not marked truncated")
+	}
+}

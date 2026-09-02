@@ -79,10 +79,28 @@ func (m Markers) Line(command string) string {
 	return fmt.Sprintf(`echo %s; %s; echo "%s$?_"`, m.start, command, m.done)
 }
 
+// Started reports whether this run's start marker is still on a capture.
+//
+// It separates a command that is merely slow, which echoed its start marker and
+// kept it on screen, from one whose start marker this capture cannot show. It
+// does NOT say why: measured on herdr, output scrolled past the server's read
+// cap and an alternate-screen program produce the same answer, and only the
+// first is permanent (§6.4). Callers must treat a false as an observation, not
+// as a diagnosis. Newlines are stripped for the same reason Parse strips them —
+// a marker wrapped by the pane's width comes back split.
+func (m Markers) Started(capture string) bool {
+	stripped, _ := stripNewlines(capture)
+	return strings.Contains(stripped, m.start)
+}
+
 // A Result is a completed run.
 type Result struct {
 	Output   string
 	ExitCode int
+	// Truncated says the start of the output was no longer readable, so
+	// Output begins mid-run. The exit code is exact either way — it is read
+	// off the completion marker, which was on the capture.
+	Truncated bool
 }
 
 // Parse looks for this run's completion in a capture.
@@ -119,6 +137,31 @@ func (m Markers) Parse(capture string) (Result, bool) {
 		return Result{}, false
 	}
 	return Result{Output: trimOneNewline(capture[from:to]), ExitCode: exitCode}, true
+}
+
+// ParseTruncated looks for this run's completion WITHOUT requiring its start.
+//
+// It is the answer for a capture that can never get deeper: a backend whose
+// read depth is capped below the run's maximum window drops the start marker
+// permanently once enough output has scrolled past it, and Parse would then
+// refuse an exit code that is sitting right there (§6.2). What is lost is where
+// the output began, not what the command returned — so the output is whatever
+// remained above the completion, and the caller is told it is partial.
+//
+// Only a run that has stopped growing its window may use this. Applied earlier
+// it would truncate an answer a deeper look would have returned whole.
+func (m Markers) ParseTruncated(capture string) (Result, bool) {
+	stripped, offsets := stripNewlines(capture)
+
+	doneAt, exitCode, ok := lastCompletion(stripped, m.done)
+	if !ok {
+		return Result{}, false
+	}
+	// The DONE requirement is never relaxed: without a completion there is no
+	// exit code to report, and nothing separates the capture from a command
+	// still running.
+	to := rawOffset(offsets, doneAt, len(capture))
+	return Result{Output: trimOneNewline(capture[:to]), ExitCode: exitCode, Truncated: true}, true
 }
 
 // lastCompletion finds the last done marker followed by 1-3 digits and the

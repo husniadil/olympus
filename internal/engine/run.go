@@ -43,6 +43,9 @@ type PollResult struct {
 	ExitCode *int
 	Output   string
 	Reason   string
+	// Truncated says the completion was read without its start marker, so
+	// Output begins mid-run. The exit code is exact.
+	Truncated bool
 }
 
 // A Runner executes commands through the sentinel protocol.
@@ -83,10 +86,23 @@ func (r Runner) Exec(ctx context.Context, target, command string) (Result, error
 		if result, ok := markers.Parse(capture); ok {
 			return result, nil
 		}
+		// Recorded before the window grows, so the timeout below reports the
+		// deepest look actually taken rather than the next one it would have.
+		unreachable := window >= maxWindow && !markers.Started(capture)
+		if unreachable {
+			// The window has stopped growing and the start marker is gone, so
+			// no later capture can be better than this one. If the completion
+			// is readable, that exit code is the whole answer the protocol
+			// will ever produce — waiting out the timeout would discard it
+			// (§6.2, §6.4).
+			if result, ok := markers.ParseTruncated(capture); ok {
+				return result, nil
+			}
+		}
 
-		// Both markers are required to parse, so a window too small to hold
-		// them is indistinguishable from "still running" — which is why the
-		// window grows rather than the run failing.
+		// While a deeper look is still available, both markers are required:
+		// a window too small to hold them is indistinguishable from "still
+		// running", which is why the window grows rather than the run failing.
 		if window < maxWindow {
 			window *= windowGrowth
 			if window > maxWindow {
@@ -95,6 +111,19 @@ func (r Runner) Exec(ctx context.Context, target, command string) (Result, error
 		}
 
 		if time.Now().After(deadline) {
+			// Two timeouts that read identically to a caller and have nothing
+			// in common: one command is merely slow, the other cannot be
+			// matched from this screen at all. What is reported is the
+			// OBSERVATION, with both causes named — output past the backend's
+			// read cap and a full-screen program covering the screen produce
+			// the same capture, and the backend where the cap bites does not
+			// track the alternate screen, so naming one would be a guess
+			// (§6.4).
+			if unreachable {
+				return Result{}, backend.Errorf(backend.CodeTimeout,
+					"the command did not complete on %s within %s, and its start marker is not on the deepest screen this backend returns, so either its output has scrolled past that depth or a full-screen program is covering it",
+					target, r.Timeout)
+			}
 			return Result{}, backend.Errorf(backend.CodeTimeout,
 				"the command did not complete on %s within %s", target, r.Timeout)
 		}
@@ -150,15 +179,21 @@ func (r Runner) inject(ctx context.Context, target, command string) (Markers, er
 func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, error) {
 	markers := NewMarkers(id)
 
-	window := r.Window
-	if window <= 0 {
-		window = DetachedWindow
-	}
-	capture, err := r.capture(ctx, target, window)
+	capture, err := r.capture(ctx, target, r.PollWindow())
 	if err == nil {
 		if result, ok := markers.Parse(capture); ok {
 			code := result.ExitCode
 			return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output}, nil
+		}
+		// A poll never grows its window — it asks for the deepest one on every
+		// call — so a start marker missing here is missing for good, and
+		// reporting pending forever would withhold an exit code the capture
+		// already carries (§6.2, §6.4).
+		if !markers.Started(capture) {
+			if result, ok := markers.ParseTruncated(capture); ok {
+				code := result.ExitCode
+				return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output, Truncated: true}, nil
+			}
 		}
 	}
 
@@ -182,6 +217,19 @@ func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, err
 		return PollResult{Status: PollDied, Reason: "the session's command exited"}, nil
 	}
 	return PollResult{Status: PollPending}, nil
+}
+
+// PollWindow is the depth a detached poll actually searches.
+//
+// Exported because the ergonomic layer has to disclose the SAME number it
+// discloses a cap against, and reading the zero-value field there would report
+// on a window nobody uses: the substitution happens here, so the answer has to
+// come from here too (§6.4, §0.8).
+func (r Runner) PollWindow() int {
+	if r.Window <= 0 {
+		return DetachedWindow
+	}
+	return r.Window
 }
 
 // capture reads the screen with a window appropriate to the backend.

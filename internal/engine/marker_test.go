@@ -229,3 +229,40 @@ func itoa(n int) string {
 	}
 	return string(out)
 }
+
+// §6.2: the strict parse keeps refusing a completion whose start marker is gone.
+// The relaxation below is a decision the RUN makes once its window has stopped
+// growing, and teaching it to the parser would apply it to every window.
+func TestTheStrictParseStillRefusesACompletionWithoutItsStart(t *testing.T) {
+	m := engine.NewMarkers("abc")
+	if _, ok := m.Parse("line 998\nline 999\nOLY_D_abc_0_\n"); ok {
+		t.Error("a completion with no start marker parsed strictly, want a refusal")
+	}
+}
+
+// The relaxed parse reads the exit code, which is exact, and takes the output
+// it could still see. The start of the run is gone and cannot be recovered —
+// that is what makes the result truncated rather than wrong.
+func TestTheRelaxedParseRecoversTheExitCodeAndWhatIsLeftOfTheOutput(t *testing.T) {
+	m := engine.NewMarkers("abc")
+	got, ok := m.ParseTruncated("line 998\nline 999\nOLY_D_abc_7_\n")
+	if !ok {
+		t.Fatal("a readable completion did not parse, want the exit code it carries")
+	}
+	if got.ExitCode != 7 {
+		t.Errorf("exit code %d, want 7", got.ExitCode)
+	}
+	if got.Output != "line 998\nline 999" {
+		t.Errorf("output %q, want what was still on the capture", got.Output)
+	}
+}
+
+// No completion is still no answer. The relaxation drops the START requirement,
+// never the DONE one: without a done marker there is no exit code to report and
+// nothing distinguishes the capture from a command still running.
+func TestTheRelaxedParseStillNeedsACompletion(t *testing.T) {
+	m := engine.NewMarkers("abc")
+	if _, ok := m.ParseTruncated("OLY_S_abc\nworking\n"); ok {
+		t.Error("a run with no completion parsed, want a refusal")
+	}
+}

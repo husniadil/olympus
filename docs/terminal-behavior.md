@@ -1205,10 +1205,25 @@ the real completion is **expansion**: the echoed line shows a literal, unexpande
   the stripped copy; positions are mapped back through that table to slice the
   real output region, then trimmed of one leading and trailing newline.
 
-- **Both markers are required.** A capture window that catches DONE but scrolled
-  past START MUST parse as "not found" — never a truncated or garbled partial
-  match. A too-small window is therefore indistinguishable from "still running",
-  and the run keeps polling until it times out. That is the correct failure mode.
+- **Both markers are required, while a deeper look is still available.** A
+  capture window that catches DONE but scrolled past START MUST parse as "not
+  found" — never a truncated or garbled partial match. A too-small window is
+  therefore indistinguishable from "still running", and the run keeps polling
+  with a larger one.
+
+- **Once the window has stopped growing, DONE alone is the answer.** The rule
+  above rests on a deeper look being available. Where it is not — the run is at
+  its maximum window, or a poll, which always asks for the maximum — no later
+  capture can be better, and refusing a completion that is legible on the
+  screen discards the only answer the protocol will ever produce. So a run at
+  its maximum window whose START is absent MUST take the exit code DONE carries,
+  report the output that remained above it, and mark the result truncated. The
+  exit code is exact: it is read off the completion marker itself. What is lost
+  is where the output began, and that loss MUST be disclosed (§0.8) — a partial
+  output whose payload looks whole is worse than no answer.
+
+  DONE is never relaxed. Without a completion there is no exit code to report
+  and nothing separates the capture from a command still running.
 
 ### 6.3 The command MUST be validated up front
 
@@ -1243,6 +1258,28 @@ is still producing output above them.
   clamped — so Olympus clamps it too, and discloses the clamp (§0.8), rather
   than asking for a number it will not get. The growing window still works
   below the cap; above it, the remedy tmux offers does not exist.
+
+Above the cap, §6.2's relaxation recovers the run whenever the completion is
+still legible, so the cap costs the START of the output rather than the whole
+answer.
+
+What it cannot recover is a run with no completion on screen at all, and that
+timeout is otherwise indistinguishable from a slow command. So a run that
+reaches the maximum window and finds no start marker on it MUST say so in the
+timeout, and a run whose start marker is on screen MUST NOT — a diagnosis
+attached to every timeout carries no information.
+
+That message MUST report the observation and name both causes rather than
+asserting one. Measured: on herdr an alternate-screen program produces exactly
+the same capture as output scrolled past the cap — the start marker is absent
+and returns when the program exits — and that backend does not track the
+alternate screen (§13), so nothing can tell the two apart. Naming one would be a
+guess presented as a diagnosis, and it would be wrong for every run that pages
+its output.
+
+The window a detached poll searches is the maximum by default. The cap it will
+hit is disclosed against the window actually searched, never against an unset
+option (§0.8).
 
 ### 6.5 The target pane MUST be running a shell
 

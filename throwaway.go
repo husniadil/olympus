@@ -76,7 +76,7 @@ func (o *Olympus) RunOnce(ctx context.Context, command string, run []RunOption, 
 	if runErr != nil {
 		return Result{}, warnings, runErr
 	}
-	return result, warnings, nil
+	return result, append(warnings, result.Warnings...), nil
 }
 
 // engineWithLock runs fn holding a session's write lock, for callers in this

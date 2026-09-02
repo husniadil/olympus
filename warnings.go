@@ -112,6 +112,17 @@ var depthCaps = map[backend.Name]int{
 	backend.Herdr: 1000,
 }
 
+// truncatedRunOutput discloses a completion recovered without its start marker.
+//
+// The exit code is exact and the payload gives no hint that anything is
+// missing, which is precisely why it has to be said: a caller diffing the
+// output or feeding it to a parser would otherwise treat a partial capture as
+// the whole run (§6.2).
+var truncatedRunOutput = Warning{
+	Code:    WarningDegraded,
+	Message: "the start of this run scrolled past what this backend returns, so the output begins partway through; the exit code is exact",
+}
+
 // warnDepth discloses a history or poll-window request that will come back
 // shorter than it was written.
 func warnDepth(name backend.Name, lines int) []Warning {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -106,4 +107,143 @@ func TestScrollViewResolvesItsTarget(t *testing.T) {
 	if len(f.scrolled) != 1 || f.scrolled[0] != "olympus-view-build-abcd" {
 		t.Errorf("the backend was asked to scroll %v, want the session the pane id resolves to", f.scrolled)
 	}
+}
+
+// §6.4 and §0.8: a detached poll on a backend that caps its read depth asks for
+// the default window, which is above that cap — so the answer comes back
+// shallower than the search it claims to have made, and that has to be
+// disclosed.
+//
+// The disclosure existed but was computed from the RAW option, which is zero
+// until the engine substitutes its default. On the path nobody passes a window
+// on — the default one, which is every caller who does not use --lines — it
+// therefore never fired.
+func TestPollDisclosesTheDepthCapOnItsDefaultWindow(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "nothing to match here"}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	got, err := s.Poll(context.Background(), "abc123")
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if !disclosesDepth(got.Warnings) {
+		t.Errorf("warnings are %v, want one saying the window was reduced to the backend's cap", got.Warnings)
+	}
+}
+
+// An explicit window below the cap is honoured in full, so saying anything
+// about it would be noise — and untrue.
+func TestPollSaysNothingWhenTheWindowFitsUnderTheCap(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "nothing to match here"}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	got, err := s.Poll(context.Background(), "abc123", PollWindow(500))
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if disclosesDepth(got.Warnings) {
+		t.Errorf("warnings are %v, want none: 500 lines is under the cap and comes back whole", got.Warnings)
+	}
+}
+
+func disclosesDepth(warnings []Warning) bool {
+	for _, w := range warnings {
+		if strings.Contains(w.Message, "is the deepest this backend returns") {
+			return true
+		}
+	}
+	return false
+}
+
+// §6.2 and §6.4: a run that recovered its exit code without the start marker
+// has an output that begins mid-run, and the caller has no way to see that from
+// the payload — the exit code looks exactly like a whole one. It is disclosed.
+func TestATruncatedRunDisclosesThatItsOutputIsPartial(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}}
+	f.onType = func(f *fakeBackend, line string) {
+		// Everything above the completion has scrolled past what this backend
+		// returns, the run's own start marker included.
+		f.text = "line 999\nOLY_D_" + runIDOf(line) + "_4_\n"
+	}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	got, err := s.Exec(context.Background(), "seq 1 100000", RunInterval(time.Millisecond))
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if got.ExitCode != 4 {
+		t.Errorf("exit code %d, want the 4 the completion carried", got.ExitCode)
+	}
+	if !disclosesTruncation(got.Warnings) {
+		t.Errorf("warnings are %v, want one saying the output is partial", got.Warnings)
+	}
+}
+
+// A run that parsed both markers lost nothing, so it says nothing.
+func TestAWholeRunDisclosesNoTruncation(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}}
+	f.onType = func(f *fakeBackend, line string) {
+		id := runIDOf(line)
+		f.text = line + "\nOLY_S_" + id + "\nbuilt ok\nOLY_D_" + id + "_0_\n"
+	}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	got, err := s.Exec(context.Background(), "make build", RunInterval(time.Millisecond))
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if got.Output != "built ok" {
+		t.Errorf("output %q, want the whole output", got.Output)
+	}
+	if disclosesTruncation(got.Warnings) {
+		t.Errorf("warnings are %v, want none: nothing was lost", got.Warnings)
+	}
+}
+
+// The detached path answers completed on the same evidence, and owes the same
+// disclosure.
+func TestATruncatedPollDisclosesThatItsOutputIsPartial(t *testing.T) {
+	f := &fakeBackend{
+		caps: backend.Capabilities{Backend: backend.Herdr},
+		text: "line 999\nOLY_D_abc123_6_\n",
+	}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	got, err := s.Poll(context.Background(), "abc123")
+	if err != nil {
+		t.Fatalf("Poll: %v", err)
+	}
+	if got.State != "completed" {
+		t.Fatalf("state %q, want completed", got.State)
+	}
+	if got.ExitCode == nil || *got.ExitCode != 6 {
+		t.Errorf("exit code %v, want 6", got.ExitCode)
+	}
+	if !disclosesTruncation(got.Warnings) {
+		t.Errorf("warnings are %v, want one saying the output is partial", got.Warnings)
+	}
+}
+
+// runIDOf pulls the sentinel id out of an injected command line, which is the
+// only place a test can read the id the engine generated.
+func runIDOf(line string) string {
+	const prefix = "OLY_S_"
+	at := strings.Index(line, prefix)
+	if at < 0 {
+		return ""
+	}
+	rest := line[at+len(prefix):]
+	if end := strings.IndexAny(rest, "; \t"); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+func disclosesTruncation(warnings []Warning) bool {
+	for _, w := range warnings {
+		if strings.Contains(w.Message, "output begins partway through") {
+			return true
+		}
+	}
+	return false
 }

@@ -55,7 +55,7 @@ for any successful run and the command's status is in data.exit_code instead.`) 
 				if err != nil {
 					return err
 				}
-				if err := a.emit(result, nil, func(w io.Writer) {
+				if err := a.emit(result, result.Warnings, func(w io.Writer) {
 					fmt.Fprint(w, result.Output)
 					if result.Output != "" && !strings.HasSuffix(result.Output, "\n") {
 						fmt.Fprintln(w)
