@@ -122,7 +122,7 @@ func TestTheDefaultSocketIsNotTheOperatorsOwn(t *testing.T) {
 // every legal name it checked.
 func TestASessionMayNotBeNamedLikeAPaneID(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"w1:p1", "w12:p3"} {
+	for _, name := range []string{"w1:p1", "w12:p3", "w4Y:p1", "w1:pA"} {
 		err := validateName(name)
 		if backend.CodeOf(err) != backend.CodeUsage {
 			t.Errorf("the name %q is %q, want %q", name, backend.CodeOf(err), backend.CodeUsage)

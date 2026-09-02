@@ -131,3 +131,30 @@ func TestBackendWithoutPaneIDsPassesEverythingThrough(t *testing.T) {
 		t.Errorf("resolved to %q, want it unchanged", got)
 	}
 }
+
+// §10: herdr spells each id segment as a base-32 "public number" over the alphabet
+// 123456789ABCDEFGHJKMNPQRSTVWXYZ0: digits only for the first nine
+// allocations, letters from the tenth. A predicate that reads digits alone
+// stops matching real ids the moment a server has seen its tenth workspace,
+// tab or pane. Measured on a private server: the tenth pane is w1:pA and the
+// tenth workspace wA, and the workspace counter survives a restart.
+func TestIndexedPaneIDAcceptsHerdrsPublicNumbers(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{"w1:p2", "w12:p3", "w4Y:p1", "w1:pA", "wA:pB", "w10:p0", "wZZ:pZZ"} {
+		if !backend.IndexedPaneID(id) {
+			t.Errorf("%q is a herdr pane id and was not recognised as one", id)
+		}
+	}
+	for _, name := range []string{
+		"", "w", "w1", "w1:", "w:p1", "w1:p", "w1p1", "work:p1", "w1:pane", "wp:1",
+		// Lowercase and the four letters the alphabet omits (I, L, O, U) never
+		// appear in an id, so a name carrying one is an ordinary name.
+		"wa:p1", "w1:pa", "w1I:p1", "wL:p1", "wO:p1", "w1:pU",
+		// A tab id is not a pane id.
+		"w1:t2",
+	} {
+		if backend.IndexedPaneID(name) {
+			t.Errorf("%q is not a herdr pane id and was recognised as one", name)
+		}
+	}
+}

@@ -26,7 +26,14 @@ func PrefixedPaneID(target string) bool { return strings.HasPrefix(target, paneI
 func NumericPaneID(target string) bool { return allDigits(target) }
 
 // IndexedPaneID is the shape used by backends whose pane ids name the window
-// and the pane by index: "w<digits>:p<digits>".
+// and the pane by number: "w<number>:p<number>".
+//
+// Each number is spelled the way herdr spells every public id: base 32 over the
+// alphabet 123456789ABCDEFGHJKMNPQRSTVWXYZ0, digits for the first nine
+// allocations and letters from the tenth. The tenth pane of a workspace is
+// "w1:pA", the tenth workspace is "wA", and the workspace counter survives a
+// server restart, so a predicate that reads digits alone silently stops
+// recognising ids on any server that has lived long enough. Measured.
 //
 // Unlike the other two shapes this one is not structurally unambiguous — the
 // backend that uses it will let a caller name a session anything, that spelling
@@ -42,7 +49,23 @@ func IndexedPaneID(target string) bool {
 	if !ok {
 		return false
 	}
-	return allDigits(window) && allDigits(pane)
+	return publicNumber(window) && publicNumber(pane)
+}
+
+// publicNumberAlphabet is the digit set of a herdr public id, in digit order.
+// I, L, O and U are deliberately absent from it, and lowercase never appears.
+const publicNumberAlphabet = "123456789ABCDEFGHJKMNPQRSTVWXYZ0"
+
+func publicNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !strings.ContainsRune(publicNumberAlphabet, rune(s[i])) {
+			return false
+		}
+	}
+	return true
 }
 
 func allDigits(s string) bool {

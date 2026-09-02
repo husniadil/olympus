@@ -327,7 +327,7 @@ func (h *Herdr) Create(ctx context.Context, spec backend.CreateSpec) (backend.Se
 
 // validateName rejects a name that could not be told apart from a pane id.
 //
-// Resolution reads a target shaped like "w1:p2" as a pane (§10), so a session
+// Resolution reads a target shaped like "w1:p2" or "w4Y:pA" as a pane (§10), so a session
 // answering to that spelling would be shadowed by every pane listing. It is
 // USAGE because one corrected argument fixes it.
 func validateName(name string) error {

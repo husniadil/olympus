@@ -1777,7 +1777,7 @@ Only the SPELLING differs, so only the spelling is per-backend:
 | tmux | `%0` | The prefix cannot begin a session name Olympus would use. |
 | meja | `1` | meja rejects a session name that is entirely numeric, so a bare integer can only be a pane. |
 | zmx | the session's own name | No pane concept; the row is synthesized 1:1 from the session, so resolution is the identity. |
-| herdr | `w1:p2` | Not structurally unambiguous — see below. It is also the NAME of any pane nothing has labelled (§3.4). |
+| herdr | `w1:p2`, `w4Y:pA` | Not structurally unambiguous — see below. It is also the NAME of any pane nothing has labelled (§3.4). Each segment is a herdr public number: base 32 over `123456789ABCDEFGHJKMNPQRSTVWXYZ0`, digits for the first nine allocations and letters from the tenth, so the shape MUST accept letters or it stops matching real ids on any server that has seen its tenth workspace, tab or pane. Measured: the tenth pane is `w1:pA`, the tenth workspace `wA`, and the workspace counter survives a restart. |
 
 herdr is the exception that has to be handled rather than declared away: it will
 accept a pane label of any spelling, `w1:p2` included, so a session could be
