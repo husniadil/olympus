@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.5]
+
+### Added
+
+- **A session-client attach mode for herdr.** `olympus attach --client` attaches
+  herdr's own session client — the one with mouse selection, wheel scroll and
+  copy-on-select — instead of the raw per-pane stream `terminal attach` gives;
+  the target is then a herdr SESSION name. `--bare` adds that client with its
+  chrome hidden (an embedded stripped config), so it renders as a plain pane, and
+  implies `--client`. Both are herdr-only and refused with a clear error on the
+  other backends. The default attach is unchanged (raw per-pane), so existing
+  callers are untouched. `AttachSpec` gains additive `SessionClient`/`Bare` fields
+  that the other backends ignore. Herdr's `session attach` addresses a config-dir
+  session name and ignores `HERDR_SOCKET_PATH`, so this path is a self-contained
+  client launch (`Olympus.OpenSessionName`) rather than a re-pointing of the
+  socket-addressed pane API.
+
 ## [0.2.4]
 
 ### Fixed
@@ -327,7 +344,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/husniadil/olympus/releases/tag/v0.2.5
 [0.2.4]: https://github.com/husniadil/olympus/releases/tag/v0.2.4
 [0.2.3]: https://github.com/husniadil/olympus/releases/tag/v0.2.3
 [0.2.2]: https://github.com/husniadil/olympus/releases/tag/v0.2.2
