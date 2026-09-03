@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 
@@ -39,6 +40,41 @@ const (
 	resizePrefix = "\x1b]olympus;resize;"
 	resizeSuffix = "\x07"
 )
+
+// The cadence at which an attachment's Probe is asked whether the target still
+// exists, and how long a client is given to leave on SIGTERM before SIGKILL
+// once it has answered absent (behavior §8.10).
+const (
+	TargetPollInterval = 500 * time.Millisecond
+	targetGoneGrace    = 2 * time.Second
+)
+
+// WatchTarget polls probe every interval and closes the returned channel the
+// first time it answers absent. It stops, without closing, when ctx ends.
+//
+// Only absent counts. An error answer — the server could not be asked — is
+// skipped rather than treated as gone, because a hiccup on the socket must not
+// end a live terminal; a server that has actually gone away ends the client on
+// its own (behavior §8.10).
+func WatchTarget(ctx context.Context, probe func(context.Context) backend.State, interval time.Duration) <-chan struct{} {
+	gone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			if probe(ctx) == backend.StateAbsent {
+				close(gone)
+				return
+			}
+		}
+	}()
+	return gone
+}
 
 // AttachIO is the outer terminal an attach streams through.
 type AttachIO struct {
@@ -90,7 +126,26 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	stopResizing := startResizing(tty, io, spec.Role)
 	defer stopResizing()
 
+	// The target watch runs only for as long as the client does: the client's
+	// exit cancels it, so a probe never outlives the attach it was made for.
+	watchCtx, stopWatching := context.WithCancel(ctx)
+	defer stopWatching()
+	var targetGone <-chan struct{}
+	if attachment.Probe != nil {
+		targetGone = WatchTarget(watchCtx, attachment.Probe, TargetPollInterval)
+	}
+	// Closed once the client has been reaped, so the grace timer below can
+	// tell "left on SIGTERM" from "still here".
+	exited := make(chan struct{})
+	// Closed BEFORE the client is signalled, so by the time its exit is
+	// reaped the reason is already on record.
+	endedWithTarget := make(chan struct{})
+	// Closed when the signal goroutine is done, so its narration lands
+	// before the attach returns rather than racing the caller's read of it.
+	signalled := make(chan struct{})
+
 	go func() {
+		defer close(signalled)
 		select {
 		case <-terminalGone:
 			// Restore before dying, then let the default disposition finish
@@ -107,8 +162,24 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 			}
 			restore()
 			_ = child.Process.Signal(syscall.SIGTERM)
+		case <-targetGone:
+			// The client is attached to the whole session and would sit
+			// showing whatever the server focused next; the attach was onto
+			// the target, so it ends with the target (behavior §8.10).
+			close(endedWithTarget)
+			if io.Err != nil {
+				_, _ = fmt.Fprintln(io.Err, "detached: the target is gone")
+			}
+			restore()
+			_ = child.Process.Signal(syscall.SIGTERM)
+			select {
+			case <-exited:
+			case <-time.After(targetGoneGrace):
+				_ = child.Process.Kill()
+			}
 		case <-ctx.Done():
 			_ = child.Process.Signal(syscall.SIGTERM)
+		case <-exited:
 		}
 	}()
 
@@ -131,8 +202,20 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	}()
 
 	err = child.Wait()
+	close(exited)
+	stopWatching()
 	<-done
+	<-signalled
 
+	select {
+	case <-endedWithTarget:
+		// Olympus ended the client, not the client itself, so the status is
+		// Olympus's: the attach did what was asked and its subject ended.
+		// The client's own status is the signal it was sent, which says
+		// nothing a caller can act on.
+		return 0, nil
+	default:
+	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
 		return exit.ExitCode(), nil

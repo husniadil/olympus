@@ -159,7 +159,14 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		cmd = exec.CommandContext(ctx, "herdr")
 	}
 
-	att := backend.Attachment{Cmd: cmd}
+	// The client is attached to the whole session, so it does not end when
+	// the target it was steered onto does: herdr closes the pane, the
+	// workspace goes with it, and the client is moved to whatever the server
+	// focuses next. The engine polls this and ends the attach on absent
+	// (§8.10). Probed by resolved id rather than by the target as given, so
+	// a label reused by a later workspace does not read as the same one.
+	id := r.id()
+	att := backend.Attachment{Cmd: cmd, Probe: func(ctx context.Context) backend.State { return h.Probe(ctx, id) }}
 	if spec.Bare {
 		// A stripped config that hides the client's chrome. HERDR_CONFIG_PATH
 		// overrides the config FILE without changing the config directory the

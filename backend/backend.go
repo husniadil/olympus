@@ -147,6 +147,16 @@ type Attachment struct {
 	// channel: a silent partial failure here is indistinguishable from a clean
 	// one, which is the precise thing worth reporting (behavior §8.5).
 	Notices []string
+	// Probe, when set, answers whether the thing the client was steered onto
+	// still exists. The engine polls it while the client runs and ends the
+	// attach when it answers absent: a client attached to a whole session
+	// rather than to its target does not end on its own when the target
+	// does, and would sit showing whatever the server focused next
+	// (behavior §8.10). Error answers are ignored — a server that cannot be
+	// asked is not a target that is gone, and a server that has gone away
+	// ends the client by itself. Nil means the client already ends with its
+	// target.
+	Probe func(ctx context.Context) State
 }
 
 // Close runs the cleanup, if there is one. It is safe on the zero Attachment so

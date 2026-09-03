@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A herdr session-client attach now ends with its target.** `olympus attach
+  <target> --client` or `--bare` on herdr attaches herdr's own client to the
+  whole session, so when the workspace, tab or pane it was steered onto closed
+  — `exit` in the workspace's only pane — herdr moved the client to whatever it
+  focused next and the attach never returned, leaving a caller that closes on
+  exit showing a workspace it never asked for. Olympus now polls the target's
+  presence while the client runs; when it is gone the attach prints `detached:
+  the target is gone`, terminates the client (SIGTERM, then SIGKILL after a
+  short grace) and exits `0`. The raw pane attach and the tmux bare attach
+  already ended with their target and are unchanged. Behavior spec §8.10.
+- **Go:** `backend.Attachment` gains `Probe`, the presence question the attach
+  engine polls for exactly this; a backend whose client already ends with its
+  target leaves it nil.
+
 ## [0.4.0]
 
 ### Changed — BREAKING on the herdr backend

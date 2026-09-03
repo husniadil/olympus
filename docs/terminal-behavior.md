@@ -1802,6 +1802,26 @@ co-attach control (§8.7, §8.4): a viewer attach is refused, and `--keep-others
 is reported as unhonored rather than dropped. A target that does not exist is
 not-found before any client is spawned, the same gate as §8.1.
 
+**A session-client attach MUST end when its target ceases to exist.** The
+client is attached to the whole session, not to the target, so it does not end
+on its own when the target does: measured, `exit` in a workspace's only pane
+closes the pane and the workspace, and herdr moves the client onto whatever it
+focuses next, still running — a caller that closes something when the attach
+returns is left showing a workspace it never asked for. Olympus polls the
+target's presence (§3.5, by resolved id, every half second) while the client
+runs, and on `absent` says `detached: the target is gone` on the narration
+channel, sends the client SIGTERM, and SIGKILL after a short grace. The attach
+then exits `0`: Olympus ended the client, so the status is Olympus's, and the
+attach did what was asked until its subject ended — §12.1's handoff to the
+client's own status applies only to a client that exited by itself. An `error`
+answer is skipped, not treated as gone: a socket hiccup must not end a live
+terminal, and a server that has genuinely gone away ends the client on its
+own. The raw pane attach needs none of this — herdr's `terminal attach` exits
+by itself when the pane's terminal closes — and neither does the tmux bare
+attach: its view shares the base's windows, so the base's last pane exiting
+destroys the view and the client with it (a `kill-session` of the base leaves
+the view standing, §9.2).
+
 There is deliberately no `<server>/<target>` target grammar. The server is
 `--server`, the same option every other verb takes; a second spelling inside the
 target would be a second contract to keep in step.

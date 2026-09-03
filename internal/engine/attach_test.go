@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -319,5 +320,107 @@ func TestASpontaneousExitStillReaps(t *testing.T) {
 	}
 	if !reaped {
 		t.Error("the attach exited without reaping what the backend created for it")
+	}
+}
+
+// §8.10 The target watch closes on the first absent answer, and on nothing
+// else: an error answer is a server that could not be asked, not a target
+// that is gone, and is skipped.
+func TestWatchTargetClosesOnAbsentAndSkipsErrors(t *testing.T) {
+	answers := []backend.State{backend.StatePresent, backend.StateError, backend.StateError, backend.StateAbsent}
+	var mu sync.Mutex
+	asked := 0
+	probe := func(context.Context) backend.State {
+		mu.Lock()
+		defer mu.Unlock()
+		if asked < len(answers) {
+			asked++
+			return answers[asked-1]
+		}
+		return backend.StateAbsent
+	}
+
+	gone := engine.WatchTarget(context.Background(), probe, time.Millisecond)
+	select {
+	case <-gone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the watch never closed on an absent target")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if asked != len(answers) {
+		t.Errorf("the watch closed after %d answers, want %d: an error answer must not count as gone", asked, len(answers))
+	}
+}
+
+// §8.10 A watch whose context ends stops without closing: a cancelled attach
+// is not a target that went away.
+func TestWatchTargetStopsWithoutClosingWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	gone := engine.WatchTarget(ctx, func(context.Context) backend.State { return backend.StatePresent }, time.Millisecond)
+	cancel()
+	select {
+	case <-gone:
+		t.Fatal("a cancelled watch closed as if the target were gone")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// §8.10 An attach whose Probe answers absent ends: the client is terminated,
+// the attach returns 0 with a notice, and the process is gone.
+func TestAttachEndsWhenTheTargetIsGone(t *testing.T) {
+	var mu sync.Mutex
+	present := true
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sleep", "60"),
+		Probe: func(context.Context) backend.State {
+			mu.Lock()
+			defer mu.Unlock()
+			if present {
+				return backend.StatePresent
+			}
+			return backend.StateAbsent
+		},
+	}
+	errOut := &strings.Builder{}
+
+	type result struct {
+		code int
+		err  error
+	}
+	results := make(chan result, 1)
+	go func() {
+		code, err := engine.Attach(context.Background(), attachment,
+			engine.AttachIO{Out: discard(t), Err: errOut}, backend.AttachSpec{Role: backend.RoleController}, nil)
+		results <- result{code, err}
+	}()
+
+	// Still attached while the target is present.
+	select {
+	case r := <-results:
+		t.Fatalf("the attach ended while the target was present: %d, %v", r.code, r.err)
+	case <-time.After(3 * engine.TargetPollInterval):
+	}
+	mu.Lock()
+	present = false
+	mu.Unlock()
+
+	var r result
+	select {
+	case r = <-results:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the attach did not end within 10s of the target going absent")
+	}
+	if r.err != nil || r.code != 0 {
+		t.Errorf("an attach ended by its target exits %d, %v; want 0 with no error", r.code, r.err)
+	}
+	if !strings.Contains(errOut.String(), "detached: the target is gone") {
+		t.Errorf("no notice about the target on the narration channel: %q", errOut.String())
+	}
+	if attachment.Cmd.ProcessState == nil || !attachment.Cmd.ProcessState.Exited() && attachment.Cmd.ProcessState.String() == "" {
+		t.Errorf("the client was not reaped: %v", attachment.Cmd.ProcessState)
+	}
+	if err := attachment.Cmd.Process.Signal(syscall.Signal(0)); err == nil {
+		t.Error("the client process is still alive after the attach ended")
 	}
 }

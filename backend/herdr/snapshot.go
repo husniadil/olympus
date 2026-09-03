@@ -155,6 +155,18 @@ type resolved struct {
 	pane paneRow
 }
 
+// id is the exact id of the level the target addressed: the one spelling that
+// resolves to this row and no other.
+func (r resolved) id() string {
+	switch r.kind {
+	case kindPane:
+		return r.pane.PaneID
+	case kindTab:
+		return r.tab.TabID
+	}
+	return r.workspace.WorkspaceID
+}
+
 // resolve turns a target into the rows every herdr verb addresses (§3.6, §10).
 //
 // A workspace label is not unique — herdr will let two workspaces carry the
