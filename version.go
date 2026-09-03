@@ -20,7 +20,7 @@ import (
 // caller's.
 var Version = devVersion
 
-const devVersion = "0.4.0-dev"
+const devVersion = "0.4.1-dev"
 
 // A `go install github.com/husniadil/olympus/cmd/olympus@v0.1.1` build gets no
 // linker flags, but the Go toolchain records the module version it resolved.

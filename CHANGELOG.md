@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1]
+
 ### Fixed
 
 - **A herdr session-client attach now ends with its target.** `olympus attach
@@ -453,7 +455,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/husniadil/olympus/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/husniadil/olympus/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/husniadil/olympus/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/husniadil/olympus/releases/tag/v0.2.5

@@ -1,7 +1,7 @@
 # Implementation roadmap
 
 Ordered phases from an empty module to a releasable v0.1.0, the first of the cut
-releases; the latest is v0.4.0. Each phase is a checkpoint: it ends green, it
+releases; the latest is v0.4.1. Each phase is a checkpoint: it ends green, it
 ends committed, and it ends with the specs updated if implementation disproved
 them.
 
