@@ -122,9 +122,12 @@ type AttachSpec struct {
 	// field. When it is set the target names the backend's own session, which
 	// on herdr lives outside the socket-addressed panes Olympus resolves.
 	SessionClient bool
-	// Bare hides the session client's chrome so it renders as a plain pane. It
-	// is meaningful only together with SessionClient and only on a backend
-	// whose client draws chrome (herdr); elsewhere it is ignored.
+	// Bare asks for a plain pane with no chrome. What that means is decided
+	// above this interface, per backend: on herdr it is the session client
+	// with its chrome hidden, so it arrives here together with SessionClient;
+	// on tmux the ergonomic layer attaches a view — already bare by
+	// construction (§9.3) — so a tmux backend never sees it set. A backend
+	// with neither reports CodeUnsupported before anything is spawned.
 	Bare bool
 }
 
@@ -168,6 +171,12 @@ type ViewSpec struct {
 	// choice because a view is for reading: a wheel that scrolls is the point
 	// on one, and an unwanted mode change on another.
 	Mouse bool
+	// Window pins the view to one of the base's windows, by index or by name.
+	// Empty opens the view on whatever window the base is showing. A window
+	// the base does not have is CodeSessionNotFound, and nothing is created.
+	// A grouped session keeps its own current window, so pinning a view moves
+	// nobody else's (behavior §9.4).
+	Window string
 }
 
 // A View is a grouped, independently-scrollable window onto an existing

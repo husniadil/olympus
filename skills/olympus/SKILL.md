@@ -83,7 +83,7 @@ From inside: `olympus self` says which session this process is in, and `olympus 
 
 ### Hand the terminal to the user
 
-`olympus attach <name>` gives the user the live session. Do not call it from automation; it needs a terminal and returns the multiplexer client's exit code, not the session's.
+`olympus attach <name>` gives the user the live session. Do not call it from automation; it needs a terminal and returns the multiplexer client's exit code, not the session's. On tmux, `attach <name>:<window> --bare` shows one window as a plain pane through a throwaway view, without moving the session's other clients; `view create <name> --window <w>` makes the same view and keeps it.
 
 ## MCP
 

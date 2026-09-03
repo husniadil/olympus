@@ -8,6 +8,26 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Attach one tmux window, bare, without disturbing anyone.** `olympus attach
+  <session>[:<window>] --bare` on tmux creates a throwaway view onto the
+  session — a grouped session, already chrome-free: no status bar, no prefix —
+  pinned to the named window (an index or a name), attaches the client to the
+  view, and kills the view when the attach ends, on every exit path. A grouped
+  session keeps its own current window, so the base and its other clients keep
+  showing whatever they were showing; the active pane within a window is the
+  window's and stays shared with the base. `--viewer` makes the view read-only;
+  `--keep-others` has nothing to displace and is accepted. `--bare` keeps its
+  herdr meaning (the session client with its chrome hidden, implying
+  `--client`), and `--client` stays herdr-only; zmx and meja refuse `--bare` as
+  `UNSUPPORTED`. Behavior spec §8.9.
+- **Views can be pinned to a window.** `olympus view create <base> --window
+  <w>`, the `window` argument of `create_view`, and `olympus.WithViewWindow`
+  open the view on one of the base's windows instead of the one it is showing,
+  leaving the base where it was. The window is matched exactly, by index or by
+  whole name, against the base's own window list before the view exists; a
+  window the base does not have is `SESSION_NOT_FOUND` with nothing created. A
+  pinned view selects no pane, since the pane is shared with the base.
+  `backend.ViewSpec` gains `Window`. Behavior spec §9.4.
 - **Servers: the level above sessions, uniform across backends.** `olympus
   servers` lists the servers the resolved backend can see — tmux's named
   sockets in its per-user directory, herdr's named sessions from `herdr session

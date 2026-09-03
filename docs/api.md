@@ -70,6 +70,18 @@ and is worth checking mechanically rather than by eye: the table above is the
 authority, and a tool missing from it is as much a defect as a tool missing from
 the server.
 
+`attach` being CLI-only, its flags have no MCP column. Not every one applies on
+every backend, and an inapplicable one is refused as `UNSUPPORTED` rather than
+ignored (behavior spec §8.7, §8.9):
+
+| Flag | Go option | Meaning | Backends |
+|---|---|---|---|
+| `--viewer` | `AsViewer` | read-only: no input, no resize | tmux, zmx; refused on meja and herdr |
+| `--keep-others` | `KeepOtherClients` | co-attach instead of displacing prior clients | all; meja and herdr's session client carry a notice where it cannot be honoured (§8.4); nothing to do under `--bare` on tmux |
+| `--client` | `WithSessionClient` | the multiplexer's own session client; target is a herdr SESSION name | herdr only |
+| `--bare` | `AsBare` | a plain pane, no chrome: herdr's session client with its chrome hidden (implies `--client`), or on tmux a throwaway view onto the session, killed when the attach ends; target may be `<session>:<window>` | herdr, tmux |
+| `--cols`, `--rows` | `AttachSize` | initial size when stdin is not a terminal | all |
+
 ### 1.1 Verbs are named for intent, not mechanism
 
 `screen` rather than `capture-pane`, `wait` rather than `expect`, `stop` rather
@@ -492,6 +504,15 @@ split.
 its base's, but the window and pane are shared (behavior spec §9.2), so a view
 row is not a session row and does not carry `liveness` or `cwd` — ask the base
 for those.
+
+`view create` takes `--name`, `--no-mouse` and `--window`; `create_view` takes
+`base`, `name`, `no_mouse` and `window`; Go takes `WithViewName`, `WithoutMouse`
+and `WithViewWindow`. `window` pins the view to one of the base's windows, by
+index or by name, instead of the window the base is showing; a window the base
+does not have is `SESSION_NOT_FOUND` and nothing is created (behavior spec
+§9.4). The row does not report the window — a view keeps its own current window
+and can be moved after creation, so the answer would be stale the moment it was
+read; ask tmux.
 
 **Server row** (`servers`):
 

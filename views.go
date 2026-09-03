@@ -46,6 +46,14 @@ func WithViewName(name string) ViewOption {
 	return func(s *backend.ViewSpec) { s.Name = name }
 }
 
+// WithViewWindow pins the view to one of the base's windows, by index or by
+// name, instead of the window the base is showing. A grouped session keeps its
+// own current window, so the base and every other view stay where they were
+// (behavior §9.4). A window the base does not have is not-found.
+func WithViewWindow(window string) ViewOption {
+	return func(s *backend.ViewSpec) { s.Window = window }
+}
+
 // CreateView adds an independently-scrollable view onto an existing session.
 //
 // A backend with no view concept answers unsupported — distinct from

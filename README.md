@@ -77,6 +77,8 @@ olympus servers                       # the servers behind the sessions
 olympus --server work ls              # address one of them by name
 olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
+olympus attach build:1 --bare         # one window, no chrome, nobody else moved (tmux)
+olympus view create build --window 1  # the same view, kept, to scroll or attach later
 ```
 
 That is a sample, not the whole surface — `olympus --help` lists every verb, and

@@ -27,10 +27,12 @@ func (a *App) viewCmd() *cobra.Command {
 func (a *App) viewCreateCmd() *cobra.Command {
 	var noMouse bool
 	var name string
+	var window string
 	cmd := &cobra.Command{
 		Use:   "create <base>",
 		Short: "Create a view onto a session",
 		Long: "Create an independently-scrollable view onto a session." +
+			"\n\n--window pins the view to one of the base's windows, by index or by name, instead of the window the base is showing. A view keeps its own current window, so the base and its other views stay where they are; the active pane within that window is shared with the base." +
 			"\n\nThis is NOT a side-effect-free read: on a backend that supports views it mutates server-global state. That is self-contained while Olympus owns the server, which is the default — pointed at your own running server, the changes land there until it is killed.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,6 +49,9 @@ func (a *App) viewCreateCmd() *cobra.Command {
 			if name != "" {
 				opts = append(opts, olympus.WithViewName(name))
 			}
+			if window != "" {
+				opts = append(opts, olympus.WithViewWindow(window))
+			}
 
 			view, err := ol.CreateView(cmd.Context(), args[0], opts...)
 			if err != nil {
@@ -59,6 +64,7 @@ func (a *App) viewCreateCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&noMouse, "no-mouse", false, "do not enable wheel scrolling into the view's history")
 	cmd.Flags().StringVar(&name, "name", "", "view session name (default olympus-view-<base>-<nonce>)")
+	cmd.Flags().StringVar(&window, "window", "", "pin the view to this window of the base, by index or name (default: the window the base is showing)")
 	return cmd
 }
 

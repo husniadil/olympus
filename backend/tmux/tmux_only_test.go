@@ -1103,3 +1103,64 @@ func TestListingsParseBothSpellingsOfTheSeparator(t *testing.T) {
 		})
 	}
 }
+
+// §9.4: a grouped session keeps its own current WINDOW, so a view can be
+// pinned to one of the base's windows without moving the base or any sibling
+// view. The pane is the one thing it cannot choose privately, so a pinned view
+// selects no pane at all.
+func TestAViewPinnedToAWindowLeavesTheBaseWhereItWas(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-wbase"})
+	socket := socketOf(t, b)
+	tmux := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("tmux", append([]string{"-S", socket}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("tmux %s: %v", strings.Join(args, " "), err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	// Not selected: the base keeps showing window 0.
+	tmux("new-window", "-d", "-t", "="+base+":", "-n", "second")
+
+	for _, window := range []string{"1", "second"} {
+		view, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-wbase-" + window, Window: window})
+		if err != nil {
+			t.Fatalf("creating a view pinned to window %q: %v", window, err)
+		}
+		if got := tmux("display-message", "-p", "-t", "="+view.Name+":", "#{window_index} #{window_name}"); got != "1 second" {
+			t.Errorf("a view pinned to %q shows %q, want %q", window, got, "1 second")
+		}
+	}
+	if got := tmux("display-message", "-p", "-t", "="+base+":", "#{window_index}"); got != "0" {
+		t.Errorf("pinning a view moved the base to window %s", got)
+	}
+}
+
+// A window the base does not have is not-found — and, since the check runs
+// before the view exists, nothing is left behind. An exact match only: tmux's
+// own target matching would let "sec" land on "second", which turns a typo into
+// a window.
+func TestAViewPinnedToAMissingWindowIsNotFoundAndCreatesNothing(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-wnone"})
+	if err := exec.Command("tmux", "-S", socketOf(t, b), "new-window", "-d", "-t", "="+base+":", "-n", "second").Run(); err != nil {
+		t.Fatalf("adding a window: %v", err)
+	}
+
+	for _, window := range []string{"9", "nope", "sec"} {
+		_, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-wnone-x", Window: window})
+		if backend.CodeOf(err) != backend.CodeSessionNotFound {
+			t.Errorf("a view pinned to window %q is %q, want %q", window, backend.CodeOf(err), backend.CodeSessionNotFound)
+		}
+	}
+	views, err := b.Views(ctx, base)
+	if err != nil {
+		t.Fatalf("listing views: %v", err)
+	}
+	if len(views) != 0 {
+		t.Errorf("a refused view was left behind: %+v", views)
+	}
+}

@@ -1679,6 +1679,37 @@ consumer. The attach client can exit on its own — base session died, process
 killed out from under it — without any close running. The exit handler MUST
 independently reap the per-view session, or it leaks forever.
 
+### 8.9 A bare attach on tmux is an attach onto a throwaway view
+
+A *bare* attach shows a session as a plain pane with no chrome. On herdr that is
+the session client with its chrome hidden; on tmux it is a **view** (§9): a
+grouped session is already bare by construction — no status bar, no prefix, an
+inert key table (§9.3) — so a bare attach MUST create a view onto the session,
+attach the client to the view rather than to the session, and reap the view
+when the attach ends, on every exit path (§8.8). Attaching the session itself
+with `status off` would reconfigure it for every other client of it.
+
+The target MAY name a window: `<session>:<window>`, where the window is an
+index or a name. A grouped session keeps its own current window (§9.2, §9.4), so
+the view is pinned to that window while the base and every sibling view keep
+showing whatever they were showing — which is the whole reason for the shape.
+The split is at the first colon: tmux rewrites a colon out of any session name
+it is given, so a session name never contains one, and a window name may. The
+window MUST be validated against the base before the view exists (§9.4), and a
+window the base does not have is `SESSION_NOT_FOUND` with nothing created.
+
+What a bare attach cannot promise: the active *pane* within a window is the
+window's, shared with the base. A bare view of a multi-pane window shows the
+base's active pane, and Olympus never selects a pane in a view (§9.4).
+
+Nothing else about attach changes. The view is a session, so the ordinary
+argv applies to it: a viewer role attaches it read-only (§8.7), and the
+supersede flag is harmless on a session no client has yet reached. Opting out
+of supersession has nothing to act on and is accepted rather than refused — the
+base's own clients are never displaced by a bare attach, which is its point.
+zmx and meja have neither a chrome-drawing client nor views, so a bare attach is
+`UNSUPPORTED` there (§12).
+
 ---
 
 ## 9. Views
@@ -1750,6 +1781,18 @@ On a single-pane session — the only shape Olympus's creation verbs produce —
 is unobservable. It becomes visible the moment a consumer splits a base session
 into multiple panes themselves and then creates a view over it. Accepted, but
 documented.
+
+**The window is the view's own, and a view MAY be pinned to one.** Because the
+current window is per-session even inside a group, selecting a window in the
+view moves nobody else — measured: a base showing window 0 and a view pinned to
+window 1 report `0` and `1` respectively, and `status off` on the view leaves
+the base's status bar alone. A pinned view MUST NOT then `select-pane`: the pane
+is the one thing it cannot choose privately, and a bare attach (§8.9) exists to
+show one window without disturbing anyone. The window MUST be checked against
+the base's own window list before the view is created, as an exact match on the
+index or the whole name: tmux's own target matching accepts a name prefix, so
+handing it the caller's spelling turns a typo into a window. A window the base
+does not have is `SESSION_NOT_FOUND`, and nothing is created.
 
 ### 9.5 Listing views
 

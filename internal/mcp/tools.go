@@ -191,6 +191,7 @@ type viewParams struct {
 	Base    string `json:"base" jsonschema:"the session to look onto"`
 	Name    string `json:"name,omitempty" jsonschema:"view session name (default olympus-view-<base>-<nonce>)"`
 	NoMouse bool   `json:"no_mouse,omitempty" jsonschema:"do not enable wheel scrolling into the view's history"`
+	Window  string `json:"window,omitempty" jsonschema:"pin the view to this window of the base, by index or name; default is the window the base is showing"`
 }
 
 type scrollParams struct {
@@ -520,6 +521,9 @@ func register(s *sdk.Server) {
 			}
 			if in.Name != "" {
 				opts = append(opts, olympus.WithViewName(in.Name))
+			}
+			if in.Window != "" {
+				opts = append(opts, olympus.WithViewWindow(in.Window))
 			}
 			view, err := ol.CreateView(ctx, in.Base, opts...)
 			return view, nil, err

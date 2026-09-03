@@ -63,6 +63,19 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 	}
 	sessionID, windowIndex, paneID := fields[0], fields[1], fields[2]
 
+	// A pinned window is checked against the base BEFORE the view exists, and
+	// resolved to its index. `select-window -t <view>:<name>` would accept a
+	// name too, but tmux matches window names by prefix and then by search
+	// (fnmatch) — so "sec" would silently land on "second", and a caller who
+	// typo'd a name would get a window rather than an error.
+	if spec.Window != "" {
+		index, err := t.windowIndex(ctx, base, spec.Window)
+		if err != nil {
+			return backend.View{}, err
+		}
+		windowIndex, paneID = index, ""
+	}
+
 	if _, err := t.run(ctx, nil, "new-session", "-d", "-t", sessionID, "-s", spec.Name); err != nil {
 		return backend.View{}, named(base, err)
 	}
@@ -109,11 +122,15 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 		return fail(err)
 	}
 
-	// Open the view on what the base is showing. A grouped session keeps its
-	// own current WINDOW, but the current PANE belongs to the shared window —
-	// so this select-pane also moves the BASE's active pane (§9.4). That is
+	// Open the view on what the base is showing, or on the pinned window. A
+	// grouped session keeps its own current WINDOW, so selecting one here moves
+	// only the view — but the current PANE belongs to the shared window, so
+	// the select-pane below also moves the BASE's active pane (§9.4). That is
 	// unobservable on the single-pane sessions Olympus's own creation verbs
 	// produce, and becomes visible only if a consumer splits a base themselves.
+	// A pinned view therefore never selects a pane at all: the point of
+	// pinning is to show one window without disturbing anyone, and the pane
+	// is the one thing a view cannot choose privately.
 	if _, err := t.run(ctx, nil, "select-window", "-t", sessionTarget(spec.Name)+":"+windowIndex); err != nil {
 		return fail(err)
 	}
@@ -128,6 +145,28 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 		return fail(err)
 	}
 	return backend.View{Name: spec.Name, Base: base, ID: viewID}, nil
+}
+
+// windowIndex resolves a window the caller named — by index or by name — to
+// its index on the base, or reports not-found naming both.
+//
+// Read from list-windows rather than trusting tmux's own target matching: an
+// exact match on the index or the whole name is the only one accepted here.
+func (t *Tmux) windowIndex(ctx context.Context, base, window string) (string, error) {
+	out, err := t.run(ctx, nil, "list-windows", "-t", windowTarget(base), "-F", "#{window_index}\x1f#{window_name}")
+	if err != nil {
+		return "", named(base, err)
+	}
+	for _, line := range splitLines(out) {
+		f := SplitFields(line)
+		if len(f) < 2 {
+			continue
+		}
+		if f[0] == window || f[1] == window {
+			return f[0], nil
+		}
+	}
+	return "", backend.Errorf(backend.CodeSessionNotFound, "session %s has no window %s", base, window)
 }
 
 // ScrollView scrolls a view into its history, leaving the base untouched.

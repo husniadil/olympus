@@ -25,6 +25,7 @@ func (a *App) attachCmd() *cobra.Command {
 			"Detaching is the multiplexer's own key, not this terminal's: Ctrl+C is forwarded into the session rather than interpreted here.\n\n" +
 			"Other clients are displaced by default; use --keep-others to co-attach instead.\n\n" +
 			"SESSION CLIENT (herdr): --client attaches herdr's own session client, with mouse selection, scroll and copy, instead of the raw per-pane stream; the target is then a herdr SESSION name rather than an Olympus pane. --bare adds that client with its chrome hidden, so it renders as a plain pane, and implies --client.\n\n" +
+			"BARE (tmux): --bare attaches a fresh view onto the session instead of the session itself — no status bar, no prefix — and kills the view when this attach ends. The target may be <session> or <session>:<window> (an index or a name) to show one window: a view keeps its own current window, so nobody else's is moved. The base's other clients are not displaced, so --keep-others is accepted and has nothing to do; --viewer makes the view read-only. The active pane within a window is shared with the base, so a multi-pane window shows the base's active pane. zmx and meja refuse --bare.\n\n" +
 			"EXIT CODE: once the session is confirmed to exist, this hands off to the multiplexer's own client and exits with ITS status. An exit of 3 here is not necessarily a missing session.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -82,6 +83,10 @@ func (a *App) attachCmd() *cobra.Command {
 			// it must NOT go through withSession — that resolves the name to a
 			// pane and probes for it, and a herdr session name is neither. The
 			// backend's own client reports a missing session itself.
+			//
+			// A bare target on tmux is `<session>:<window>`, which is not a
+			// session either; the ergonomic layer splits it, resolves the
+			// session half, and reports a missing session or window itself.
 			if client || bare {
 				ol, err := a.open()
 				if err != nil {
@@ -99,7 +104,7 @@ func (a *App) attachCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&viewer, "viewer", false, "attach read-only: no input, and no resizing")
 	cmd.Flags().BoolVar(&keepOthers, "keep-others", false, "co-attach instead of displacing other clients")
 	cmd.Flags().BoolVar(&client, "client", false, "attach the multiplexer's session client (selection, scroll, copy); target is a session name (herdr only)")
-	cmd.Flags().BoolVar(&bare, "bare", false, "attach the session client with its chrome hidden, as a plain pane; implies --client (herdr only)")
+	cmd.Flags().BoolVar(&bare, "bare", false, "attach as a plain pane, no chrome: on herdr the session client with its chrome hidden (implies --client); on tmux a throwaway view, with <session>:<window> to pick a window (see BARE)")
 	cmd.Flags().IntVar(&cols, "cols", 0, "initial width, for a caller whose stdin is not a terminal")
 	cmd.Flags().IntVar(&rows, "rows", 0, "initial height, for a caller whose stdin is not a terminal")
 	return cmd
