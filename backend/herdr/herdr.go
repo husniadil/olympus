@@ -76,6 +76,13 @@ const waitDelay = 2 * time.Second
 // this backend's own configuration directory to read.
 type Herdr struct {
 	socketPath string
+	// socketOnly is set when the socket was chosen by server NAME rather than
+	// by path (WithServerSocket). The socket then belongs to a named session
+	// the operator owns, and this backend addresses it without redirecting
+	// herdr's configuration and state directories — the derivation StateHome
+	// performs would otherwise put Olympus's own state tree inside the
+	// operator's configuration directory (§13.2).
+	socketOnly bool
 
 	mu sync.Mutex
 	// started is set when this handle brought the server up itself. It is
@@ -644,6 +651,12 @@ func (h *Herdr) command(ctx context.Context, args ...string) *exec.Cmd {
 // beside its socket, so a server started here would otherwise overwrite the
 // operator's saved workspaces (§2.9).
 func (h *Herdr) env(base []string) []string {
+	if h.socketOnly {
+		// A named session's socket lives inside the operator's configuration
+		// tree, so deriving a state home from it would create Olympus's
+		// directories there. The socket alone is the address (§13.2).
+		return h.socketEnv(base)
+	}
 	home := h.StateHome()
 	return append(h.socketEnv(base),
 		"XDG_CONFIG_HOME="+filepath.Join(home, "config"),
@@ -665,7 +678,12 @@ func (h *Herdr) run(ctx context.Context, args ...string) (string, error) {
 	if err := h.validateSocketPath(); err != nil {
 		return "", err
 	}
-	cmd := h.command(ctx, args...)
+	return runCommand(h.command(ctx, args...), args)
+}
+
+// runCommand runs a prepared herdr invocation and maps its failure into the
+// error vocabulary.
+func runCommand(cmd *exec.Cmd, args []string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -707,6 +725,10 @@ func classify(err error, stdout, stderr string, args []string) error {
 	case "server_not_running":
 		return fmt.Errorf("%w: %s", errNoServer, message)
 	case "pane_not_found", "workspace_not_found", "tab_not_found":
+		return backend.Errorf(backend.CodeSessionNotFound, "%s", message)
+	case "session_stop_failed":
+		// "session <name> is not running or cannot be reached at <socket>":
+		// the named server is not there to stop (§13.2).
 		return backend.Errorf(backend.CodeSessionNotFound, "%s", message)
 	case "invalid_key", "invalid_request", "invalid_metadata_source",
 		"invalid_metadata_token", "invalid_metadata_ttl":

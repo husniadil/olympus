@@ -24,6 +24,7 @@ type App struct {
 	socket      string
 	socketPath  string
 	zmxDir      string
+	server      string
 	json        bool
 	noLock      bool
 	quiet       bool
@@ -162,6 +163,7 @@ release. Scripts should use --json, whose shape is semver-bound.`),
 	flags.StringVar(&a.socket, "socket", "", "tmux socket NAME, resolved inside tmux's own directory (tmux backend only)")
 	flags.StringVar(&a.socketPath, "socket-path", "", "server socket PATH, used verbatim; puts the socket where you choose (tmux, meja and herdr backends)")
 	flags.StringVar(&a.zmxDir, "zmx-dir", "", "zmx socket directory (zmx backend only)")
+	flags.StringVar(&a.server, "server", "", "select a server by NAME, as listed by `olympus servers`; exclusive with --socket, --socket-path and --zmx-dir")
 	flags.BoolVar(&a.json, "json", false, "emit the structured envelope on stdout")
 	flags.BoolVar(&a.noLock, "no-lock", false, "skip the per-session write lock (for callers that serialize their own writes)")
 	flags.BoolVarP(&a.quiet, "quiet", "q", false, "suppress non-essential human output")
@@ -187,6 +189,7 @@ release. Scripts should use --json, whose shape is semver-bound.`),
 		a.exitStatusCmd(),
 		a.attachCmd(),
 		a.viewCmd(),
+		a.serversCmd(),
 		a.serverEnvCmd(),
 		a.mcpCmd(),
 		a.capabilitiesCmd(),
@@ -241,6 +244,9 @@ func (a *App) openAt(here olympus.Identity) (*olympus.Olympus, error) {
 	}
 	if a.zmxDir != "" {
 		opts = append(opts, olympus.WithZmxDir(a.zmxDir))
+	}
+	if a.server != "" {
+		opts = append(opts, olympus.WithServer(a.server))
 	}
 	if a.noLock {
 		opts = append(opts, olympus.WithoutLock())

@@ -83,6 +83,9 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		SpawnCommand:    true,
 		SessionStatus:   true,
 		TracksAltScreen: true,
+		// Named sockets in tmux's per-user directory are its servers, and the
+		// directory can be read (§13.2).
+		Servers: true,
 	}
 }
 

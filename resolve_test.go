@@ -317,3 +317,63 @@ func TestZmxScopeFallsBackToTheEnvironmentSoLockKeysAgree(t *testing.T) {
 			passed.lockKey("s"), inherited.lockKey("s"))
 	}
 }
+
+// §13.2 A server name and an explicit address are two answers to one question,
+// so giving both is USAGE — on every backend, before one is even resolved.
+func TestAServerNameIsExclusiveWithAnAddress(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		opt  Option
+		flag string
+	}{
+		{"socket", WithSocket("x"), "--socket"},
+		{"socket path", WithSocketPath("/tmp/x.sock"), "--socket-path"},
+		{"zmx directory", WithZmxDir("/tmp/x"), "--zmx-dir"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := open(config{
+				explicit: "tmux",
+				installs: func(backend.Name) bool { return true },
+			}, WithServer("work"), c.opt)
+			if CodeOf(err) != backend.CodeUsage {
+				t.Fatalf("error is %v (%v), want USAGE", err, CodeOf(err))
+			}
+			if !strings.Contains(err.Error(), c.flag) || !strings.Contains(err.Error(), "--server") {
+				t.Errorf("the message %q does not name both options", err.Error())
+			}
+		})
+	}
+}
+
+// §13.2 Resolution of a server name is backend-local: tmux takes it as a
+// socket name, zmx answers only to its one directory, meja cannot enumerate
+// its profiles at all.
+func TestAServerNameResolvesPerBackend(t *testing.T) {
+	t.Parallel()
+	everything := func(backend.Name) bool { return true }
+
+	ol, err := open(config{explicit: "tmux", installs: everything}, WithServer("work"), WithoutLock())
+	if err != nil {
+		t.Fatalf("a tmux server name: %v", err)
+	}
+	if got := ol.Resolution().Backend; got != backend.Tmux {
+		t.Errorf("resolved %s, want tmux", got)
+	}
+	if scope := ol.scope; scope != "work" {
+		t.Errorf("the tmux scope is %q, want the socket name the server name became", scope)
+	}
+
+	if _, err := open(config{explicit: "zmx", installs: everything}, WithServer("default"), WithoutLock()); err != nil {
+		t.Errorf("zmx refuses its one server name: %v", err)
+	}
+	_, err = open(config{explicit: "zmx", installs: everything}, WithServer("other"), WithoutLock())
+	if CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("an unknown zmx server is %v (%v), want SESSION_NOT_FOUND", err, CodeOf(err))
+	}
+
+	_, err = open(config{explicit: "meja", installs: everything}, WithServer("work"), WithoutLock())
+	if CodeOf(err) != backend.CodeUnsupported {
+		t.Errorf("a meja server name is %v (%v), want UNSUPPORTED", err, CodeOf(err))
+	}
+}

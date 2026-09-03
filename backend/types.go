@@ -180,4 +180,11 @@ type Capabilities struct {
 	// track that", and an empty capture is ambiguous in exactly the way the
 	// flag exists to prevent (behavior §5.3).
 	TracksAltScreen bool `json:"tracks_alt_screen"`
+	// Servers reports whether the backend can enumerate its servers — the
+	// level above sessions, each behind its own socket (§13.2). With it, a
+	// caller can discover a server by name and select it with --server;
+	// without it, the only way to address a server is to already know its
+	// socket. It says nothing about stopping one: a backend can enumerate
+	// servers it has no way to stop, and reports that as unsupported.
+	Servers bool `json:"servers"`
 }

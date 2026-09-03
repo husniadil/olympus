@@ -487,6 +487,8 @@ func TestTheToolNamesMatchTheSpecTable(t *testing.T) {
 		"type_text",
 		"wait_for",
 		"server_env",
+		"list_servers",
+		"stop_server",
 		"version",
 	}
 	slices.Sort(fromTheSpec)

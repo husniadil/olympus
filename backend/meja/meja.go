@@ -231,5 +231,9 @@ func (m *Meja) Capabilities() backend.Capabilities {
 		// No format field reports the alternate screen, so the flag would
 		// always be false and a caller could not tell that from "not tracked".
 		TracksAltScreen: false,
+		// meja's other servers are profiles (`-L <name>`) resolved under its
+		// own store, and nothing in its CLI enumerates them, so a server here
+		// is addressed by knowing its socket path and by nothing else (§13.2).
+		Servers: false,
 	}
 }

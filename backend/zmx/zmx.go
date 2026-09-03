@@ -88,6 +88,9 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		SpawnCommand:    true,
 		SessionStatus:   false,
 		TracksAltScreen: false,
+		// One directory, one daemon: a single row, but an answerable one
+		// (§13.2).
+		Servers: true,
 	}
 }
 

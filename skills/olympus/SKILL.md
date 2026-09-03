@@ -28,6 +28,7 @@ Otherwise run the command directly.
 - Control keys (`c-c`, `c-o`, `c-x`) are not deliverable on zmx. Check `olympus capabilities` for `control_keys` before driving an editor or anything that needs them; use `--backend tmux` if it does.
 - Starting a session ON a command (`--command`) is refused on herdr: its panes run the shell its own configuration names. Check `olympus capabilities` for `spawn_command`; without it, start a plain session and run the program inside it.
 - On herdr every pane is a session, named by its pane label or, far more often, by its pane id (`w25:p8`). To drive a herdr you already run, point `--socket-path` at its socket (`~/.config/herdr/herdr.sock` by default); `olympus ls` then shows every pane on it. Olympus will not stop a server it did not start — close the sessions you own instead.
+- Servers are the level above sessions. `olympus servers` lists them (tmux socket names, herdr named sessions, zmx's one directory) and `--server <name>` points any verb at one by name; on meja neither exists. `olympus servers stop <name>` takes every session on it down, so use it only when the user means the whole server.
 - Stop what you started. `olympus stop <name>` is graceful first, `--force` skips that. Leave a session only when the user wants it to persist.
 
 Exit codes worth recognizing: 3 session does not exist, 4 backend unreachable, 5 timed out, 6 someone else holds the session, 7 backend has no such concept. `run` without `--json` exits with the command's own status so it composes in a pipeline.
@@ -86,13 +87,14 @@ From inside: `olympus self` says which session this process is in, and `olympus 
 
 ## MCP
 
-If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 25 of them:
+If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 27 of them:
 
 - Sessions: `start_session`, `new_session`, `list_sessions`, `session_info`, `session_status`, `stop_session`, `self`, `list_panes`
 - Input: `type_text`, `send_text`, `press_keys`, `paste_text`
 - Reading: `screen`, `wait_for`
 - Running: `run_command`, `start_run`, `poll_run`, `exit_status`
 - Views: `create_view`, `scroll_view`, `list_views`
+- Servers: `list_servers`, `stop_server` (select one by name with `OLYMPUS_SERVER`)
 - Diagnostics: `server_env`, `capabilities`, `doctor`, `version`
 
 Two operations are CLI-only by nature: `watch` (a stream) and `attach` (interactive). Everything in this skill applies unchanged; only the spelling differs.

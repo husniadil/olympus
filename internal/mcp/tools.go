@@ -38,6 +38,8 @@ var ToolNames = []string{
 	"scroll_view",
 	"list_views",
 	"server_env",
+	"list_servers",
+	"stop_server",
 	"capabilities",
 	"doctor",
 	"version",
@@ -46,6 +48,10 @@ var ToolNames = []string{
 // Parameter and result shapes. They mirror the ergonomic layer and the CLI:
 // the door translates, it does not decide, so a default or a field invented
 // here would be a second contract (behavior §15.6).
+
+type serverParams struct {
+	Name string `json:"name" jsonschema:"the server to stop, as listed by list_servers"`
+}
 
 type targetParams struct {
 	Target string `json:"target" jsonschema:"the session to address"`
@@ -540,6 +546,21 @@ func register(s *sdk.Server) {
 				return envResult{}, nil, err
 			}
 			return envResult{Key: in.Key, Present: present, Value: value}, nil, nil
+		})
+
+	addTool(s, "list_servers", "List the resolved backend's servers: the level above sessions, each behind its own socket. Not every backend can enumerate them.",
+		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) ([]backend.Server, []olympus.Warning, error) {
+			servers, err := ol.Servers(ctx)
+			if servers == nil {
+				servers = []backend.Server{}
+			}
+			return servers, nil, err
+		})
+
+	addTool(s, "stop_server", "Stop a server by name, with every session on it. Reports gone (it was not running) or killed.",
+		func(ctx context.Context, ol *olympus.Olympus, in serverParams) (olympus.StoppedServer, []olympus.Warning, error) {
+			stopped, err := ol.StopServer(ctx, in.Name)
+			return stopped, nil, err
 		})
 
 	addFreestandingTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.",

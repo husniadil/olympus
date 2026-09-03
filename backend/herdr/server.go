@@ -35,6 +35,14 @@ func (h *Herdr) ensureServer(ctx context.Context) error {
 		// rather than a change (§17.5).
 		return nil
 	}
+	if h.socketOnly {
+		// A server selected by name is the operator's named session, and
+		// starting one here would boot it against their configuration
+		// directory with Olympus's pins written into it. Driving, never
+		// starting, is the rule for a server Olympus does not own (§2.9.1).
+		return backend.Errorf(backend.CodeBackendUnavailable,
+			"no herdr server is answering at %s; the server was selected by name, so Olympus will not start it — start it with herdr and retry", h.socketPath)
+	}
 	return h.startServer(ctx)
 }
 

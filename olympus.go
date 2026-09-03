@@ -46,6 +46,7 @@ type config struct {
 	socket     string
 	socketPath string
 	zmxDir     string
+	server     string
 	noLock     bool
 	lockWait   time.Duration
 	installs   installedFunc
@@ -129,12 +130,23 @@ func open(cfg config, opts ...Option) (*Olympus, error) {
 		opt(&cfg)
 	}
 
+	if err := checkServerExclusive(cfg); err != nil {
+		return nil, err
+	}
 	resolution, err := resolve(cfg.explicit, cfg.env, cfg.installs)
 	if err != nil {
 		return nil, err
 	}
 	if err := checkAddressing(resolution.Backend, cfg); err != nil {
 		return nil, err
+	}
+	if cfg.server != "" {
+		// Resolved into the ordinary addressing options, so everything below
+		// sees one form of address and the lock key identifies the server the
+		// same way whichever spelling chose it (§13.2).
+		if err := applyServer(resolution.Backend, &cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	o := &Olympus{resolution: resolution, lockWait: cfg.lockWait}
@@ -189,8 +201,15 @@ func open(cfg config, opts ...Option) (*Olympus, error) {
 		// directories are derived from it, because a session's persisted
 		// layout lives in the configuration directory rather than beside the
 		// socket (§2.9).
+		//
+		// A server chosen by NAME is the exception: its socket lives inside
+		// the operator's configuration tree, so the derivation must not run
+		// or Olympus's state would land there (§13.2).
 		var options []herdr.Option
-		if cfg.socketPath != "" {
+		switch {
+		case cfg.server != "":
+			options = append(options, herdr.WithServerSocket(cfg.socketPath))
+		case cfg.socketPath != "":
 			options = append(options, herdr.WithSocketPath(cfg.socketPath))
 		}
 		built := herdr.New(options...)

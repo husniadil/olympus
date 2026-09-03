@@ -2070,7 +2070,7 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
 server environment, control keys, spawn sizing, spawn command, session status,
-alt-screen tracking.
+alt-screen tracking, servers.
 
 **Spawn command is a capability because a session's process is not always the
 caller's to choose.** A backend whose panes run the program its own
@@ -2153,6 +2153,65 @@ Capabilities MUST NOT include whether a session outlives its command. That is a
 property of the **caller's** own wrapper — does the shell it spawned keep running
 after the tracked command exits — not of backend mechanics. Putting it here
 misattributes a consumer-side design choice to the backend.
+
+### 13.2 Servers
+
+A server is the level above sessions. Every backend can run several, each
+behind its own socket, and every other operation in this specification
+addresses exactly one of them: a tmux socket, a herdr socket, a zmx directory.
+Enumerating them and selecting one BY NAME is a capability, `servers`, because
+what a name resolves to is backend-local and a caller has to know whether the
+question can be asked at all before asking it.
+
+What a row *is* differs per backend and MUST be disclosed rather than
+reported as equivalent, the same way §3.4 treats pane fields:
+
+- **tmux**: a socket NAME in tmux's per-user directory (`$TMUX_TMPDIR/tmux-<uid>`,
+  else `/tmp/tmux-<uid>`) — the same resolution `-L` performs, and the
+  directory MUST be the one tmux itself resolves, so a caller who moved
+  `TMUX_TMPDIR` scans the servers they address. Running is measured by asking
+  the server, never inferred from the file: killing a server does not unlink its
+  socket, so a file with nothing behind it is a known server that is stopped. A
+  server started with a socket PATH is not discoverable — there is no registry
+  of those — and is absent from the listing by construction. `default` is the
+  row tmux addresses with no `-L`; Olympus's own default is a different socket
+  (§17.2).
+- **herdr**: a named session, as `herdr session list` reports it. The listing
+  runs against the operator's real configuration directory, which is where
+  named sessions live, and therefore carries neither the socket override nor
+  the state redirect every other invocation carries.
+- **zmx**: exactly one row, the socket directory in use, named `default` and
+  running when the directory exists. There is nothing to stop apart from its
+  sessions.
+- **meja**: unsupported. Its profiles resolve under its own store and nothing in
+  its CLI enumerates them, so a server there is addressed by knowing its socket
+  path and by nothing else.
+
+**Selecting a server by name resolves INTO the backend's ordinary address**, in
+one place, so the lock key (§11) identifies the server the same way whichever
+spelling chose it. A name given together with an explicit address is USAGE:
+two answers to one question, and whichever lost would leave the caller on a
+server they did not mean. An unknown name is not-found.
+
+**On herdr, a server selected by name MUST be addressed by its socket alone.**
+A named session's socket lives inside the operator's configuration tree, and
+the state-home derivation §2.9 requires of a socket PATH would put Olympus's
+own configuration and state directories inside that tree. So the socket-only
+environment applies to every invocation, the server is never started by
+Olympus — a server that is not answering is unavailable, not something to boot
+against the operator's configuration (§2.9.1) — and nothing is written under
+the directory the socket sits in. The derived client socket still has to fit
+the platform budget, and an over-long one is refused by name before any
+invocation.
+
+**Stopping a server takes every session on it**, so it is its own operation
+and never a side effect of stopping a session. The layer above the backend
+checks the name against the listing first: unknown is not-found, not running
+is reported `gone` without the server being told anything, and a running
+server that was stopped is `killed` — the same idempotence §2.8 gives a
+session. On herdr this is `session stop` by name, deliberately distinct from
+the ownership-scoped stop of §2.9.1: a caller naming a server has named the
+thing they mean to take down.
 
 ---
 

@@ -367,6 +367,8 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 		{"create_view", map[string]any{"base": name}},
 		{"list_views", map[string]any{"base": name}},
 		{"server_env", map[string]any{"key": "PATH"}},
+		{"list_servers", map[string]any{}},
+		{"stop_server", map[string]any{"name": "default"}},
 		{"session_status", map[string]any{"target": name}},
 		{"scroll_view", map[string]any{"view": name, "lines": 1}},
 	}

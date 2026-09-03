@@ -91,6 +91,9 @@ func open() (*olympus.Olympus, error) {
 	if v := strings.TrimSpace(os.Getenv("OLYMPUS_SOCKET_PATH")); v != "" {
 		opts = append(opts, olympus.WithSocketPath(v))
 	}
+	if v := strings.TrimSpace(os.Getenv("OLYMPUS_SERVER")); v != "" {
+		opts = append(opts, olympus.WithServer(v))
+	}
 	// ZMX_DIR is deliberately NOT forwarded. It is zmx's own variable, read by
 	// the zmx binary itself whether or not Olympus passes it (api §4), so
 	// forwarding it changed nothing about which daemon answered — while turning

@@ -209,6 +209,7 @@ func describeCapabilities(caps backend.Capabilities) string {
 		{"server-env", caps.ServerEnv},
 		{"control-keys", caps.ControlKeys},
 		{"alt-screen-tracking", caps.TracksAltScreen},
+		{"servers", caps.Servers},
 	} {
 		if c.set {
 			on = append(on, c.name)

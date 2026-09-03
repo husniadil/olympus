@@ -1254,3 +1254,104 @@ func TestATruncatedDetachedRunPollsAsCompleted(t *testing.T) {
 		t.Errorf("warnings are %v, want one saying the output begins partway through", last.Warnings)
 	}
 }
+
+// §13.2 `servers` lists the level above sessions; `--server` selects one by
+// name and is exclusive with every address flag. Scanned against a private
+// tmux socket directory, never the operator's.
+func TestServersListsAndSelectsByName(t *testing.T) {
+	requireTmuxInstalled(t)
+	base, err := os.MkdirTemp(os.TempDir(), "olyc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Setenv("TMUX_TMPDIR", base)
+
+	got := run(t, "--backend", "tmux", "servers", "--json")
+	if got.code != 0 {
+		t.Fatalf("exit %d: %s%s", got.code, got.stdout, got.stderr)
+	}
+	e := got.envelope(t)
+	if !e.OK || e.Backend != backend.Tmux {
+		t.Errorf("envelope %+v does not report a tmux success", e)
+	}
+	if rows, ok := e.Data.([]any); !ok || len(rows) != 0 {
+		t.Errorf("data is %v, want an empty array — never null", e.Data)
+	}
+
+	human := run(t, "--backend", "tmux", "servers")
+	if human.code != 0 || !strings.Contains(human.stdout, "no servers on the tmux backend") {
+		t.Errorf("human output %q (exit %d) does not name the backend", human.stdout, human.code)
+	}
+
+	conflict := run(t, "--backend", "tmux", "--server", "work", "--socket", "x", "ls", "--json")
+	if conflict.code != 2 {
+		t.Errorf("--server with --socket exits %d, want 2", conflict.code)
+	}
+	if e := conflict.envelope(t); e.Error == nil || e.Error.Code != backend.CodeUsage {
+		t.Errorf("--server with --socket is %v, want USAGE", e.Error)
+	}
+
+	unknown := run(t, "--backend", "tmux", "servers", "stop", "nonesuch", "--json")
+	if unknown.code != 3 {
+		t.Errorf("stopping an unknown server exits %d, want 3", unknown.code)
+	}
+	if e := unknown.envelope(t); e.Error == nil || e.Error.Code != backend.CodeSessionNotFound {
+		t.Errorf("stopping an unknown server is %v, want SESSION_NOT_FOUND", e.Error)
+	}
+}
+
+// §13.2 A running server is listed as running and `servers stop` takes it
+// down, reporting killed; a second stop reports gone. The server is private:
+// its socket is a path inside a directory this test owns, which is also the
+// directory the listing scans.
+func TestServersStopKillsARunningServer(t *testing.T) {
+	skipUnlessFull(t)
+	requireTmuxInstalled(t)
+	base, err := os.MkdirTemp(os.TempDir(), "olyc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Setenv("TMUX_TMPDIR", base)
+	dir := filepath.Join(base, fmt.Sprintf("tmux-%d", os.Getuid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(dir, "live")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
+	if out, err := exec.Command("tmux", "-S", socket, "new-session", "-d", "-x", "80", "-y", "24").CombinedOutput(); err != nil {
+		t.Fatalf("starting a private server: %v\n%s", err, out)
+	}
+
+	// Selected by name, the server's sessions are what `ls` shows.
+	listed := run(t, "--backend", "tmux", "--server", "live", "ls", "--json")
+	if listed.code != 0 {
+		t.Fatalf("ls --server exits %d: %s%s", listed.code, listed.stdout, listed.stderr)
+	}
+	if rows, _ := listed.envelope(t).Data.([]any); len(rows) != 1 {
+		t.Errorf("ls --server live lists %v, want the one session on it", rows)
+	}
+
+	got := run(t, "--backend", "tmux", "servers")
+	if got.code != 0 || !strings.Contains(got.stdout, "live") {
+		t.Fatalf("servers exit %d, stdout %q does not list the running server", got.code, got.stdout)
+	}
+
+	stopped := run(t, "--backend", "tmux", "servers", "stop", "live", "--json")
+	if stopped.code != 0 {
+		t.Fatalf("servers stop exits %d: %s%s", stopped.code, stopped.stdout, stopped.stderr)
+	}
+	data, _ := stopped.envelope(t).Data.(map[string]any)
+	if data["outcome"] != "killed" || data["name"] != "live" {
+		t.Errorf("servers stop reports %v, want killed live", data)
+	}
+	if err := exec.Command("tmux", "-S", socket, "list-sessions").Run(); err == nil {
+		t.Error("the server still answers after servers stop")
+	}
+
+	again := run(t, "--backend", "tmux", "servers", "stop", "live")
+	if again.code != 0 || !strings.Contains(again.stdout, "gone live") {
+		t.Errorf("a second stop exits %d with %q, want gone", again.code, again.stdout)
+	}
+}

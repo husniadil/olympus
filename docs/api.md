@@ -47,6 +47,8 @@ same operation.
 | scroll a view | `view scroll` | `scroll_view` | `ScrollView` |
 | list views | `view ls` | `list_views` | `Views` |
 | read a server env key | `server-env` | `server_env` | `ServerEnv` |
+| list servers | `servers` | `list_servers` | `Servers` |
+| stop a server | `servers stop` | `stop_server` | `StopServer` |
 | what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
 | environment diagnosis | `doctor` | `doctor` | `Diagnose` |
 | version | `version` | `version` | `Version` (a package variable) |
@@ -85,8 +87,10 @@ had the same split, `screen` against `capture`.
 literally named `poll` becomes unaddressable by `run`, because subcommand
 resolution wins. Keeping `poll` top-level costs nothing and removes the trap.
 
-`view` is the one legitimate subcommand group: its three operations act on views
-rather than sessions, and share a noun.
+`view` and `servers` are the two legitimate subcommand groups: their operations
+act on views and on servers rather than on sessions, and each shares a noun.
+`servers` lists when bare, since listing is what a caller reaches for first;
+`servers stop <name>` is the noun's one write.
 
 ### 1.2 Targets are positional, everywhere
 
@@ -249,6 +253,7 @@ Both are documented in the affected operation's `--help`, not only here.
 | `--socket <name>` | `OLYMPUS_SOCKET` (MCP door only) | tmux backend only |
 | `--socket-path <path>` | `OLYMPUS_SOCKET_PATH` (MCP door only) | tmux, meja and herdr backends |
 | `--zmx-dir <dir>` | `ZMX_DIR` | zmx backend only |
+| `--server <name>` | `OLYMPUS_SERVER` (MCP door only) | tmux, herdr and zmx backends; exclusive with the three above |
 | `--json` | — | all |
 | `--no-lock` | — | operations that take the write lock |
 | — | `OLYMPUS_LOCK_WAIT` | operations that take the write lock |
@@ -257,9 +262,16 @@ Both are documented in the affected operation's `--help`, not only here.
 Precedence is flag over environment over default, per behavior spec §0.1. An
 unknown backend name is `USAGE`, not `UNEXPECTED`.
 
-`OLYMPUS_SOCKET` and `OLYMPUS_SOCKET_PATH` are read by the MCP door alone. The
-CLI honours only `OLYMPUS_BACKEND` from the environment; on the CLI the two
-addressing options are flags, `--socket` and `--socket-path`.
+`OLYMPUS_SOCKET`, `OLYMPUS_SOCKET_PATH` and `OLYMPUS_SERVER` are read by the
+MCP door alone. The CLI honours only `OLYMPUS_BACKEND` from the environment; on
+the CLI the addressing options are flags, `--socket`, `--socket-path` and
+`--server`.
+
+`--server` selects a server by NAME — one of the rows `servers` lists — and is
+resolved into the backend's own address (behavior spec §13.2): a tmux socket
+name, a herdr named session's socket, zmx's one `default`. Given together with
+`--socket`, `--socket-path` or `--zmx-dir` it is `USAGE`; an unknown name is
+`SESSION_NOT_FOUND`; on meja it is `UNSUPPORTED`.
 
 `OLYMPUS_LOCK_WAIT` overrides how long a writer waits for a contended session
 before reporting `CONFLICT`, default 10s. It is a duration string, read at call
@@ -481,6 +493,28 @@ its base's, but the window and pane are shared (behavior spec §9.2), so a view
 row is not a session row and does not carry `liveness` or `cwd` — ask the base
 for those.
 
+**Server row** (`servers`):
+
+```json
+{ "name": "work", "socket_path": "/tmp/tmux-501/work", "running": true, "default": false,
+  "dir": "/tmp/tmux-501" }
+```
+
+`name` is what `--server` selects by. `running` is measured, not inferred from
+the socket file. `default` marks the row the backend addresses when nothing
+selects one, which on tmux and herdr is not the server Olympus itself defaults
+to (behavior spec §17.2). `dir` is omitted where the backend has none to
+report. What a row is differs by backend — a tmux socket name, a herdr named
+session, zmx's one directory — and is specified in behavior §13.2.
+
+**Stopped server** (`servers stop`):
+
+```json
+{ "name": "work", "outcome": "killed" }
+```
+
+`outcome` is `gone` (it was not running) or `killed`; both are successes.
+
 **Doctor** (`doctor`):
 
 ```json
@@ -494,14 +528,14 @@ for those.
       "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
                         "server_env": false, "control_keys": false,
                         "spawn_sizing": false, "spawn_command": true,
-                        "session_status": false, "tracks_alt_screen": false } },
+                        "session_status": false, "tracks_alt_screen": false, "servers": true } },
     { "name": "herdr", "installed": true, "version": "0.8.2", "floor": "0.8.2",
       "below_floor": false,
       "isolation": "socket at /tmp/olympus-herdr/herdr.sock; its configuration and saved layout live beside it, invisible to your own herdr",
       "capabilities": { "native_scrollback": false, "views": false, "remain_on_exit": false,
                         "server_env": false, "control_keys": true,
                         "spawn_sizing": false, "spawn_command": false,
-                        "session_status": true, "tracks_alt_screen": false },
+                        "session_status": true, "tracks_alt_screen": false, "servers": true },
       "managed_options": { "update.manifest_check": "false", "update.version_check": "false" } },
     { "name": "tmux", "installed": true, "version": "3.7b", "floor": "3.3",
       "below_floor": false,
@@ -509,7 +543,7 @@ for those.
       "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
                         "server_env": true, "control_keys": true,
                         "spawn_sizing": true, "spawn_command": true,
-                        "session_status": true, "tracks_alt_screen": true },
+                        "session_status": true, "tracks_alt_screen": true, "servers": true },
       "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []

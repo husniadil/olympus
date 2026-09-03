@@ -73,6 +73,8 @@ olympus self                          # which session am I running in?
 olympus status --set ready            # from inside: tell whoever is driving
 olympus status build --wait ready     # from outside: block until it says so
 olympus capabilities                  # what this backend can do
+olympus servers                       # the servers behind the sessions
+olympus --server work ls              # address one of them by name
 olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
 ```
@@ -189,6 +191,13 @@ works the same on either.
 sessions do not show up in a plain `tmux ls`. On zmx there is no socket
 equivalent — sessions are global to your daemon and appear in your own
 `zmx list`. `olympus doctor` states which is in effect.
+
+**Servers are the level above sessions.** `olympus servers` lists the ones the
+backend can see — tmux's named sockets, herdr's named sessions, zmx's one
+directory — with whether each is running, and `--server <name>` points any verb
+at one of them by name instead of by socket. `olympus servers stop <name>` takes
+one down with every session on it. What a server *is* differs by backend and
+the listing says so; meja cannot enumerate its profiles, so it has neither.
 
 Two more backends are supported and come last in that order, each answering only
 when nothing before it is installed, since sessions never migrate between

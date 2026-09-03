@@ -7,12 +7,16 @@
 package olympus
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/herdr"
+	"github.com/husniadil/olympus/backend/zmx"
 )
 
 // BackendEnv names the environment variable that selects a backend.
@@ -262,4 +266,66 @@ func dashed(options []string) []string {
 		out = append(out, "--"+o)
 	}
 	return out
+}
+
+// serverLookupTimeout bounds the one subprocess Open may run: looking a
+// server name up on a backend whose names live in the multiplexer's own
+// registry (§13.2).
+const serverLookupTimeout = 10 * time.Second
+
+// checkServerExclusive rejects a server name given alongside an explicit
+// address.
+//
+// Both answer "which server": a name is resolved INTO an address, so a caller
+// passing both has given two answers, and whichever one lost would leave them
+// on a server they did not mean while believing they were on the other. USAGE
+// because one removed argument fixes it (§0.1). Checked before the backend is
+// resolved, since the conflict does not depend on which backend it is.
+func checkServerExclusive(cfg config) error {
+	if cfg.server == "" {
+		return nil
+	}
+	for _, given := range []struct{ option, value string }{
+		{"socket", cfg.socket}, {"socket-path", cfg.socketPath}, {"zmx-dir", cfg.zmxDir},
+	} {
+		if given.value != "" {
+			return backend.Errorf(backend.CodeUsage,
+				"--server selects a server by name and --%s by address; give one or the other", given.option)
+		}
+	}
+	return nil
+}
+
+// applyServer resolves a server NAME into the resolved backend's own
+// addressing option (§13.2).
+//
+// The resolution is backend-local and this is its one home: the doors pass
+// the name through and the backends address whatever they are handed.
+func applyServer(name backend.Name, cfg *config) error {
+	switch name {
+	case backend.Tmux:
+		// A tmux server name IS a socket name.
+		cfg.socket = cfg.server
+	case backend.Zmx:
+		// One directory, one daemon, one name.
+		if cfg.server != zmx.DefaultServer {
+			return backend.Errorf(backend.CodeSessionNotFound,
+				"no zmx server named %s; zmx has one server per directory, named %q", cfg.server, zmx.DefaultServer)
+		}
+	case backend.Herdr:
+		// Named sessions are herdr's own registry, and only herdr can read
+		// it. The socket is addressed without moving configuration or state
+		// — see herdr.WithServerSocket.
+		ctx, cancel := context.WithTimeout(context.Background(), serverLookupTimeout)
+		defer cancel()
+		server, err := herdr.LookupServer(ctx, cfg.server)
+		if err != nil {
+			return err
+		}
+		cfg.socketPath = server.SocketPath
+	default:
+		return backend.Errorf(backend.CodeUnsupported,
+			"%s cannot select a server by name: nothing enumerates its servers, so address one with --socket-path", name)
+	}
+	return nil
 }

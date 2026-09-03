@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Servers: the level above sessions, uniform across backends.** `olympus
+  servers` lists the servers the resolved backend can see — tmux's named
+  sockets in its per-user directory, herdr's named sessions from `herdr session
+  list`, zmx's one socket directory — each with its socket, whether it is
+  running, and whether it is the backend's default. `olympus servers stop
+  <name>` stops one with every session on it, reporting `gone` or `killed`. A
+  new global `--server <name>` selects a server by name for any verb, resolved
+  into the backend's own address; it is `USAGE` together with `--socket`,
+  `--socket-path` or `--zmx-dir`, `SESSION_NOT_FOUND` for an unknown name, and
+  `UNSUPPORTED` on meja, which cannot enumerate its profiles. On herdr a server
+  selected by name is addressed by its socket alone — the configuration and
+  state redirect that `--socket-path` performs is deliberately not applied,
+  since the socket lives inside the operator's configuration tree — and is
+  never started by Olympus. The MCP door gains `list_servers` and `stop_server`
+  (27 tools) and reads `OLYMPUS_SERVER`; the Go package gains `Servers`,
+  `StopServer`, `WithServer` and the optional `backend.ServerLister` and
+  `backend.ServerStopper` interfaces. Capabilities gain `servers`. Behavior
+  spec §13.2.
+
 ## [0.2.5]
 
 ### Added
