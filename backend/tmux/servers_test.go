@@ -104,6 +104,11 @@ func TestServersSeesARunningServerAndStopsIt(t *testing.T) {
 	if len(servers) != 1 || servers[0].Name != "live" || !servers[0].Running {
 		t.Fatalf("listed %+v, want one running server named live", servers)
 	}
+	// A running server answers for its prefix (§13.3); the value is the
+	// operator's tmux.conf's, so only its presence is asserted.
+	if servers[0].Prefix == "" {
+		t.Errorf("a running server reports no prefix: %+v", servers[0])
+	}
 
 	if err := b.StopServer(context.Background(), "live"); err != nil {
 		t.Fatalf("stopping: %v", err)

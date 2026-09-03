@@ -51,7 +51,14 @@ func (h *Herdr) Servers(ctx context.Context) ([]backend.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseServers(out)
+	servers, err := parseServers(out)
+	if err != nil {
+		return nil, err
+	}
+	for i := range servers {
+		servers[i].Prefix = configuredPrefix(servers[i].Dir)
+	}
+	return servers, nil
 }
 
 // parseServers reads the rows out of `herdr session list --json`.

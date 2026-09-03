@@ -559,8 +559,13 @@ base, so the base follows.
 
 ```json
 { "name": "work", "socket_path": "/tmp/tmux-501/work", "running": true, "default": false,
-  "dir": "/tmp/tmux-501" }
+  "dir": "/tmp/tmux-501", "prefix": "C-b" }
 ```
+
+`prefix` is the key that introduces the server's own bindings, in tmux's
+spelling whichever backend answered (`C-b`, `C-Space`, `M-a`, `F19`), and is
+omitted where the backend has none or a stopped server's cannot be asked
+(behavior §13.3).
 
 `name` is what `--server` selects by. `running` is measured, not inferred from
 the socket file. `default` marks the row the backend addresses when nothing

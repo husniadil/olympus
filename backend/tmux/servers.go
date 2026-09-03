@@ -60,13 +60,22 @@ func (t *Tmux) Servers(ctx context.Context) ([]backend.Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		servers = append(servers, backend.Server{
+		row := backend.Server{
 			Name:       entry.Name(),
 			SocketPath: path,
 			Running:    running,
 			Default:    entry.Name() == "default",
 			Dir:        dir,
-		})
+		}
+		if running {
+			// A server's prefix is a global option it will answer for; a
+			// stopped server has nothing to ask (§13.3).
+			at := &Tmux{socketPath: path}
+			if out, err := at.run(ctx, nil, "show-options", "-gv", "prefix"); err == nil {
+				row.Prefix = strings.TrimSpace(out)
+			}
+		}
+		servers = append(servers, row)
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
 	return servers, nil

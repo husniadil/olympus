@@ -28,6 +28,11 @@ type Server struct {
 	// Dir is the directory the server keeps its state in, where the backend
 	// has one to report. Empty otherwise.
 	Dir string `json:"dir,omitempty"`
+	// Prefix is the key that introduces the server's own key bindings, in
+	// tmux's spelling (`C-b`, `C-Space`, `M-a`, `F19`), read from the
+	// server's configuration (behavior §13.3). Empty where the backend has
+	// no prefix, or where a stopped server's cannot be asked.
+	Prefix string `json:"prefix,omitempty"`
 }
 
 // A ServerLister enumerates a backend's servers. It is optional: a backend

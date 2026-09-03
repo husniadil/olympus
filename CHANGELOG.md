@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Server rows carry `prefix`.** `olympus servers` reports each server's
+  prefix key in tmux's spelling (`C-b`, `C-Space`, `M-a`, `F19`): tmux's
+  global option for a running server, herdr's `[keys] prefix` from the
+  config.toml the server resolves under, with the default where none is set.
+  Read, never written — a caller offering a prefix key on a soft keyboard
+  needs to know it; changing it stays in the multiplexer's configuration.
+  Behavior spec §13.3.
+
 ## [0.7.0]
 
 ### Added

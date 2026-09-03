@@ -2474,6 +2474,26 @@ reported as equivalent, the same way §3.4 treats pane fields:
   its CLI enumerates them, so a server there is addressed by knowing its socket
   path and by nothing else.
 
+### 13.3 A server's prefix is reported, never changed
+
+A multiplexer's own key bindings sit behind a prefix key, and a caller that
+hands a human a terminal onto a server — a browser with a soft keyboard, say —
+has to know it to offer it, since a chord a keyboard cannot form is a binding
+a human cannot reach. The server row therefore carries `prefix`, read from the
+server's configuration: on tmux the global `prefix` option, asked of a running
+server (a stopped one cannot answer, and the row says nothing); on herdr the
+`[keys] prefix` of the config.toml the server resolves under — the session's
+own where it has one, else the operator's — with herdr's default where none is
+set. zmx and meja have no prefix.
+
+The spelling is tmux's whichever backend answered — `C-b`, `C-Space`, `M-a`,
+`F19` — so a caller turns one form into bytes rather than one per backend.
+
+It is read and never written. Which key a server binds, and what it binds
+behind it, is the operator's configuration, and Olympus configures only
+servers it starts (§17.5); a caller wanting a different prefix edits the
+configuration, not the server through Olympus.
+
 **Selecting a server by name resolves INTO the backend's ordinary address**, in
 one place, so the lock key (§11) identifies the server the same way whichever
 spelling chose it. A name given together with an explicit address is USAGE:
