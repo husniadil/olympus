@@ -1815,9 +1815,9 @@ will read them:
 
 | target | steering |
 |---|---|
-| workspace | `workspace focus <ws>` |
-| tab | `workspace focus <ws>`, then `tab focus <tab>` |
-| pane | both of the above, then `pane zoom --pane <pane> --on` |
+| workspace | `workspace focus <ws>`; then, if its active tab is zoomed, `pane zoom --pane <focused> --off` |
+| tab | `workspace focus <ws>`, then `tab focus <tab>`; then the same zoom-out if the tab is zoomed |
+| pane | `workspace focus <ws>`, `tab focus <tab>`, then `pane zoom --pane <pane> --on` |
 
 The pane step is a zoom rather than a focus because herdr has no pane-focus
 request, and a zoom both focuses the pane and shows it alone — which is what a
@@ -1828,6 +1828,14 @@ steering is server requests over the socket, so a session-client attach IS a
 server call (an earlier revision asserted it never made one, and that
 assertion is gone). It is not undone when the client exits: the server keeps
 the focus and the zoom a human would have left the same way.
+
+That zoom outliving the attach is why the workspace and tab rows end by zooming
+out: a caller attaching the workspace or the tab asked for the split, and
+without the step the second attach onto a two-pane tab showed the one pane the
+earlier pane attach had zoomed, with nothing the caller could target to bring
+the other back (measured 2026-09-04 through a consumer's launcher). The zoom
+state is read from the tab's layout row, the same row that names its focused
+pane; a tab that is not zoomed gets no extra request.
 
 Which client is spawned depends on how the server was selected (§13.2):
 

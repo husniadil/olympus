@@ -216,16 +216,30 @@ func (h *Herdr) steer(ctx context.Context, r resolved) error {
 // pane step is a zoom rather than a bare focus because herdr has no
 // pane-focus request of its own, and a zoom both focuses the pane and shows it
 // alone, which is what a caller attaching one pane of a split tab means.
+//
+// The zoom is server state and outlives the attach that set it, so a later
+// attach onto the workspace or the tab would show that one pane still — the
+// caller asked for the tab, and a tab is its split. Where the tab it lands on
+// is zoomed, the workspace and tab steps end by zooming out (measured: the
+// second attach onto a two-pane workspace showed one pane, and nothing the
+// caller could target brought the split back).
 func steeringArgs(r resolved) [][]string {
 	steps := [][]string{{"workspace", "focus", r.workspace.WorkspaceID}}
 	if r.kind == kindWorkspace {
-		return steps
+		return unzoom(steps, r)
 	}
 	steps = append(steps, []string{"tab", "focus", r.tab.TabID})
 	if r.kind == kindTab {
-		return steps
+		return unzoom(steps, r)
 	}
 	return append(steps, []string{"pane", "zoom", "--pane", r.pane.PaneID, "--on"})
+}
+
+func unzoom(steps [][]string, r resolved) [][]string {
+	if !r.zoomed || r.pane.PaneID == "" {
+		return steps
+	}
+	return append(steps, []string{"pane", "zoom", "--pane", r.pane.PaneID, "--off"})
 }
 
 // clientEnv is the environment an interactive client runs with, pointed at

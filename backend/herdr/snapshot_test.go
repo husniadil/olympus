@@ -199,6 +199,31 @@ func TestSteeringFocusesTheTargetLevelByLevel(t *testing.T) {
 	}
 }
 
+// §8.10 A zoom an earlier pane attach left on the tab is undone by a workspace
+// or tab attach onto it — the caller asked for the split — and left alone by a
+// pane attach, which zooms anyway.
+func TestSteeringOntoAZoomedTabZoomsOut(t *testing.T) {
+	t.Parallel()
+	snap, err := parseSnapshot(strings.Replace(fixtureSnapshot, `"tab_id":"w1:t1","workspace_id":"w1","zoomed":false`, `"tab_id":"w1:t1","workspace_id":"w1","zoomed":true`, 1))
+	if err != nil {
+		t.Fatalf("parsing the fixture: %v", err)
+	}
+	for target, want := range map[string][][]string{
+		"demo":  {{"workspace", "focus", "w1"}, {"pane", "zoom", "--pane", "w1:p1", "--off"}},
+		"w1:t1": {{"workspace", "focus", "w1"}, {"tab", "focus", "w1:t1"}, {"pane", "zoom", "--pane", "w1:p1", "--off"}},
+		"w1:t2": {{"workspace", "focus", "w1"}, {"tab", "focus", "w1:t2"}},
+		"w1:p2": {{"workspace", "focus", "w1"}, {"tab", "focus", "w1:t1"}, {"pane", "zoom", "--pane", "w1:p2", "--on"}},
+	} {
+		r, err := snap.resolve(target)
+		if err != nil {
+			t.Fatalf("resolving %q: %v", target, err)
+		}
+		if got := steeringArgs(r); !reflect.DeepEqual(got, want) {
+			t.Errorf("steering onto %q runs %v, want %v", target, got, want)
+		}
+	}
+}
+
 // §10 A session may not be named like any id in the hierarchy, because
 // resolution reads those spellings as the id, and a workspace nothing has
 // labelled is NAMED by its id.

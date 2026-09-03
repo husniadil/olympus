@@ -155,6 +155,9 @@ type resolved struct {
 	// pane is the zero paneRow when the level has no pane to act on, which a
 	// snapshot mid-teardown can report. Verbs that need one check PaneID.
 	pane paneRow
+	// zoomed is whether the tab is showing `pane` alone (§8.10): a zoom left
+	// by an earlier pane attach, which a workspace or tab attach undoes.
+	zoomed bool
 }
 
 // id is the exact id of the level the target addressed: the one spelling that
@@ -189,12 +192,12 @@ func (s snapshot) resolve(target string) (resolved, error) {
 			}
 			ws, _ := s.workspaceByID(pane.WorkspaceID)
 			tab, _ := s.tabByID(pane.TabID)
-			return resolved{kind: kindPane, workspace: ws, tab: tab, pane: pane}, nil
+			return resolved{kind: kindPane, workspace: ws, tab: tab, pane: pane, zoomed: s.zoomedOf(pane.TabID)}, nil
 		}
 	case kindTab:
 		if tab, ok := s.tabByID(target); ok {
 			ws, _ := s.workspaceByID(tab.WorkspaceID)
-			return resolved{kind: kindTab, workspace: ws, tab: tab, pane: s.focusedPaneOf(tab.TabID)}, nil
+			return resolved{kind: kindTab, workspace: ws, tab: tab, pane: s.focusedPaneOf(tab.TabID), zoomed: s.zoomedOf(tab.TabID)}, nil
 		}
 	default:
 		var found *workspaceRow
@@ -211,7 +214,7 @@ func (s snapshot) resolve(target string) (resolved, error) {
 		}
 		if found != nil {
 			tab, _ := s.tabByID(found.ActiveTabID)
-			return resolved{kind: kindWorkspace, workspace: *found, tab: tab, pane: s.focusedPaneOf(found.ActiveTabID)}, nil
+			return resolved{kind: kindWorkspace, workspace: *found, tab: tab, pane: s.focusedPaneOf(found.ActiveTabID), zoomed: s.zoomedOf(found.ActiveTabID)}, nil
 		}
 	}
 	return resolved{}, backend.Errorf(backend.CodeSessionNotFound, "no session %s", target)
@@ -256,6 +259,17 @@ func (s snapshot) focusedPaneOf(tabID string) paneRow {
 		return pane
 	}
 	return paneRow{}
+}
+
+// zoomedOf is whether a tab's layout is zoomed onto one pane, read from the
+// same layout row that names the tab's focused pane.
+func (s snapshot) zoomedOf(tabID string) bool {
+	for _, layout := range s.Layouts {
+		if layout.TabID == tabID {
+			return layout.Zoomed
+		}
+	}
+	return false
 }
 
 // displayName is the name a workspace answers to: its label when it carries
