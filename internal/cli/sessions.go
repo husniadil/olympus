@@ -213,6 +213,7 @@ func describeCapabilities(caps backend.Capabilities) string {
 		{"session-client", caps.SessionClient},
 		{"bare", caps.Bare},
 		{"focus", caps.Focus},
+		{"rename", caps.Rename},
 	} {
 		if c.set {
 			on = append(on, c.name)

@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -169,5 +170,49 @@ func TestFocusSteersTheServerOntoAWorkspace(t *testing.T) {
 	}
 	if err := h.Focus(ctx, "w0Z"); backend.CodeOf(err) != backend.CodeSessionNotFound {
 		t.Errorf("focusing a workspace that does not exist is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
+	}
+}
+
+// §2.11 Rename relabels the level the target names, and the listing shows the
+// new label: a workspace answers to its label, so the session is then found
+// under the new name and not the old. A label shaped like an id is refused.
+func TestRenameRelabelsAWorkspaceAndAPane(t *testing.T) {
+	requireHerdrRunnable(t)
+	h := liveBackend(t)
+	ctx := context.Background()
+	if _, err := h.Create(ctx, backend.CreateSpec{Name: "before"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := h.Rename(ctx, "before", "after"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if h.Probe(ctx, "after") != backend.StatePresent || h.Probe(ctx, "before") != backend.StateAbsent {
+		t.Errorf("after the rename the workspace answers to before=%s after=%s, want absent/present",
+			h.Probe(ctx, "before"), h.Probe(ctx, "after"))
+	}
+	panes, err := h.Panes(ctx, "after")
+	if err != nil || len(panes) == 0 {
+		t.Fatalf("Panes: %v (%d panes)", err, len(panes))
+	}
+	if err := h.Rename(ctx, panes[0].ID, "shell"); err != nil {
+		t.Errorf("renaming a pane: %v", err)
+	}
+	tabID := fmt.Sprintf("%s:t%d", panes[0].SessionID, panes[0].WindowIndex)
+	if err := h.Rename(ctx, tabID, "main"); err != nil {
+		t.Errorf("renaming a tab: %v", err)
+	}
+	// Both names come back on the pane row.
+	panes, err = h.Panes(ctx, "after")
+	if err != nil || len(panes) == 0 {
+		t.Fatalf("Panes after rename: %v (%d panes)", err, len(panes))
+	}
+	if panes[0].Title != "shell" || panes[0].WindowName != "main" {
+		t.Errorf("the pane row reports title %q window %q, want shell/main", panes[0].Title, panes[0].WindowName)
+	}
+	if err := h.Rename(ctx, "after", "w9:p9"); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("a label shaped like a pane id is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
+	if err := h.Rename(ctx, "nope", "x"); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("renaming a missing target is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
 	}
 }

@@ -53,7 +53,9 @@ type tabRow struct {
 
 // A paneRow is the part of herdr's pane shape Olympus reads.
 type paneRow struct {
-	PaneID      string `json:"pane_id"`
+	PaneID string `json:"pane_id"`
+	// Label is the pane's own name, set by `pane rename`; absent until then.
+	Label       string `json:"label"`
 	TerminalID  string `json:"terminal_id"`
 	TabID       string `json:"tab_id"`
 	WorkspaceID string `json:"workspace_id"`

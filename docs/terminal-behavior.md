@@ -541,6 +541,28 @@ shell-backed sessions graceful on both, exec-spawned argv sessions graceful on
 tmux and force-killed on zmx — rather than papering over the difference with one
 expectation.
 
+### 2.11 Renaming
+
+A target MAY be given a new name in place, and the name is then what listings
+and every client show and what the target answers to. It is a capability,
+`rename` (§13): zmx and meja fix a session's name at creation, so a caller has
+to know before asking.
+
+The target reaches the backend as given, as §8.10's focus does, because the
+point is the level below the session that §10.1's resolution would discard:
+
+- **herdr** renames the level the target names — a workspace, a tab or a pane
+  — each of which carries its own label. The new label is held to the same
+  rule as a created session's name (§10): one spelled like an id would shadow
+  the id.
+- **tmux** renames a session, a `<session>:<window>`, or sets a pane's title
+  from a pane id. A session name carrying a colon is refused as `USAGE`
+  rather than handed to tmux, which would rewrite the colon to an underscore
+  (§8.9) and leave the caller addressing a name that does not exist.
+
+Presence is gated through the resolved session first, so a target naming
+nothing is `SESSION_NOT_FOUND`; an empty name is `USAGE`.
+
 ### 2.9 Test isolation is a hard requirement
 
 Tests MUST NEVER touch the operator's live default server.
@@ -2323,7 +2345,7 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
 server environment, control keys, spawn sizing, spawn command, session status,
-alt-screen tracking, servers, session client, bare attach, focus.
+alt-screen tracking, servers, session client, bare attach, focus, rename.
 
 **Session client and bare attach are capabilities because they decide which
 attach a caller can offer.** A consumer presenting a "clean" or a "mirror"
@@ -2332,7 +2354,8 @@ stale the moment a backend gains or loses a client. `session_client` is true
 where the backend has a client distinct from its raw per-pane stream (§8.10);
 `bare` is true where an attach can show a session as a plain pane with no
 chrome (§8.9); `focus` where the server's focus can be steered onto a target
-without attaching (§8.10). All three are refused as `UNSUPPORTED` where false.
+without attaching (§8.10); `rename` where a target can be given a new name in
+place (§2.11). All four are refused as `UNSUPPORTED` where false.
 
 **Spawn command is a capability because a session's process is not always the
 caller's to choose.** A backend whose panes run the program its own

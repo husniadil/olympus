@@ -43,6 +43,7 @@ same operation.
 | poll a detached run | `poll` | `poll_run` | `Job.Poll` |
 | attach a terminal | `attach` | *(none — interactive)* | `Attach` |
 | steer the server's focus onto a target | `focus` | `focus_session` | `Focus` |
+| rename a session, window, tab or pane | `rename` | `rename_session` | `Rename` |
 | read an exit marker | `exit-status` | `exit_status` | `ExitStatus` |
 | create a view | `view create` | `create_view` | `CreateView` |
 | scroll a view | `view scroll` | `scroll_view` | `ScrollView` |
@@ -391,9 +392,16 @@ only on `start`, and is `created` | `reused` | `reaped`.
   "created_at": 1786778830,
   "current_path": "/repo",
   "current_command": "zsh",
-  "liveness": "present"
+  "liveness": "present",
+  "window_name": "editor",
+  "title": "build log"
 }
 ```
+
+`window_name` and `title` are the two names `rename` can set below the
+session — the window (tmux) or tab (herdr) the pane sits in, and the pane's own
+title (tmux) or label (herdr) — and are omitted where the backend has no such
+name or none has been given.
 
 **On herdr a session is a workspace, a window is a tab, and a pane is a pane**
 (behavior spec §3.6). A session's `name` is the workspace's label where it has
@@ -583,7 +591,7 @@ session, zmx's one directory — and is specified in behavior §13.2.
                         "server_env": false, "control_keys": false,
                         "spawn_sizing": false, "spawn_command": true,
                         "session_status": false, "tracks_alt_screen": false, "servers": true,
-                        "session_client": false, "bare": false, "focus": false } },
+                        "session_client": false, "bare": false, "focus": false, "rename": false } },
     { "name": "herdr", "installed": true, "version": "0.8.2", "floor": "0.8.2",
       "below_floor": false,
       "isolation": "socket at /tmp/olympus-herdr/herdr.sock; its configuration and saved layout live beside it, invisible to your own herdr",
@@ -591,7 +599,7 @@ session, zmx's one directory — and is specified in behavior §13.2.
                         "server_env": false, "control_keys": true,
                         "spawn_sizing": false, "spawn_command": false,
                         "session_status": true, "tracks_alt_screen": false, "servers": true,
-                        "session_client": true, "bare": true, "focus": true },
+                        "session_client": true, "bare": true, "focus": true, "rename": true },
       "managed_options": { "update.manifest_check": "false", "update.version_check": "false" } },
     { "name": "tmux", "installed": true, "version": "3.7b", "floor": "3.3",
       "below_floor": false,
@@ -600,7 +608,7 @@ session, zmx's one directory — and is specified in behavior §13.2.
                         "server_env": true, "control_keys": true,
                         "spawn_sizing": true, "spawn_command": true,
                         "session_status": true, "tracks_alt_screen": true, "servers": true,
-                        "session_client": false, "bare": true, "focus": true },
+                        "session_client": false, "bare": true, "focus": true, "rename": true },
       "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []

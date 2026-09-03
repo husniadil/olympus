@@ -205,5 +205,6 @@ func capabilityRows() []capabilityRow {
 		{"session client", func(c backend.Capabilities) bool { return c.SessionClient }},
 		{"bare attach", func(c backend.Capabilities) bool { return c.Bare }},
 		{"focus", func(c backend.Capabilities) bool { return c.Focus }},
+		{"rename", func(c backend.Capabilities) bool { return c.Rename }},
 	}
 }

@@ -1372,3 +1372,59 @@ func TestFocusSelectsAWindowOrAPaneForEveryClient(t *testing.T) {
 		t.Errorf("focusing a window the session lacks is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
 	}
 }
+
+// §2.11 Rename on tmux: a session through rename-session, a window through
+// rename-window, a pane's title through select-pane -T; a colon in a session
+// name is refused rather than rewritten.
+func TestRenameRenamesASessionAWindowAndAPaneTitle(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-ren"})
+	ctx := context.Background()
+	socket := socketOf(t, b)
+	tmux := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("tmux", append([]string{"-S", socket}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("tmux %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	r, ok := b.(backend.Renamer)
+	if !ok {
+		t.Fatal("the tmux backend does not implement Renamer")
+	}
+	if err := r.Rename(ctx, name+":0", "editor"); err != nil {
+		t.Fatalf("renaming a window: %v", err)
+	}
+	if got := tmux("display-message", "-p", "-t", "="+name+":0", "#{window_name}"); got != "editor" {
+		t.Errorf("window name is %q, want editor", got)
+	}
+	pane := tmux("display-message", "-p", "-t", "="+name+":", "#{pane_id}")
+	if err := r.Rename(ctx, pane, "titled"); err != nil {
+		t.Fatalf("titling a pane: %v", err)
+	}
+	if got := tmux("display-message", "-p", "-t", pane, "#{pane_title}"); got != "titled" {
+		t.Errorf("pane title is %q, want titled", got)
+	}
+	// The two names come back on the pane row, so a caller can show what it
+	// renamed.
+	rows, err := b.Panes(ctx, name)
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("Panes: %v (%d rows)", err, len(rows))
+	}
+	if rows[0].WindowName != "editor" || rows[0].Title != "titled" {
+		t.Errorf("the pane row reports window %q title %q, want editor/titled", rows[0].WindowName, rows[0].Title)
+	}
+	if err := r.Rename(ctx, name, "a:b"); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("a colon in a session name is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
+	if err := r.Rename(ctx, name, "oly-renamed"); err != nil {
+		t.Fatalf("renaming the session: %v", err)
+	}
+	if b.Probe(ctx, "oly-renamed") != backend.StatePresent || b.Probe(ctx, name) != backend.StateAbsent {
+		t.Errorf("after the rename the session answers to old=%s new=%s", b.Probe(ctx, name), b.Probe(ctx, "oly-renamed"))
+	}
+	if err := r.Rename(ctx, "oly-renamed:nine", "x"); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("renaming a missing window is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
+	}
+}

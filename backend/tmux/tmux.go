@@ -93,6 +93,8 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		// Clients attached to one plain session share its current window and
 		// pane, so a target can be brought to the front for all of them.
 		Focus: true,
+		// rename-session, rename-window, and a pane title via select-pane -T.
+		Rename: true,
 	}
 }
 
@@ -137,6 +139,31 @@ func (t *Tmux) Focus(ctx context.Context, target string) error {
 		return named(target, err)
 	}
 	return nil
+}
+
+// Rename gives a target a new name (behavior §2.11): a session through
+// rename-session, `<session>:<window>` through rename-window, and a pane id
+// a title through select-pane -T. A colon is rewritten out of a session
+// name by tmux itself (§8.9), so a session renamed to `a:b` would answer to
+// `a_b`; it is refused as usage rather than silently altered.
+func (t *Tmux) Rename(ctx context.Context, target, name string) error {
+	if name == "" {
+		return backend.Errorf(backend.CodeUsage, "a name is needed to rename to")
+	}
+	if strings.HasPrefix(target, "%") {
+		_, err := t.run(ctx, nil, "select-pane", "-t", target, "-T", name)
+		return named(target, err)
+	}
+	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
+		_, err := t.run(ctx, nil, "rename-window", "-t", "="+session+":"+window, name)
+		return named(target, err)
+	}
+	if strings.Contains(name, ":") {
+		return backend.Errorf(backend.CodeUsage,
+			"session name %q carries a colon, which tmux rewrites to an underscore; a session cannot be named that", name)
+	}
+	_, err := t.run(ctx, nil, "rename-session", "-t", sessionTarget(target), name)
+	return named(target, err)
 }
 
 // capturePaneTarget is paneTarget with one extra shape: `<session>:<window>`
@@ -279,7 +306,7 @@ func (t *Tmux) Sessions(ctx context.Context) ([]backend.Session, error) {
 	return sessions, nil
 }
 
-const paneFormat = "#{pane_id}\x1f#{session_name}\x1f#{session_id}\x1f#{window_index}\x1f#{pane_dead}\x1f#{session_created}\x1f#{pane_current_path}\x1f#{pane_current_command}"
+const paneFormat = "#{pane_id}\x1f#{session_name}\x1f#{session_id}\x1f#{window_index}\x1f#{pane_dead}\x1f#{session_created}\x1f#{pane_current_path}\x1f#{pane_current_command}\x1f#{window_name}\x1f#{pane_title}"
 
 func (t *Tmux) Panes(ctx context.Context, target string) ([]backend.Pane, error) {
 	args := []string{"list-panes", "-F", paneFormat}
@@ -309,7 +336,7 @@ func (t *Tmux) Panes(ctx context.Context, target string) ([]backend.Pane, error)
 		if len(f) < 8 {
 			continue
 		}
-		panes = append(panes, backend.Pane{
+		pane := backend.Pane{
 			ID:          f[0],
 			SessionName: f[1],
 			SessionID:   f[2],
@@ -323,7 +350,11 @@ func (t *Tmux) Panes(ctx context.Context, target string) ([]backend.Pane, error)
 			CurrentPath:    f[6],
 			CurrentCommand: f[7],
 			Liveness:       backend.LivenessPresent,
-		})
+		}
+		if len(f) >= 10 {
+			pane.WindowName, pane.Title = f[8], f[9]
+		}
+		panes = append(panes, pane)
 	}
 	return panes, nil
 }

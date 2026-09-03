@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`rename <target> <name>`, `rename_session`, `Olympus.Rename`.** Give a
+  session, window, tab or pane a new name in place. On herdr the level the
+  target names is renamed (workspace, tab or pane), with a label spelled like
+  an id refused as it is at creation; on tmux a session, a
+  `<session>:<window>`, or a pane's title, with a colon in a session name
+  refused rather than rewritten. `UNSUPPORTED` on zmx and meja, whose names
+  are fixed at creation; the new capability `rename` says which. Behavior spec
+  §2.11, §13.
+
 ## [0.6.0]
 
 ### Added

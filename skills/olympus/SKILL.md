@@ -87,9 +87,9 @@ From inside: `olympus self` says which session this process is in, and `olympus 
 
 ## MCP
 
-If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 29 of them:
+If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 30 of them:
 
-- Sessions: `start_session`, `new_session`, `list_sessions`, `session_info`, `session_status`, `focus_session`, `stop_session`, `self`, `list_panes`
+- Sessions: `start_session`, `new_session`, `list_sessions`, `session_info`, `session_status`, `focus_session`, `rename_session`, `stop_session`, `self`, `list_panes`
 - Input: `type_text`, `send_text`, `press_keys`, `paste_text`
 - Reading: `screen`, `wait_for`
 - Running: `run_command`, `start_run`, `poll_run`, `exit_status`

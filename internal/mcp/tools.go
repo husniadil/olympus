@@ -23,6 +23,7 @@ var ToolNames = []string{
 	"session_info",
 	"session_status",
 	"focus_session",
+	"rename_session",
 	"self",
 	"list_panes",
 	"type_text",
@@ -130,6 +131,16 @@ type waitParams struct {
 	Pattern  string `json:"pattern" jsonschema:"a regular expression to wait for"`
 	Seconds  int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
 	Interval int    `json:"interval_ms,omitempty" jsonschema:"how often to re-read the screen, in milliseconds"`
+}
+
+type renameParams struct {
+	Target string `json:"target" jsonschema:"the session, window, tab or pane to rename"`
+	Name   string `json:"name" jsonschema:"the new name"`
+}
+
+type renameResult struct {
+	Target string `json:"target"`
+	Name   string `json:"name"`
 }
 
 type focusSessionParams struct {
@@ -386,6 +397,13 @@ func register(s *sdk.Server) {
 			return panes, ol.PaneWarnings(), err
 		})
 
+	addTool(s, "rename_session", "Give a target a new name in place: what listings and every client show afterwards, and what it answers to. On herdr the level named is renamed (workspace, tab or pane); on tmux a session, a `<session>:<window>`, or a pane's title. Unsupported where names are fixed at creation (zmx, meja); `capabilities` reports it as rename.",
+		func(ctx context.Context, ol *olympus.Olympus, in renameParams) (renameResult, []olympus.Warning, error) {
+			if err := ol.Rename(ctx, in.Target, in.Name); err != nil {
+				return renameResult{}, nil, err
+			}
+			return renameResult{Target: in.Target, Name: in.Name}, nil, nil
+		})
 	addTool(s, "focus_session", "Steer the server's focus onto a target — the workspace, tab or pane its session client shows — without attaching. Every session client on a server shows the server's one focus, so a caller holding clients onto several targets re-steers when it brings one to the front. On tmux a `<session>:<window>` or a pane id; on herdr a workspace, tab or pane. Unsupported where a session is one pane (zmx, meja); `capabilities` reports it as focus.",
 		func(ctx context.Context, ol *olympus.Olympus, in focusSessionParams) (focusSessionResult, []olympus.Warning, error) {
 			if err := ol.Focus(ctx, in.Target); err != nil {

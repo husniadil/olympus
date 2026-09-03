@@ -95,7 +95,8 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		SessionClient: false,
 		Bare:          false,
 		// One pane per session: nothing to bring to the front.
-		Focus: false,
+		Focus:  false,
+		Rename: false,
 	}
 }
 

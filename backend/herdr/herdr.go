@@ -239,6 +239,8 @@ func (h *Herdr) Capabilities() backend.Capabilities {
 		Bare:          true,
 		// The session client shows the server's one focus (§8.10).
 		Focus: true,
+		// workspace, tab and pane each carry a label the server renames.
+		Rename: true,
 	}
 }
 
@@ -447,6 +449,10 @@ func (h *Herdr) Panes(ctx context.Context, target string) ([]backend.Pane, error
 			// directory, so this follows a cd (§3.4).
 			CurrentPath: row.ForegroundCWD,
 			Liveness:    backend.LivenessPresent,
+			Title:       row.Label,
+		}
+		if tab, ok := snap.tabByID(row.TabID); ok {
+			pane.WindowName = tab.Label
 		}
 		if pane.CurrentPath == "" {
 			pane.CurrentPath = row.CWD
@@ -617,6 +623,29 @@ func (h *Herdr) Kill(ctx context.Context, target string) error {
 	}
 	if err != nil && backend.CodeOf(err) == backend.CodeSessionNotFound {
 		return nil
+	}
+	return err
+}
+
+// Rename gives the level a target names a new label: a workspace, a tab or a
+// pane, each of which herdr labels independently (behavior §2.11). The new
+// label is held to the same rule as a created session's name, since a
+// workspace label spelled like an id would shadow the id (§10).
+func (h *Herdr) Rename(ctx context.Context, target, name string) error {
+	if err := validateName(name); err != nil {
+		return err
+	}
+	r, err := h.resolve(ctx, target)
+	if err != nil {
+		return err
+	}
+	switch r.kind {
+	case kindPane:
+		_, err = h.run(ctx, "pane", "rename", r.pane.PaneID, name)
+	case kindTab:
+		_, err = h.run(ctx, "tab", "rename", r.tab.TabID, name)
+	default:
+		_, err = h.run(ctx, "workspace", "rename", r.workspace.WorkspaceID, name)
 	}
 	return err
 }

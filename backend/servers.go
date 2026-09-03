@@ -47,6 +47,13 @@ type Focuser interface {
 	Focus(ctx context.Context, target string) error
 }
 
+// A Renamer can give a target a new name: a session, or a level below it
+// where the backend has one (behavior §2.11). The name is what listings and
+// every client show afterwards, and what the target answers to.
+type Renamer interface {
+	Rename(ctx context.Context, target, name string) error
+}
+
 // A ServerStopper stops one server by name, with every session on it. It is
 // optional for the same reason ServerLister is, and independently: a backend
 // can enumerate servers it has no way to stop.

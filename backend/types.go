@@ -94,6 +94,12 @@ type Pane struct {
 	CurrentPath    string   `json:"current_path"`
 	CurrentCommand string   `json:"current_command"`
 	Liveness       Liveness `json:"liveness"`
+	// WindowName is the name of the window (tmux) or tab (herdr) the pane
+	// sits in, and Title the pane's own title (tmux) or label (herdr) — the
+	// two names Rename can set below the session (behavior §2.11). Empty
+	// where the backend has no such name, or none has been given.
+	WindowName string `json:"window_name,omitempty"`
+	Title      string `json:"title,omitempty"`
 }
 
 // A ScreenMeta carries what a capture could not put in the text itself
@@ -204,4 +210,8 @@ type Capabilities struct {
 	// session client, tmux's plain session); false where a session is one
 	// pane and there is nothing to steer.
 	Focus bool `json:"focus"`
+	// Rename reports whether a target can be given a new name in place
+	// (behavior §2.11): a session, and a window, tab or pane where the
+	// backend names those too. False where names are fixed at creation.
+	Rename bool `json:"rename"`
 }
