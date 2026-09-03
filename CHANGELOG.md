@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0]
+
 ### Added
 
 - **A bare attach on tmux can be named and made mouse-less.** `olympus attach
@@ -523,7 +525,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/husniadil/olympus/compare/v0.4.4...v0.5.0
 [0.4.4]: https://github.com/husniadil/olympus/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/husniadil/olympus/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/husniadil/olympus/compare/v0.4.1...v0.4.2
