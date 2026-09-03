@@ -482,6 +482,7 @@ func TestTheToolNamesMatchTheSpecTable(t *testing.T) {
 		"send_text",
 		"session_info",
 		"session_status",
+		"focus_session",
 		"start_run",
 		"start_session",
 		"stop_session",

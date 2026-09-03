@@ -38,6 +38,15 @@ type ServerLister interface {
 	Servers(ctx context.Context) ([]Server, error)
 }
 
+// A Focuser can steer the server's focus onto a target: the workspace, tab
+// or pane its session client shows. Only a backend whose session client
+// follows a server-side focus rather than a per-client one has anything to
+// steer (behavior §8.10); the rest leave this unimplemented and the ergonomic
+// layer answers unsupported.
+type Focuser interface {
+	Focus(ctx context.Context, target string) error
+}
+
 // A ServerStopper stops one server by name, with every session on it. It is
 // optional for the same reason ServerLister is, and independently: a backend
 // can enumerate servers it has no way to stop.

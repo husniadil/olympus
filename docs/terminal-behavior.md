@@ -1847,6 +1847,21 @@ attach: its view shares the base's windows, so the base's last pane exiting
 destroys the view and the client with it (a `kill-session` of the base leaves
 the view standing, §9.2).
 
+**The focus is the server's, and it can be steered without attaching.** Every
+session client on a server shows that one focus, so two clients steered onto
+two targets both show whichever was steered last — a caller holding one
+client per tab sees every tab render the same pane. `focus <target>` runs the
+steering table above and spawns nothing, so such a caller re-steers whenever
+it brings a client to the front. The target reaches the backend as given —
+the point is precision below the session, which §10.1's resolution would
+discard — with presence gated through the resolved session first. tmux has
+the same need in its own vocabulary: clients attached to one plain session
+share its current window and pane (a view, §9, is what gives a client its
+own), so `<session>:<window>` selects the window and a pane id selects its
+window and then the pane, while a bare session has nothing to steer and is
+accepted. zmx and meja sessions are one pane, so it is `UNSUPPORTED` there;
+`focus` (§13) is the capability to probe.
+
 There is deliberately no `<server>/<target>` target grammar. The server is
 `--server`, the same option every other verb takes; a second spelling inside the
 target would be a second contract to keep in step.
@@ -2308,7 +2323,7 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
 server environment, control keys, spawn sizing, spawn command, session status,
-alt-screen tracking, servers, session client, bare attach.
+alt-screen tracking, servers, session client, bare attach, focus.
 
 **Session client and bare attach are capabilities because they decide which
 attach a caller can offer.** A consumer presenting a "clean" or a "mirror"
@@ -2316,7 +2331,8 @@ attach otherwise has to branch on the backend's name, and that table goes
 stale the moment a backend gains or loses a client. `session_client` is true
 where the backend has a client distinct from its raw per-pane stream (§8.10);
 `bare` is true where an attach can show a session as a plain pane with no
-chrome (§8.9). Both are refused as `UNSUPPORTED` where false.
+chrome (§8.9); `focus` where the server's focus can be steered onto a target
+without attaching (§8.10). All three are refused as `UNSUPPORTED` where false.
 
 **Spawn command is a capability because a session's process is not always the
 caller's to choose.** A backend whose panes run the program its own

@@ -127,3 +127,47 @@ func TestRawAttachCarriesNoProbe(t *testing.T) {
 		t.Error("the raw pane attach carries a Probe it does not need")
 	}
 }
+
+// §8.10 Focus steers the server without attaching: after it, the server's
+// focused workspace is the target's, which is what every session client on
+// that server will show. Steered onto the second workspace and back, so each
+// step has to change the server's answer.
+func TestFocusSteersTheServerOntoAWorkspace(t *testing.T) {
+	requireHerdrRunnable(t)
+	h := liveBackend(t)
+	ctx := context.Background()
+	first, err := h.Create(ctx, backend.CreateSpec{Name: "first"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	second, err := h.Create(ctx, backend.CreateSpec{Name: "second"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	focused := func() string {
+		t.Helper()
+		snap, err := h.snapshot(ctx)
+		if err != nil {
+			t.Fatalf("snapshot: %v", err)
+		}
+		return snap.FocusedWorkspaceID
+	}
+	for _, ws := range []backend.Session{second, first} {
+		r, err := h.resolve(ctx, ws.Name)
+		if err != nil {
+			t.Fatalf("resolving %s: %v", ws.Name, err)
+		}
+		if focused() == r.workspace.WorkspaceID {
+			t.Fatalf("the server already focuses %s, so steering onto it would prove nothing", ws.Name)
+		}
+		if err := h.Focus(ctx, ws.Name); err != nil {
+			t.Fatalf("Focus %s: %v", ws.Name, err)
+		}
+		if got := focused(); got != r.workspace.WorkspaceID {
+			t.Errorf("after Focus %s the server focuses %q, want %q", ws.Name, got, r.workspace.WorkspaceID)
+		}
+	}
+	if err := h.Focus(ctx, "w0Z"); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("focusing a workspace that does not exist is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
+	}
+}

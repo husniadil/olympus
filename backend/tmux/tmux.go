@@ -90,6 +90,9 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		// a throwaway view (§8.9).
 		SessionClient: false,
 		Bare:          true,
+		// Clients attached to one plain session share its current window and
+		// pane, so a target can be brought to the front for all of them.
+		Focus: true,
 	}
 }
 
@@ -113,6 +116,28 @@ func (t *Tmux) Version(ctx context.Context) (string, error) {
 func sessionTarget(name string) string { return "=" + name }
 func windowTarget(name string) string  { return "=" + name + ":" }
 func paneTarget(name string) string    { return "=" + name + ":." }
+
+// Focus brings a target to the front for every client attached to its
+// session (behavior §8.10). Clients on one plain session share its current
+// window and pane, so this is the same steering herdr needs, in tmux's
+// vocabulary: `<session>:<window>` selects the window; a pane id selects its
+// window and then the pane within it; a bare session has nothing to steer
+// and is accepted as already showing what it shows. A window or pane that
+// does not exist is what tmux reports it as, mapped to not-found.
+func (t *Tmux) Focus(ctx context.Context, target string) error {
+	if strings.HasPrefix(target, "%") {
+		if _, err := t.run(ctx, nil, "select-window", "-t", target); err != nil {
+			return named(target, err)
+		}
+		_, err := t.run(ctx, nil, "select-pane", "-t", target)
+		return named(target, err)
+	}
+	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
+		_, err := t.run(ctx, nil, "select-window", "-t", "="+session+":"+window)
+		return named(target, err)
+	}
+	return nil
+}
 
 // capturePaneTarget is paneTarget with one extra shape: `<session>:<window>`
 // addresses that window's active pane rather than the session's. A capture is

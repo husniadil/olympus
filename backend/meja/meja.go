@@ -238,5 +238,7 @@ func (m *Meja) Capabilities() backend.Capabilities {
 		// One client and no views: nothing to hide and nothing to attach bare.
 		SessionClient: false,
 		Bare:          false,
+		// One pane per session: nothing to bring to the front.
+		Focus: false,
 	}
 }

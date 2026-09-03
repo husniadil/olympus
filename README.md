@@ -228,7 +228,10 @@ panes demo` lists every pane in one, with the tab's number as `window_index`. A
 verb aimed at a workspace acts on the pane it is showing; `w25:p8` reaches
 exactly that pane, and `w25:t2` the pane that tab is showing. `olympus stop`
 closes the level you named, with everything in it. `attach --client` opens
-herdr's own client — sidebar, tabs, mouse — focused onto the target. You cannot
+herdr's own client — sidebar, tabs, mouse — focused onto the target, and
+`olympus focus w25:p8` moves that focus later without attaching: every client
+on the server shows the one focus, so a caller holding two clients re-steers
+when it brings one to the front. You cannot
 *create* a session whose name is spelled like a workspace, tab or pane id.
 
 A private socket is not a private configuration: tmux fixes a server's settings

@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`focus <target>`, `focus_session`, `Olympus.Focus`.** Steer a server's
+  focus onto a target without attaching. On herdr that is a workspace, tab or
+  pane, the same steering a session-client attach performs first; on tmux a
+  `<session>:<window>` or a pane id, since clients attached to one plain
+  session share its current window and pane. Every client on a server shows
+  the server's one focus, so a caller holding two clients onto two targets
+  saw both render the target attached last; it now re-steers when it brings
+  one to the front. `UNSUPPORTED` on zmx and meja, whose sessions are one
+  pane; the new capability `focus` says which. Behavior spec §8.10, §13.
+
 ## [0.5.0]
 
 ### Added

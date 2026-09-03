@@ -22,6 +22,7 @@ var ToolNames = []string{
 	"stop_session",
 	"session_info",
 	"session_status",
+	"focus_session",
 	"self",
 	"list_panes",
 	"type_text",
@@ -129,6 +130,14 @@ type waitParams struct {
 	Pattern  string `json:"pattern" jsonschema:"a regular expression to wait for"`
 	Seconds  int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
 	Interval int    `json:"interval_ms,omitempty" jsonschema:"how often to re-read the screen, in milliseconds"`
+}
+
+type focusSessionParams struct {
+	Target string `json:"target" jsonschema:"the workspace, tab or pane to bring the server's focus onto"`
+}
+
+type focusSessionResult struct {
+	Target string `json:"target"`
 }
 
 type statusParams struct {
@@ -377,6 +386,13 @@ func register(s *sdk.Server) {
 			return panes, ol.PaneWarnings(), err
 		})
 
+	addTool(s, "focus_session", "Steer the server's focus onto a target — the workspace, tab or pane its session client shows — without attaching. Every session client on a server shows the server's one focus, so a caller holding clients onto several targets re-steers when it brings one to the front. On tmux a `<session>:<window>` or a pane id; on herdr a workspace, tab or pane. Unsupported where a session is one pane (zmx, meja); `capabilities` reports it as focus.",
+		func(ctx context.Context, ol *olympus.Olympus, in focusSessionParams) (focusSessionResult, []olympus.Warning, error) {
+			if err := ol.Focus(ctx, in.Target); err != nil {
+				return focusSessionResult{}, nil, err
+			}
+			return focusSessionResult{Target: in.Target}, nil, nil
+		})
 	addTool(s, "session_status", "Read, set, or wait for a session's status: an opaque label a process INSIDE a session leaves for whoever drives it from outside. It answers what a capture cannot — a program at a prompt and a program mid-work render identically. Olympus never interprets the value and defines no vocabulary of states. Not every backend can carry one; `capabilities` reports it as session_status.",
 		func(ctx context.Context, ol *olympus.Olympus, in statusParams) (statusResult, []olympus.Warning, error) {
 			session, err := ol.Open(ctx, in.Target)

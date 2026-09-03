@@ -1314,3 +1314,61 @@ func TestAViewPinnedToAMissingWindowIsNotFoundAndCreatesNothing(t *testing.T) {
 		t.Errorf("a refused view was left behind: %+v", views)
 	}
 }
+
+// §8.10 Focus on tmux: clients attached to one plain session share its
+// current window and pane, so `<session>:<window>` selects the window for
+// all of them, a pane id selects its window and then the pane, and a bare
+// session name is accepted with nothing to do.
+func TestFocusSelectsAWindowOrAPaneForEveryClient(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-focus"})
+	ctx := context.Background()
+	socket := socketOf(t, b)
+	tmux := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("tmux", append([]string{"-S", socket}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("tmux %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	firstPane := tmux("display-message", "-p", "-t", "="+name+":", "#{pane_id}")
+	tmux("split-window", "-d", "-t", "="+name+":.")
+	// The split leaves the first pane active; the second window is created
+	// and left unselected, so the base sits at window 0, pane one.
+	tmux("new-window", "-d", "-t", "="+name+":", "-n", "second")
+	f, ok := b.(backend.Focuser)
+	if !ok {
+		t.Fatal("the tmux backend does not implement Focuser")
+	}
+
+	if err := f.Focus(ctx, name+":second"); err != nil {
+		t.Fatalf("focusing a window: %v", err)
+	}
+	if got := tmux("display-message", "-p", "-t", "="+name+":", "#{window_name}"); got != "second" {
+		t.Errorf("after focusing the window the session shows %q, want second", got)
+	}
+	otherPane := tmux("list-panes", "-t", "="+name+":0", "-F", "#{pane_id}", "-f", "#{==:#{pane_id},"+firstPane+"}")
+	if otherPane != firstPane {
+		t.Fatalf("pane bookkeeping: %q", otherPane)
+	}
+	second := strings.Fields(tmux("list-panes", "-t", "="+name+":0", "-F", "#{pane_id}"))
+	var target string
+	for _, p := range second {
+		if p != firstPane {
+			target = p
+		}
+	}
+	if err := f.Focus(ctx, target); err != nil {
+		t.Fatalf("focusing a pane: %v", err)
+	}
+	if got := tmux("display-message", "-p", "-t", "="+name+":", "#{window_index} #{pane_id}"); got != "0 "+target {
+		t.Errorf("after focusing pane %s the session shows %q, want %q", target, got, "0 "+target)
+	}
+	if err := f.Focus(ctx, name); err != nil {
+		t.Errorf("a bare session name has nothing to steer and must be accepted: %v", err)
+	}
+	if err := f.Focus(ctx, name+":nine"); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("focusing a window the session lacks is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
+	}
+}

@@ -141,10 +141,8 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	if err != nil {
 		return backend.Attachment{}, err
 	}
-	for _, args := range steeringArgs(r) {
-		if _, err := h.run(ctx, args...); err != nil {
-			return backend.Attachment{}, err
-		}
+	if err := h.steer(ctx, r); err != nil {
+		return backend.Attachment{}, err
 	}
 
 	var cmd *exec.Cmd
@@ -186,6 +184,28 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	}
 	cmd.Env = env
 	return att, nil
+}
+
+// Focus steers the server onto a target without attaching anything: the
+// same steering a session-client attach performs first (§8.10), for a caller
+// whose client is already attached. Every session client on the server shows
+// the server's one focus, so a caller holding two clients onto two targets
+// re-steers whenever it brings one of them to the front.
+func (h *Herdr) Focus(ctx context.Context, target string) error {
+	r, err := h.resolve(ctx, target)
+	if err != nil {
+		return err
+	}
+	return h.steer(ctx, r)
+}
+
+func (h *Herdr) steer(ctx context.Context, r resolved) error {
+	for _, args := range steeringArgs(r) {
+		if _, err := h.run(ctx, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // steeringArgs is the sequence of herdr invocations that puts the server's

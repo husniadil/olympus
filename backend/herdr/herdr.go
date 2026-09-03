@@ -237,6 +237,8 @@ func (h *Herdr) Capabilities() backend.Capabilities {
 		// which a bare attach runs with its chrome hidden (§8.10).
 		SessionClient: true,
 		Bare:          true,
+		// The session client shows the server's one focus (§8.10).
+		Focus: true,
 	}
 }
 

@@ -198,4 +198,10 @@ type Capabilities struct {
 	// view on tmux (behavior §8.9). A caller offering a "clean" attach branches
 	// on this rather than on the backend's name.
 	Bare bool `json:"bare"`
+	// Focus reports whether the server's focus — what every client attached
+	// to a session shows — can be steered onto a target without attaching
+	// (behavior §8.10). True where clients share a server-side focus (herdr's
+	// session client, tmux's plain session); false where a session is one
+	// pane and there is nothing to steer.
+	Focus bool `json:"focus"`
 }

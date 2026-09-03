@@ -39,7 +39,7 @@ func TestInfoMarshalsToTheSpecShape(t *testing.T) {
 		Session:      &backend.Session{Name: "build", ID: "$3", Liveness: backend.LivenessPresent, CWD: "/repo"},
 		Panes:        []backend.Pane{},
 		Capabilities: backend.Capabilities{Backend: backend.Zmx},
-	}, `{"state":"present","session":{"name":"build","id":"$3","attached":false,"dead":false,"liveness":"present","cwd":"/repo"},"panes":[],"capabilities":{"native_scrollback":false,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false}}`)
+	}, `{"state":"present","session":{"name":"build","id":"$3","attached":false,"dead":false,"liveness":"present","cwd":"/repo"},"panes":[],"capabilities":{"native_scrollback":false,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false,"focus":false}}`)
 }
 
 // §5: "`session` and `panes` are omitted when the target is not present."
@@ -50,7 +50,7 @@ func TestAbsentInfoCarriesNoSessionOrPanes(t *testing.T) {
 	assertJSON(t, olympus.Info{
 		State:        backend.StateAbsent,
 		Capabilities: backend.Capabilities{Backend: backend.Zmx},
-	}, `{"state":"absent","capabilities":{"native_scrollback":false,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false}}`)
+	}, `{"state":"absent","capabilities":{"native_scrollback":false,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false,"focus":false}}`)
 }
 
 // §5 "Screen": one call carries several targets, keyed by target name.
@@ -197,7 +197,7 @@ func TestDiagnosisMarshalsToTheSpecShape(t *testing.T) {
 	}, `{"resolved":{"backend":"zmx","reason":"default","socket_or_dir":"/tmp/zmx-501","pinned":false},`+
 		`"backends":[{"name":"zmx","installed":true,"version":"0.6.0","floor":"0.6.0","below_floor":false,`+
 		`"capabilities":{"native_scrollback":false,"views":false,"remain_on_exit":false,"server_env":false,`+
-		`"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false},`+
+		`"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false,"focus":false},`+
 		`"isolation":"ZMX_DIR"}],"install_hints":[]}`)
 }
 
@@ -214,7 +214,7 @@ func TestPinningReportsAppearOnlyWhereThereIsPinning(t *testing.T) {
 		Managed:   map[string]string{"history-limit": "50000"},
 	}, `{"name":"tmux","installed":true,"floor":"3.3","below_floor":false,`+
 		`"capabilities":{"native_scrollback":false,"views":false,"remain_on_exit":false,"server_env":false,`+
-		`"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false},`+
+		`"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false,"focus":false},`+
 		`"isolation":"","managed_options":{"history-limit":"50000"}}`)
 
 	assertJSON(t, olympus.ResolvedReport{Backend: backend.Zmx, Reason: olympus.ReasonFallback, Scope: "/tmp/z"},
