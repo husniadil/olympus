@@ -1920,6 +1920,14 @@ lookup or bookkeeping is needed.
 
 An empty result MUST serialize as an empty list, never null.
 
+**Views are not sessions to `ls`.** To the multiplexer a view is an ordinary
+session, so a backend's own listing returns it; the ergonomic layer's `Sessions`
+(behind `ls` and `list_sessions`) MUST leave out every name of the §17.1 view
+shape. A view is scaffolding Olympus built over a session, and a caller offered
+it as a session will attach a view onto a view (measured: a web launcher listing
+`ls` verbatim did exactly that). The backend-level `Sessions` is unchanged, since
+`Views` and the tmux group bookkeeping read it.
+
 ---
 
 ## 10. Targets and resolution

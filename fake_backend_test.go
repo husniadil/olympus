@@ -20,10 +20,11 @@ import (
 // Everything not scripted answers unsupported or empty. A test that reaches one
 // of those is asking the fake a question it was not built to answer.
 type fakeBackend struct {
-	caps  backend.Capabilities
-	panes []backend.Pane
-	meta  backend.ScreenMeta
-	text  string
+	caps     backend.Capabilities
+	panes    []backend.Pane
+	sessions []backend.Session
+	meta     backend.ScreenMeta
+	text     string
 
 	// screenOpts records what each capture ASKED for, which is the only way to
 	// observe that a history request was dropped rather than merely unanswered.
@@ -57,7 +58,9 @@ func (f *fakeBackend) Create(context.Context, backend.CreateSpec) (backend.Sessi
 	return backend.Session{}, backend.Errorf(backend.CodeUnsupported, "the fake does not create")
 }
 
-func (f *fakeBackend) Sessions(context.Context) ([]backend.Session, error) { return nil, nil }
+func (f *fakeBackend) Sessions(context.Context) ([]backend.Session, error) {
+	return f.sessions, nil
+}
 
 func (f *fakeBackend) Panes(context.Context, string) ([]backend.Pane, error) { return f.panes, nil }
 

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ls` no longer lists views.** A view (`olympus-view-<base>-<nonce>`, §17.1)
+  is a tmux session to tmux, so the listing offered it as one, and a caller
+  attaching what `ls` returned could open a view onto a view. The ergonomic
+  layer's `Sessions` — `ls` and `list_sessions` — now leaves the reserved shape
+  out; `view ls` is where views are enumerated. Behavior spec §9.5.
+
 ## [0.4.1]
 
 ### Fixed

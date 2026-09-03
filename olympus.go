@@ -263,8 +263,23 @@ func (o *Olympus) Raw() backend.Backend { return o.backend }
 // Sessions are backend-scoped: this never includes sessions on another backend,
 // because they are genuinely different sessions that cannot be addressed from
 // here (behavior §0.4).
+// Sessions lists the sessions a caller can address. Views are left out: a
+// view is scaffolding Olympus built over a session (behavior §9.5), carries the
+// reserved name shape of §17.1 so it can be told apart, and is enumerated by
+// Views instead. Listing it here invites attaching a view onto a view.
 func (o *Olympus) Sessions(ctx context.Context) ([]backend.Session, error) {
-	return o.backend.Sessions(ctx)
+	sessions, err := o.backend.Sessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	kept := sessions[:0]
+	for _, s := range sessions {
+		if strings.HasPrefix(s.Name, viewPrefix) {
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return kept, nil
 }
 
 // resolveTarget swaps a pane id for its owning session, in the one shared place
