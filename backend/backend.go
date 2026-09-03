@@ -304,6 +304,11 @@ type Backend interface {
 	// ScrollView scrolls a view by a number of lines, negative for back into
 	// history.
 	ScrollView(ctx context.Context, view string, lines int) error
+	// FocusView selects the pane of the view's current window whose
+	// rectangle contains the cell (col, row), 0-based within the client area,
+	// and reports that pane's id. A cell on a border or outside every pane
+	// selects nothing and reports "" with no error (behavior §9.6).
+	FocusView(ctx context.Context, view string, col, row int) (paneID string, err error)
 	// Views lists the views onto a base session, or onto every session when
 	// base is empty.
 	Views(ctx context.Context, base string) ([]View, error)

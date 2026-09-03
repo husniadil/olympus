@@ -229,6 +229,7 @@ func TestOperationsWithNoConceptHereAnswerUnsupported(t *testing.T) {
 			return err
 		}(),
 		"scroll a view": b.ScrollView(ctx, name, 1),
+		"focus a view":  func() error { _, err := b.FocusView(ctx, name, 0, 0); return err }(),
 		"list views":    func() error { _, err := b.Views(ctx, name); return err }(),
 		"read server environment": func() error {
 			_, _, err := b.ServerEnv(ctx, "ANY")

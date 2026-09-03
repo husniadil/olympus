@@ -31,8 +31,10 @@ type fakeBackend struct {
 	screenOpts []backend.ScreenOpts
 	// scrolled records the target every ScrollView was given, AFTER resolution.
 	scrolled []string
-	typed    []string
-	submits  int
+	// focused records the target every FocusView was given, AFTER resolution.
+	focused []string
+	typed   []string
+	submits int
 	// submitFailures is how many of the next terminators are dropped.
 	submitFailures int
 	// onType runs after each Type, so a case that needs the screen to react
@@ -118,6 +120,11 @@ func (f *fakeBackend) CreateView(context.Context, string, backend.ViewSpec) (bac
 func (f *fakeBackend) ScrollView(_ context.Context, view string, _ int) error {
 	f.scrolled = append(f.scrolled, view)
 	return nil
+}
+
+func (f *fakeBackend) FocusView(_ context.Context, view string, _, _ int) (string, error) {
+	f.focused = append(f.focused, view)
+	return "%7", nil
 }
 
 func (f *fakeBackend) Views(context.Context, string) ([]backend.View, error) { return nil, nil }

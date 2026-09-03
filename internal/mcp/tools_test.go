@@ -371,6 +371,7 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 		{"stop_server", map[string]any{"name": "default"}},
 		{"session_status", map[string]any{"target": name}},
 		{"scroll_view", map[string]any{"view": name, "lines": 1}},
+		{"focus_view", map[string]any{"view": name, "col": 0, "row": 0}},
 	}
 	// new_session means "must not already exist", so it needs its own name, and
 	// its refusal on a taken one is part of what it is.

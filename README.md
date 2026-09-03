@@ -79,6 +79,7 @@ olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
 olympus attach build:1 --bare         # one window, no chrome, nobody else moved (tmux)
 olympus view create build --window 1  # the same view, kept, to scroll or attach later
+olympus view focus <view> --col 52 --row 3  # select the pane under a cell, for clients with the mouse off
 ```
 
 That is a sample, not the whole surface — `olympus --help` lists every verb, and

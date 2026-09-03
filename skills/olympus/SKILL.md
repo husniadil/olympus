@@ -87,13 +87,13 @@ From inside: `olympus self` says which session this process is in, and `olympus 
 
 ## MCP
 
-If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 27 of them:
+If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 28 of them:
 
 - Sessions: `start_session`, `new_session`, `list_sessions`, `session_info`, `session_status`, `stop_session`, `self`, `list_panes`
 - Input: `type_text`, `send_text`, `press_keys`, `paste_text`
 - Reading: `screen`, `wait_for`
 - Running: `run_command`, `start_run`, `poll_run`, `exit_status`
-- Views: `create_view`, `scroll_view`, `list_views`
+- Views: `create_view`, `scroll_view`, `focus_view`, `list_views`
 - Servers: `list_servers`, `stop_server` (select one by name with `OLYMPUS_SERVER`)
 - Diagnostics: `server_env`, `capabilities`, `doctor`, `version`
 

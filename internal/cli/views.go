@@ -16,11 +16,11 @@ import (
 func (a *App) viewCmd() *cobra.Command {
 	group := &cobra.Command{
 		Use:   "view",
-		Short: "Create, scroll and list independently-scrollable views onto a session",
-		Long: "Create, scroll and list views: extra windows onto an existing session that scroll independently while sharing its pane." +
+		Short: "Create, scroll, focus and list independently-scrollable views onto a session",
+		Long: "Create, scroll, focus and list views: extra windows onto an existing session that scroll independently while sharing its pane." +
 			"\n\nNot every backend has this concept. `olympus doctor` shows which do." + scriptsNote,
 	}
-	group.AddCommand(a.viewCreateCmd(), a.viewScrollCmd(), a.viewLsCmd())
+	group.AddCommand(a.viewCreateCmd(), a.viewScrollCmd(), a.viewFocusCmd(), a.viewLsCmd())
 	return group
 }
 
@@ -88,6 +88,41 @@ func (a *App) viewScrollCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&lines, "lines", 10, "lines to scroll; negative scrolls back toward the live bottom")
+	return cmd
+}
+
+func (a *App) viewFocusCmd() *cobra.Command {
+	var col, row int
+	cmd := &cobra.Command{
+		Use:   "focus <view>",
+		Short: "Select the pane under a cell of the view",
+		Long: "Select the pane of the view's current window that contains the cell (--col, --row), 0-based within the client area, and report its id." +
+			"\n\nFor a view attached with mouse reporting off, where a click never reaches the multiplexer: the caller that knows the clicked cell moves the active pane here instead. The active pane is shared with the base, so the base follows. A cell on a border or outside every pane selects nothing; the reported pane is then empty, and that is a result, not an error." + scriptsNote,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ol, err := a.open()
+			if err != nil {
+				return err
+			}
+			defer ol.Close()
+
+			pane, err := ol.FocusView(cmd.Context(), args[0], col, row)
+			if err != nil {
+				return err
+			}
+			return a.emit(map[string]any{"view": args[0], "col": col, "row": row, "pane": pane}, nil, func(w io.Writer) {
+				if pane == "" {
+					fmt.Fprintln(w, "no pane at that cell")
+					return
+				}
+				fmt.Fprintln(w, pane)
+			})
+		},
+	}
+	cmd.Flags().IntVar(&col, "col", 0, "column of the cell, 0-based from the left edge")
+	cmd.Flags().IntVar(&row, "row", 0, "row of the cell, 0-based from the top edge")
+	_ = cmd.MarkFlagRequired("col")
+	_ = cmd.MarkFlagRequired("row")
 	return cmd
 }
 

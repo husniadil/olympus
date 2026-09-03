@@ -199,6 +199,10 @@ func (f *fakeBackend) ScrollView(context.Context, string, int) error {
 	return backend.Errorf(backend.CodeUnsupported, "the fake has no views")
 }
 
+func (f *fakeBackend) FocusView(context.Context, string, int, int) (string, error) {
+	return "", backend.Errorf(backend.CodeUnsupported, "the fake has no views")
+}
+
 func (f *fakeBackend) Views(context.Context, string) ([]backend.View, error) {
 	return nil, backend.Errorf(backend.CodeUnsupported, "the fake has no views")
 }

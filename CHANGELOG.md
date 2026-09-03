@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Focus a view's pane by cell.** `olympus view focus <view> --col N --row M`,
+  the `focus_view` tool and `olympus.FocusView` select the pane of the view's
+  current window that contains a 0-based cell of the client area, and report
+  its id. For a view attached with mouse reporting off — a browser keeping its
+  native text selection — where a click never reaches tmux and the §9.3 binding
+  cannot fire. A border cell or one outside every pane selects nothing and
+  reports an empty `pane`, a result rather than an error; the base follows,
+  since the active pane is the shared window's. zmx, meja and herdr answer
+  `UNSUPPORTED`. Behavior spec §9.6.
+
 ## [0.4.3]
 
 ### Fixed

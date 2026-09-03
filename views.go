@@ -90,6 +90,26 @@ func (o *Olympus) ScrollView(ctx context.Context, view string, lines int) error 
 	return o.backend.ScrollView(ctx, resolved, lines)
 }
 
+// FocusView selects the pane of a view's current window that contains the
+// cell (col, row), 0-based within the client area, and reports its id.
+//
+// A view attached with mouse reporting off never delivers a click to the
+// multiplexer, so this is how a caller that knows the clicked cell moves the
+// active pane. The active pane is the shared window's (behavior §9.4), so the
+// base follows. A cell on a border or outside every pane selects nothing and
+// reports an empty id, which is a real answer rather than an error. The view is
+// resolved like every other target (§10).
+func (o *Olympus) FocusView(ctx context.Context, view string, col, row int) (string, error) {
+	if col < 0 || row < 0 {
+		return "", backend.Errorf(backend.CodeUsage, "a cell is non-negative, not (%d, %d)", col, row)
+	}
+	resolved, err := o.resolveTarget(ctx, view)
+	if err != nil {
+		return "", err
+	}
+	return o.backend.FocusView(ctx, resolved, col, row)
+}
+
 // Views lists views, for one base or for every session when base is empty.
 func (o *Olympus) Views(ctx context.Context, base string) ([]backend.View, error) {
 	if base == "" {

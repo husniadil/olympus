@@ -496,6 +496,10 @@ func (z *Zmx) ScrollView(ctx context.Context, view string, lines int) error {
 	return backend.Errorf(backend.CodeUnsupported, "zmx has no views")
 }
 
+func (z *Zmx) FocusView(ctx context.Context, view string, col, row int) (string, error) {
+	return "", backend.Errorf(backend.CodeUnsupported, "zmx has no views")
+}
+
 func (z *Zmx) Views(ctx context.Context, base string) ([]backend.View, error) {
 	return nil, backend.Errorf(backend.CodeUnsupported, "zmx has no views")
 }

@@ -48,7 +48,10 @@ func (stub) Status(context.Context, string) (string, error)  { return "", nil }
 func (stub) CreateView(context.Context, string, backend.ViewSpec) (backend.View, error) {
 	return backend.View{}, nil
 }
-func (stub) ScrollView(context.Context, string, int) error           { return nil }
+func (stub) ScrollView(context.Context, string, int) error { return nil }
+func (stub) FocusView(context.Context, string, int, int) (string, error) {
+	return "", nil
+}
 func (stub) Views(context.Context, string) ([]backend.View, error)   { return nil, nil }
 func (stub) ServerEnv(context.Context, string) (string, bool, error) { return "", false, nil }
 

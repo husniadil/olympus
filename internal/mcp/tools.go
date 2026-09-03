@@ -36,6 +36,7 @@ var ToolNames = []string{
 	"exit_status",
 	"create_view",
 	"scroll_view",
+	"focus_view",
 	"list_views",
 	"server_env",
 	"list_servers",
@@ -197,6 +198,21 @@ type viewParams struct {
 type scrollParams struct {
 	View  string `json:"view" jsonschema:"the view to scroll"`
 	Lines int    `json:"lines" jsonschema:"lines to scroll; negative scrolls back toward the live bottom"`
+}
+
+type focusParams struct {
+	View string `json:"view" jsonschema:"the view to focus a pane in"`
+	Col  int    `json:"col" jsonschema:"column of the cell, 0-based from the left edge of the client area"`
+	Row  int    `json:"row" jsonschema:"row of the cell, 0-based from the top edge of the client area"`
+}
+
+type focusResult struct {
+	View string `json:"view"`
+	Col  int    `json:"col"`
+	Row  int    `json:"row"`
+	// Pane is the id selected, or empty when the cell was on a border or
+	// outside every pane — a result, not an error.
+	Pane string `json:"pane"`
 }
 
 type listViewParams struct {
@@ -532,6 +548,12 @@ func register(s *sdk.Server) {
 	addTool(s, "scroll_view", "Scroll a view back into its history, leaving its base untouched.",
 		func(ctx context.Context, ol *olympus.Olympus, in scrollParams) (acknowledged, []olympus.Warning, error) {
 			return acknowledged{Target: in.View}, nil, ol.ScrollView(ctx, in.View, in.Lines)
+		})
+
+	addTool(s, "focus_view", "Select the pane of a view's current window that contains a cell (col, row), 0-based within the client area, and report its id. For a view attached with mouse reporting off, where a click never reaches the multiplexer. The active pane is shared with the base, so the base follows. A cell on a border or outside every pane selects nothing and reports an empty pane, which is a result rather than an error.",
+		func(ctx context.Context, ol *olympus.Olympus, in focusParams) (focusResult, []olympus.Warning, error) {
+			pane, err := ol.FocusView(ctx, in.View, in.Col, in.Row)
+			return focusResult{View: in.View, Col: in.Col, Row: in.Row, Pane: pane}, nil, err
 		})
 
 	addTool(s, "list_views", "List views, optionally for one base session.",

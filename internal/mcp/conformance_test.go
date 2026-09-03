@@ -477,6 +477,7 @@ func TestTheToolNamesMatchTheSpecTable(t *testing.T) {
 		"run_command",
 		"screen",
 		"scroll_view",
+		"focus_view",
 		"self",
 		"send_text",
 		"session_info",

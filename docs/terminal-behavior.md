@@ -1935,6 +1935,29 @@ it as a session will attach a view onto a view (measured: a web launcher listing
 `ls` verbatim did exactly that). The backend-level `Sessions` is unchanged, since
 `Views` and the tmux group bookkeeping read it.
 
+### 9.6 Focusing a pane by cell
+
+A view MAY be attached with mouse reporting off — a desktop browser keeps its
+native text selection that way — and then a click never reaches tmux, so the
+§9.3 click binding cannot fire and nothing can change the active pane by touch.
+The client still knows the clicked **cell**, so `view focus <view> --col N
+--row M` (`focus_view`, `FocusView`) turns that into the same `select-pane`.
+
+Coordinates are 0-based within the client area. On the view's **current
+window**, the pane selected is the one whose rectangle — tmux's `#{pane_left}
+#{pane_top} #{pane_right} #{pane_bottom}`, every edge inclusive — contains the
+cell. Measured on an 80x24 window split in two: `%0` spans columns 0–39, `%1`
+spans 41–79, and column 40 is the border. A cell on a border or outside every
+pane selects nothing: the result reports an empty pane id and MUST NOT be an
+error, since the coordinate was legitimate and there was simply no pane there.
+A negative coordinate is a usage error.
+
+The active pane is the shared window's (§9.4), so the base follows, exactly as
+the click binding moves it. The view MUST be resolved like every other target
+(§10): a pane id addresses its owning view, and a view's absence from `ls`
+(§9.5) does not affect resolution, which reads panes rather than the filtered
+session list.
+
 ---
 
 ## 10. Targets and resolution

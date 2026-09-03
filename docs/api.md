@@ -45,6 +45,7 @@ same operation.
 | read an exit marker | `exit-status` | `exit_status` | `ExitStatus` |
 | create a view | `view create` | `create_view` | `CreateView` |
 | scroll a view | `view scroll` | `scroll_view` | `ScrollView` |
+| focus a pane in a view by cell | `view focus` | `focus_view` | `FocusView` |
 | list views | `view ls` | `list_views` | `Views` |
 | read a server env key | `server-env` | `server_env` | `ServerEnv` |
 | list servers | `servers` | `list_servers` | `Servers` |
@@ -530,6 +531,18 @@ does not have is `SESSION_NOT_FOUND` and nothing is created (behavior spec
 §9.4). The row does not report the window — a view keeps its own current window
 and can be moved after creation, so the answer would be stale the moment it was
 read; ask tmux.
+
+**Focus result** (`view focus`, `focus_view`):
+
+```json
+{ "view": "olympus-view-build-a1b2", "col": 52, "row": 3, "pane": "%1" }
+```
+
+`pane` is the id of the pane selected under the cell, or empty when the cell
+was on a border or outside every pane — a result, not an error (behavior spec
+§9.6). `view focus` takes `--col` and `--row`, both required and 0-based;
+`focus_view` takes `view`, `col` and `row`. The active pane is shared with the
+base, so the base follows.
 
 **Server row** (`servers`):
 

@@ -37,6 +37,10 @@ func (m *Meja) ScrollView(ctx context.Context, view string, lines int) error {
 	return backend.Errorf(backend.CodeUnsupported, "meja has no read-only views")
 }
 
+func (m *Meja) FocusView(ctx context.Context, view string, col, row int) (string, error) {
+	return "", backend.Errorf(backend.CodeUnsupported, "meja has no read-only views")
+}
+
 func (m *Meja) Views(ctx context.Context, base string) ([]backend.View, error) {
 	return nil, backend.Errorf(backend.CodeUnsupported, "meja has no read-only views")
 }

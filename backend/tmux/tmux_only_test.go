@@ -613,6 +613,101 @@ func TestAViewIsScrollableAfterCreation(t *testing.T) {
 	}
 }
 
+// §9.6: focusing a view by cell selects the pane under that cell on the
+// view's current window and reports its id; a border cell selects nothing and
+// reports an empty id without error. §9.4: the active pane is the shared
+// window's, so the base follows.
+func TestFocusingAViewByCellSelectsThePaneUnderIt(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	base := create(t, b, backend.CreateSpec{Name: "oly-vfocus"})
+	socket := socketOf(t, b)
+
+	// Two panes side by side on the base's window; the split leaves the NEW
+	// pane active, so select the left one back to make the move observable.
+	if out, err := exec.Command("tmux", "-S", socket, "split-window", "-h", "-t", "="+base+":").CombinedOutput(); err != nil {
+		t.Fatalf("splitting the base: %v: %s", err, out)
+	}
+	rects, err := exec.Command("tmux", "-S", socket, "list-panes", "-t", "="+base+":", "-F",
+		"#{pane_id} #{pane_left} #{pane_right} #{pane_active}").Output()
+	if err != nil {
+		t.Fatalf("listing panes: %v", err)
+	}
+	var left, right string
+	var borderCol, rightCol int
+	for _, line := range strings.Split(strings.TrimSpace(string(rects)), "\n") {
+		var id string
+		var l, r, active int
+		if _, err := fmt.Sscanf(line, "%s %d %d %d", &id, &l, &r, &active); err != nil {
+			t.Fatalf("parsing %q: %v", line, err)
+		}
+		if l == 0 {
+			left, borderCol = id, r+1
+		} else {
+			right, rightCol = id, l+1
+		}
+	}
+	if left == "" || right == "" {
+		t.Fatalf("expected two panes side by side, got:\n%s", rects)
+	}
+	if out, err := exec.Command("tmux", "-S", socket, "select-pane", "-t", left).CombinedOutput(); err != nil {
+		t.Fatalf("selecting the left pane: %v: %s", err, out)
+	}
+
+	view, err := b.CreateView(ctx, base, backend.ViewSpec{Name: "olympus-view-oly-vfocus-c3"})
+	if err != nil {
+		t.Fatalf("creating a view: %v", err)
+	}
+	activePane := func() string {
+		out, err := exec.Command("tmux", "-S", socket, "display-message", "-p", "-t", "="+base+":", "#{pane_id}").Output()
+		if err != nil {
+			t.Fatalf("reading the active pane: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := activePane(); got != left {
+		t.Fatalf("before focusing, the active pane is %s, want %s", got, left)
+	}
+
+	// A cell inside the right pane moves the active pane there, on the base
+	// too (§9.4), and the id comes back.
+	got, err := b.FocusView(ctx, view.Name, rightCol, 2)
+	if err != nil {
+		t.Fatalf("focusing (%d, 2): %v", rightCol, err)
+	}
+	if got != right {
+		t.Errorf("focusing (%d, 2) reported %q, want %s", rightCol, got, right)
+	}
+	if active := activePane(); active != right {
+		t.Errorf("after focusing, the active pane is %s, want %s", active, right)
+	}
+
+	// The border belongs to no pane: nothing moves, nothing errors.
+	got, err = b.FocusView(ctx, view.Name, borderCol, 2)
+	if err != nil {
+		t.Fatalf("focusing the border (%d, 2): %v", borderCol, err)
+	}
+	if got != "" {
+		t.Errorf("focusing the border reported %q, want an empty pane", got)
+	}
+	if active := activePane(); active != right {
+		t.Errorf("focusing the border moved the active pane to %s", active)
+	}
+
+	// Out of range is the same non-answer.
+	if got, err := b.FocusView(ctx, view.Name, 500, 500); err != nil || got != "" {
+		t.Errorf("focusing (500, 500) = %q, %v; want empty and no error", got, err)
+	}
+	// A negative cell is a caller mistake rather than a miss.
+	if _, err := b.FocusView(ctx, view.Name, -1, 0); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("focusing (-1, 0) is %q, want %q", backend.CodeOf(err), backend.CodeUsage)
+	}
+	// An absent view is not-found, as for any other target.
+	if _, err := b.FocusView(ctx, "olympus-view-nonesuch-00", 0, 0); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("focusing an absent view is %q, want %q", backend.CodeOf(err), backend.CodeSessionNotFound)
+	}
+}
+
 // §9.5: the base of a group is its oldest member, decided by creation time.
 //
 // NOT by list order. tmux lists sessions sorted by NAME, and the reserved view

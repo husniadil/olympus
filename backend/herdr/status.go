@@ -79,6 +79,10 @@ func (h *Herdr) ScrollView(ctx context.Context, view string, lines int) error {
 	return backend.Errorf(backend.CodeUnsupported, "herdr has no views")
 }
 
+func (h *Herdr) FocusView(ctx context.Context, view string, col, row int) (string, error) {
+	return "", backend.Errorf(backend.CodeUnsupported, "herdr has no views")
+}
+
 func (h *Herdr) Views(ctx context.Context, base string) ([]backend.View, error) {
 	return nil, backend.Errorf(backend.CodeUnsupported, "herdr has no views")
 }

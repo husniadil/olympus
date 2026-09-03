@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/husniadil/olympus/backend"
@@ -200,6 +201,86 @@ func (t *Tmux) ScrollView(ctx context.Context, view string, lines int) error {
 	}
 	_, err := t.run(ctx, nil, "send-keys", "-t", pane, "-X", "-N", itoa(count), command)
 	return named(view, err)
+}
+
+// paneRect is one pane's rectangle within its window, in cells, both edges
+// inclusive — exactly as tmux's #{pane_left} #{pane_top} #{pane_right}
+// #{pane_bottom} report it.
+type paneRect struct {
+	id                       string
+	left, top, right, bottom int
+}
+
+// paneAt reports the pane whose rectangle contains the cell, or "" when none
+// does: a border between panes belongs to no pane, and neither does a cell
+// outside the window.
+//
+// Measured on an 80x24 window split in two: %0 spans 0..39, %1 spans 41..79,
+// and column 40 is the border.
+func paneAt(panes []paneRect, col, row int) string {
+	for _, p := range panes {
+		if col >= p.left && col <= p.right && row >= p.top && row <= p.bottom {
+			return p.id
+		}
+	}
+	return ""
+}
+
+// FocusView selects the pane under a cell of the view's current window
+// (behavior §9.6).
+//
+// A view attached with mouse reporting off — so the terminal keeps its own text
+// selection — never delivers a click to tmux, so the §9.3 click binding cannot
+// fire. The caller knows the cell and hands it here instead. The active pane is
+// the shared window's (§9.4), so the base follows, exactly as the binding
+// would have moved it.
+//
+// A cell on a border or outside every pane selects nothing: "" is a real
+// answer rather than an error, since the caller's coordinate was legitimate
+// and there is simply no pane there.
+func (t *Tmux) FocusView(ctx context.Context, view string, col, row int) (string, error) {
+	if col < 0 || row < 0 {
+		return "", backend.Errorf(backend.CodeUsage, "a cell is non-negative, not (%d, %d)", col, row)
+	}
+	// The view's own current window, which is why the target is the view
+	// rather than its base (§9.4: the window is per-session even in a group).
+	out, err := t.run(ctx, nil, "list-panes", "-t", windowTarget(view), "-F",
+		"#{pane_id}\x1f#{pane_left}\x1f#{pane_top}\x1f#{pane_right}\x1f#{pane_bottom}")
+	if err != nil {
+		return "", named(view, err)
+	}
+	var panes []paneRect
+	for _, line := range splitLines(out) {
+		f := SplitFields(line)
+		if len(f) != 5 {
+			continue
+		}
+		var p paneRect
+		p.id = f[0]
+		edges := []*int{&p.left, &p.top, &p.right, &p.bottom}
+		ok := true
+		for i, edge := range edges {
+			n, err := strconv.Atoi(f[i+1])
+			if err != nil {
+				ok = false
+				break
+			}
+			*edge = n
+		}
+		if !ok {
+			return "", backend.Errorf(backend.CodeUnexpected,
+				"tmux described a pane of %s as %q, which is not an id and four edges", view, line)
+		}
+		panes = append(panes, p)
+	}
+	pane := paneAt(panes, col, row)
+	if pane == "" {
+		return "", nil
+	}
+	if _, err := t.run(ctx, nil, "select-pane", "-t", pane); err != nil {
+		return "", named(view, err)
+	}
+	return pane, nil
 }
 
 // Views lists the views this backend owns, optionally for one base.

@@ -90,11 +90,12 @@ func TestVersionInBothModes(t *testing.T) {
 // machine-readable must not depend on which layer caught it.
 func TestFlagErrorsReachTheEnvelope(t *testing.T) {
 	cases := map[string][]string{
-		"an unknown flag":       {"ls", "--nonesuch", "--json"},
-		"a bad flag value":      {"screen", "x", "--history", "banana", "--json"},
-		"too few positionals":   {"screen", "--json"},
-		"too many positionals":  {"ls", "extra", "--json"},
-		"an unknown subcommand": {"nonesuch", "--json"},
+		"an unknown flag":         {"ls", "--nonesuch", "--json"},
+		"a bad flag value":        {"screen", "x", "--history", "banana", "--json"},
+		"too few positionals":     {"screen", "--json"},
+		"too many positionals":    {"ls", "extra", "--json"},
+		"an unknown subcommand":   {"nonesuch", "--json"},
+		"a missing required flag": {"view", "focus", "x", "--row", "0", "--json"},
 	}
 	for what, args := range cases {
 		got := run(t, args...)
@@ -633,6 +634,7 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 	for _, args := range [][]string{
 		{"view", "create", name},
 		{"view", "ls", name},
+		{"view", "focus", name, "--col", "0", "--row", "0"},
 		{"server-env", "PATH"},
 		{"status", name},
 	} {

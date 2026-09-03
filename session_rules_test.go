@@ -109,6 +109,37 @@ func TestScrollViewResolvesItsTarget(t *testing.T) {
 	}
 }
 
+// §10 again, for the sibling verb: FocusView resolves its target the way
+// ScrollView does, and hands the backend the pane it selected. §9.6: a
+// negative cell is a usage error, refused before anything is resolved.
+func TestFocusViewResolvesItsTargetAndRefusesANegativeCell(t *testing.T) {
+	f := &fakeBackend{
+		caps:  backend.Capabilities{Backend: backend.Tmux},
+		panes: []backend.Pane{{ID: "%7", SessionName: "olympus-view-build-abcd"}},
+	}
+
+	pane, err := fakeOlympus(f).FocusView(context.Background(), "%7", 3, 4)
+	if err != nil {
+		t.Fatalf("FocusView: %v", err)
+	}
+	if pane != "%7" {
+		t.Errorf("FocusView reported %q, want the pane the backend selected", pane)
+	}
+	if len(f.focused) != 1 || f.focused[0] != "olympus-view-build-abcd" {
+		t.Errorf("the backend was asked to focus %v, want the session the pane id resolves to", f.focused)
+	}
+
+	for _, cell := range [][2]int{{-1, 0}, {0, -1}} {
+		_, err := fakeOlympus(f).FocusView(context.Background(), "%7", cell[0], cell[1])
+		if backend.CodeOf(err) != backend.CodeUsage {
+			t.Errorf("FocusView at %v is %q, want %q", cell, backend.CodeOf(err), backend.CodeUsage)
+		}
+	}
+	if len(f.focused) != 1 {
+		t.Errorf("a negative cell still reached the backend: %v", f.focused)
+	}
+}
+
 // §6.4 and §0.8: a detached poll on a backend that caps its read depth asks for
 // the default window, which is above that cap — so the answer comes back
 // shallower than the search it claims to have made, and that has to be
