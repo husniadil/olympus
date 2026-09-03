@@ -2470,7 +2470,12 @@ reported as equivalent, the same way §3.4 treats pane fields:
   server started with a socket PATH is not discoverable — there is no registry
   of those — and is absent from the listing by construction. `default` is the
   row tmux addresses with no `-L`; Olympus's own default is a different socket
-  (§17.2).
+  (§17.2). Selecting a name with no socket file behind it is not-found, like
+  an unknown name on every other backend — it used to pass straight through to
+  `-L`, and every verb on it then behaved as if the server were merely stopped
+  (`stop` on a server that never existed reported `gone`, a success). A caller
+  who means to CREATE a server names its socket with `--socket`, which takes
+  any name; `--server` only ever selects.
 - **herdr**: a named session, as `herdr session list` reports it. The listing
   runs against the operator's real configuration directory, which is where
   named sessions live, and therefore carries neither the socket override nor

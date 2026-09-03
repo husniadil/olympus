@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--server <name>` on tmux is not-found for a name with no socket behind
+  it**, as §13.2 always said and every other backend did. It used to pass
+  straight through to `-L`, so every verb on an unknown name behaved as if
+  the server were merely stopped: `stop` on a server that never existed
+  reported `gone`, a success. Creating a server by name is `--socket`, which
+  takes any name; `--server` only selects.
+
 ## [0.9.1]
 
 ### Fixed

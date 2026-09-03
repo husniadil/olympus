@@ -2,10 +2,14 @@ package olympus
 
 import (
 	"errors"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/tmux"
 )
 
 // installed builds a preflight stand-in, so resolution is tested against every
@@ -350,12 +354,32 @@ func TestAServerNameIsExclusiveWithAnAddress(t *testing.T) {
 // socket name, zmx answers only to its one directory, meja cannot enumerate
 // its profiles at all.
 func TestAServerNameResolvesPerBackend(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it sets TMUX_TMPDIR for the tmux case.
 	everything := func(backend.Name) bool { return true }
 
+	// A tmux name must be a socket the listing knows: a private directory
+	// holding one socket nothing listens on (a known, stopped server).
+	base, err := os.MkdirTemp(os.TempDir(), "olyt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Setenv("TMUX_TMPDIR", base)
+	if err := os.MkdirAll(tmux.SocketDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	l, err := net.Listen("unix", filepath.Join(tmux.SocketDir(), "work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
 	ol, err := open(config{explicit: "tmux", installs: everything}, WithServer("work"), WithoutLock())
 	if err != nil {
 		t.Fatalf("a tmux server name: %v", err)
+	}
+	_, err = open(config{explicit: "tmux", installs: everything}, WithServer("nope"), WithoutLock())
+	if CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("an unknown tmux server is %v (%v), want SESSION_NOT_FOUND", err, CodeOf(err))
 	}
 	if got := ol.Resolution().Backend; got != backend.Tmux {
 		t.Errorf("resolved %s, want tmux", got)

@@ -9,13 +9,16 @@ package olympus
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/backend/herdr"
+	"github.com/husniadil/olympus/backend/tmux"
 	"github.com/husniadil/olympus/backend/zmx"
 )
 
@@ -304,7 +307,21 @@ func checkServerExclusive(cfg config) error {
 func applyServer(name backend.Name, cfg *config) error {
 	switch name {
 	case backend.Tmux:
-		// A tmux server name IS a socket name.
+		// A tmux server name IS a socket name — one the listing knows (§13.2).
+		// A name with no socket file behind it is not-found, as on every
+		// other backend; it used to pass straight through, and every verb on
+		// it then answered as if the server were merely stopped (`stop` on a
+		// server that never existed reported gone, a success). A caller
+		// creating a server chooses its socket with --socket, which takes
+		// any name.
+		path := filepath.Join(tmux.SocketDir(), cfg.server)
+		if _, err := os.Lstat(path); err != nil {
+			if os.IsNotExist(err) {
+				return backend.Errorf(backend.CodeSessionNotFound,
+					"no tmux server named %s; `olympus servers` lists the ones there are, and --socket %s starts one", cfg.server, cfg.server)
+			}
+			return backend.Wrapf(backend.CodeUnexpected, err, "reading %s", path)
+		}
 		cfg.socket = cfg.server
 	case backend.Zmx:
 		// One directory, one daemon, one name.
