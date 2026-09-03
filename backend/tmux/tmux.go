@@ -119,6 +119,16 @@ func sessionTarget(name string) string { return "=" + name }
 func windowTarget(name string) string  { return "=" + name + ":" }
 func paneTarget(name string) string    { return "=" + name + ":." }
 
+// Prefix reports the server's prefix key: the global `prefix` option, which
+// tmux spells as `C-b` (behavior §13.3).
+func (t *Tmux) Prefix(ctx context.Context) (string, error) {
+	out, err := t.run(ctx, nil, "show-options", "-gv", "prefix")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // Focus brings a target to the front for every client attached to its
 // session (behavior §8.10). Clients on one plain session share its current
 // window and pane, so this is the same steering herdr needs, in tmux's

@@ -109,6 +109,10 @@ func TestServersSeesARunningServerAndStopsIt(t *testing.T) {
 	if servers[0].Prefix == "" {
 		t.Errorf("a running server reports no prefix: %+v", servers[0])
 	}
+	// The same answer through a handle on that server.
+	if v, err := tmux.New(tmux.WithSocketPath(socket)).Prefix(context.Background()); err != nil || v != servers[0].Prefix {
+		t.Errorf("Prefix() = %q, %v; the listing said %q", v, err, servers[0].Prefix)
+	}
 
 	if err := b.StopServer(context.Background(), "live"); err != nil {
 		t.Fatalf("stopping: %v", err)

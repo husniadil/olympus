@@ -322,7 +322,10 @@ type Info struct {
 	Session      *backend.Session     `json:"session,omitempty"`
 	Panes        []backend.Pane       `json:"panes,omitempty"`
 	Capabilities backend.Capabilities `json:"capabilities"`
-	Warnings     []Warning            `json:"-"`
+	// Prefix is the prefix key of the server the session is on, in tmux's
+	// spelling, for a present session on a backend that has one (§13.3).
+	Prefix   string    `json:"prefix,omitempty"`
+	Warnings []Warning `json:"-"`
 }
 
 // MarshalJSON keeps `panes` an array whenever the target is present.
@@ -350,8 +353,9 @@ func (i Info) MarshalJSON() ([]byte, error) {
 			Session      *backend.Session     `json:"session,omitempty"`
 			Panes        []backend.Pane       `json:"panes"`
 			Capabilities backend.Capabilities `json:"capabilities"`
+			Prefix       string               `json:"prefix,omitempty"`
 		}
-		return json.Marshal(present{out.State, out.Session, out.Panes, out.Capabilities})
+		return json.Marshal(present{out.State, out.Session, out.Panes, out.Capabilities, out.Prefix})
 	}
 	return json.Marshal(out)
 }
@@ -384,6 +388,13 @@ func (o *Olympus) Info(ctx context.Context, target string) (Info, error) {
 	sessions, err := o.backend.Sessions(ctx)
 	if err != nil {
 		return info, err
+	}
+	if reporter, ok := o.backend.(backend.PrefixReporter); ok {
+		// Best effort: a prefix the server will not answer for is omitted,
+		// not an error on a door that must answer for a present session.
+		if v, err := reporter.Prefix(ctx); err == nil {
+			info.Prefix = v
+		}
 	}
 	panes, err := o.backend.Panes(ctx, resolved)
 	if err != nil {

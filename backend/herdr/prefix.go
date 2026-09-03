@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,13 @@ func configuredPrefix(sessionDir string) string {
 		}
 	}
 	return spellPrefix(defaultPrefix)
+}
+
+// Prefix reports the prefix of the server this handle addresses: the
+// config.toml beside its socket where there is one (a named session's
+// directory), else the operator's (behavior §13.3, §8.10).
+func (h *Herdr) Prefix(context.Context) (string, error) {
+	return configuredPrefix(filepath.Dir(h.socketPath)), nil
 }
 
 // prefixInConfig finds `prefix = "…"` under `[keys]`. It reports false for a

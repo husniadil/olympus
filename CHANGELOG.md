@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`info` carries `prefix`, and meja reports its fixed `C-b`.** A caller
+  holding a target learns the server's prefix from the session's own detail
+  rather than a server listing — which meja cannot give, since nothing
+  enumerates its profiles. meja's prefix is fixed by the program and
+  documented as such, so it is reported as the constant it is; zmx still
+  reports none. Behavior spec §13.3.
+
 ## [0.8.0]
 
 ### Added

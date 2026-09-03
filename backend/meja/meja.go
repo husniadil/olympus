@@ -200,6 +200,13 @@ func (m *Meja) Version(ctx context.Context) (string, error) {
 }
 
 // Capabilities reports what this backend can do, measured rather than assumed.
+// Prefix is meja's, which the program fixes rather than reads from any
+// configuration: REFERENCE.md states "Meja uses Ctrl+b" and offers no file,
+// flag, variable or command to change or report it (behavior §13.3). A
+// constant here rather than silence, since a caller offering the key to a
+// human needs it and it is documented as fixed.
+func (m *Meja) Prefix(context.Context) (string, error) { return "C-b", nil }
+
 func (m *Meja) Capabilities() backend.Capabilities {
 	return backend.Capabilities{
 		Backend: backend.Meja,

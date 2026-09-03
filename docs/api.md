@@ -471,7 +471,7 @@ including on the zero value a failure returns.
 error on an absent target**:
 
 ```json
-{ "state": "present", "session": { }, "panes": [ ], "capabilities": { } }
+{ "state": "present", "session": { }, "panes": [ ], "capabilities": { }, "prefix": "C-b" }
 ```
 
 `state` is `present` | `absent` | `error` (behavior spec §3.5). `session` and
@@ -565,7 +565,9 @@ base, so the base follows.
 `prefix` is the key that introduces the server's own bindings, in tmux's
 spelling whichever backend answered (`C-b`, `C-Space`, `M-a`, `F19`), and is
 omitted where the backend has none or a stopped server's cannot be asked
-(behavior §13.3).
+(behavior §13.3). `info` carries the same key for a present session, which is
+how a caller holding a target on a backend whose servers cannot be listed
+(meja) still learns it.
 
 `name` is what `--server` selects by. `running` is measured, not inferred from
 the socket file. `default` marks the row the backend addresses when nothing

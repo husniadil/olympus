@@ -2484,7 +2484,10 @@ server's configuration: on tmux the global `prefix` option, asked of a running
 server (a stopped one cannot answer, and the row says nothing); on herdr the
 `[keys] prefix` of the config.toml the server resolves under — the session's
 own where it has one, else the operator's — with herdr's default where none is
-set. zmx and meja have no prefix.
+set; on meja the constant the program fixes (`C-b`, documented as
+unconfigurable). zmx has no prefix. `info` carries the same key for a present
+session, so a caller holding a target learns it without a server listing —
+which meja cannot give.
 
 The spelling is tmux's whichever backend answered — `C-b`, `C-Space`, `M-a`,
 `F19` — so a caller turns one form into bytes rather than one per backend.

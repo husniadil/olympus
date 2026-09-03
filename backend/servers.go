@@ -52,6 +52,14 @@ type Focuser interface {
 	Focus(ctx context.Context, target string) error
 }
 
+// A PrefixReporter reports the prefix key of the server this handle
+// addresses, in tmux's spelling (behavior §13.3). Optional: a backend with
+// no prefix does not implement it. A backend whose prefix is fixed by the
+// program rather than by configuration reports the constant.
+type PrefixReporter interface {
+	Prefix(ctx context.Context) (string, error)
+}
+
 // A Renamer can give a target a new name: a session, or a level below it
 // where the backend has one (behavior §2.11). The name is what listings and
 // every client show afterwards, and what the target answers to.

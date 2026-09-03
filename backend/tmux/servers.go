@@ -71,8 +71,8 @@ func (t *Tmux) Servers(ctx context.Context) ([]backend.Server, error) {
 			// A server's prefix is a global option it will answer for; a
 			// stopped server has nothing to ask (§13.3).
 			at := &Tmux{socketPath: path}
-			if out, err := at.run(ctx, nil, "show-options", "-gv", "prefix"); err == nil {
-				row.Prefix = strings.TrimSpace(out)
+			if v, err := at.Prefix(ctx); err == nil {
+				row.Prefix = v
 			}
 		}
 		servers = append(servers, row)
