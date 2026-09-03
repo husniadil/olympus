@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A click in a view selects the pane.** The pass-through key table bound
+  only the wheel, so a bare attach on tmux (`--bare`, a view) could not move
+  between panes by mouse or touch. It now binds `MouseDown1Pane` to select the
+  pane and forward the click, as tmux's root table does; the base follows,
+  since the active pane is the shared window's. No drag binding. Behavior spec
+  §9.3.
+
 ## [0.4.2]
 
 ### Fixed

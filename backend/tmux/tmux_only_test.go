@@ -555,6 +555,12 @@ func TestCreatingAViewSetsUpItsReadOnlyPosture(t *testing.T) {
 			t.Errorf("the pass-through table has no %s binding, so scrolling a view does nothing:\n%s", want, bindings)
 		}
 	}
+	// A click selects the pane and is forwarded (§9.3): both halves must be in
+	// the one binding, since a bare `;` in the bind-key argv would run the
+	// second half at bind time instead.
+	if !strings.Contains(string(bindings), "MouseDown1Pane select-pane -t = \\; send-keys -M") {
+		t.Errorf("the pass-through table has no click-to-select binding, so a touch cannot move between panes:\n%s", bindings)
+	}
 }
 
 // tmux's `new-session -t` SUCCEEDS against a base that does not exist: it

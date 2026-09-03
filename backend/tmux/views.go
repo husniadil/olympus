@@ -109,16 +109,27 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 	}
 
 	// The empty pass-through table also strips tmux's default mouse bindings,
-	// so the wheel would do nothing at all. Only the two wheel bindings are
+	// so the wheel would do nothing at all. The two wheel bindings are
 	// re-added: enter copy-mode for a pane whose application ignores the mouse,
-	// and forward the event when it grabs it. The table is server-global, so
-	// re-binding on every view creation is idempotent.
+	// and forward the event when it grabs it; then a click binding below. The
+	// table is server-global, so re-binding on every view creation is
+	// idempotent.
 	if _, err := t.run(ctx, nil, "bind-key", "-T", passthroughTable, "WheelUpPane",
 		"if", "-F", "-t=", "#{mouse_any_flag}", "send -M",
 		"if -F -t= '#{pane_in_mode}' 'send -M' 'copy-mode -e ; send -M'"); err != nil {
 		return fail(err)
 	}
 	if _, err := t.run(ctx, nil, "bind-key", "-T", passthroughTable, "WheelDownPane", "send", "-M"); err != nil {
+		return fail(err)
+	}
+	// A click selects the pane under it and is forwarded, as tmux's own root
+	// binding does — a view attached interactively (§8.9) needs the pane to be
+	// reachable by touch, where there is no keyboard shortcut to move focus.
+	// The active pane is the shared window's (§9.4), so this moves the base
+	// too, exactly as a click in the base would. No drag binding: copy-mode on
+	// a shared pane would drag the base into it.
+	if _, err := t.run(ctx, nil, "bind-key", "-T", passthroughTable, "MouseDown1Pane",
+		"select-pane", "-t=", "\\;", "send-keys", "-M"); err != nil {
 		return fail(err)
 	}
 

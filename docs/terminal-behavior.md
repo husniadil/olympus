@@ -1861,6 +1861,13 @@ other session consults. Olympus MUST keep it that way — a view MUST NOT rebind
 anything in tmux's own `root` or `prefix` tables, where it would change what the
 operator's existing sessions do.
 
+**What the pass-through table binds.** The wheel, both ways (§9.2), and a
+click: `MouseDown1Pane` selects the pane under the pointer and forwards the
+click, as tmux's own root binding does. A view attached interactively (§8.9)
+needs that on touch, where no keyboard shortcut moves focus. The active pane is
+the shared window's (§9.4), so the base follows, exactly as a click in the base
+would. No drag binding: copy-mode on a shared pane would drag the base into it.
+
 **A view MUST NOT touch `terminal-features`.** It is a server option with no
 per-session form, so appending to it changes how tmux renders for *every* client
 of that server — including the operator's own sessions, permanently, whenever
@@ -2670,7 +2677,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | herdr metadata source | `olympus` | §13.1 |
 | herdr metadata token | `status` | §13.1 |
 | tmux buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1) |
-| tmux key table | `olympus-passthrough` | view scroll bindings (§9.3) |
+| tmux key table | `olympus-passthrough` | view wheel and click bindings (§9.3) |
 | tmux server marker | `@olympus_managed` | records a server Olympus started (§17.5) |
 | view session | `olympus-view-<base>-<nonce>` | grouped views (§9) |
 | throwaway run session | `olympus-run-<pid>-<nonce>` | §6.10 |
