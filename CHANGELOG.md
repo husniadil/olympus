@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.2]
+
 ### Fixed
 
 - **`ls` no longer lists views.** A view (`olympus-view-<base>-<nonce>`, §17.1)
@@ -463,7 +465,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/husniadil/olympus/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/husniadil/olympus/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/husniadil/olympus/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/husniadil/olympus/compare/v0.2.5...v0.3.0
