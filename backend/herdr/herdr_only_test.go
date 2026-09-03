@@ -113,32 +113,6 @@ func TestTheDefaultSocketIsNotTheOperatorsOwn(t *testing.T) {
 	}
 }
 
-// §10 A session may not be named like a pane id, because resolution reads that
-// spelling as a pane and the session would be shadowed by every listing.
-//
-// Asserted against the validator rather than through Create, deliberately: a
-// name that is ACCEPTED reaches the server-start path, and a unit test that
-// booted a real server to prove a name is legal would leave one behind for
-// every legal name it checked.
-func TestASessionMayNotBeNamedLikeAPaneID(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{"w1:p1", "w12:p3", "w4Y:p1", "w1:pA"} {
-		err := validateName(name)
-		if backend.CodeOf(err) != backend.CodeUsage {
-			t.Errorf("the name %q is %q, want %q", name, backend.CodeOf(err), backend.CodeUsage)
-		}
-	}
-	// A name that merely looks similar is a perfectly ordinary name.
-	for _, name := range []string{"w1p1", "work:p1", "w1:pane", "wp:1"} {
-		if err := validateName(name); err != nil {
-			t.Errorf("the ordinary name %q was rejected: %v", name, err)
-		}
-	}
-	if err := validateName(""); backend.CodeOf(err) != backend.CodeUsage {
-		t.Errorf("an empty name is %q, want %q", backend.CodeOf(err), backend.CodeUsage)
-	}
-}
-
 // §8.7 There is no read-only terminal client, so a viewer attach is refused
 // rather than downgraded into a controller nobody expects to be one.
 func TestAViewerAttachIsRefused(t *testing.T) {
@@ -278,6 +252,9 @@ func shortDir(t *testing.T) string {
 // shell open for as long as the machine runs, and these cases start one each.
 func liveBackend(t *testing.T) *Herdr {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
+	}
 	b := New(WithSocketPath(filepath.Join(shortDir(t), "h.sock")))
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -307,33 +284,36 @@ func raw(t *testing.T, b *Herdr, args ...string) string {
 	return string(out)
 }
 
-// §3.4 A pane nothing labelled is still a session, addressed by its pane id.
+// §3.6 A workspace nothing made through Olympus is still a session, addressed
+// by its id and by whatever label herdr gave it.
 //
-// This is the case the backend exists for. The panes worth driving are usually
-// the ones something else created — a box's own headless herdr, a human's
-// `pane split`, another tool's workspace — and none of them carry a label.
-// Measured on a live server before this was fixed: three panes, none labelled,
-// so the listing answered nothing and even a pane id resolved to not-found.
-func TestAnUnlabelledPaneIsAFullSession(t *testing.T) {
+// This is the case the backend exists for. The workspaces worth driving are
+// usually the ones something else created — a box's own headless herdr, a
+// human's `workspace create`, another tool's fleet — and none of them carry a
+// label Olympus chose. herdr labels a workspace from its directory when nobody
+// names it (measured: "~" for the home directory, "tmp" for /tmp), so the
+// session is named by that label, and by its id in every case.
+func TestAWorkspaceNobodyMadeThroughOlympusIsASession(t *testing.T) {
 	b := liveBackend(t)
 	ctx := context.Background()
 
-	// Created the way anything that is not Olympus creates one: no label.
-	// A headless server may boot with no pane at all (measured: a fresh
-	// server in a clean environment lists zero panes), so the created pane
-	// is found by the id herdr answered with rather than by counting.
+	// Created the way anything that is not Olympus creates one: no label of
+	// Olympus's choosing. A headless server may boot with no workspace at all
+	// (measured: a fresh server in a clean environment lists zero), so the
+	// created one is found by the id herdr answered with rather than by
+	// counting.
 	created := raw(t, b, "workspace", "create", "--no-focus")
 	var reply struct {
 		Result struct {
-			RootPane struct {
-				PaneID string `json:"pane_id"`
-			} `json:"root_pane"`
+			Workspace workspaceRow `json:"workspace"`
+			RootPane  paneRow      `json:"root_pane"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(created), &reply); err != nil || reply.Result.RootPane.PaneID == "" {
-		t.Fatalf("workspace create answered no root pane id: %v\n%s", err, created)
+	if err := json.Unmarshal([]byte(created), &reply); err != nil || reply.Result.Workspace.WorkspaceID == "" {
+		t.Fatalf("workspace create answered no workspace id: %v\n%s", err, created)
 	}
-	target := reply.Result.RootPane.PaneID
+	workspace, pane := reply.Result.Workspace, reply.Result.RootPane
+	target := workspace.WorkspaceID
 
 	sessions, err := b.Sessions(ctx)
 	if err != nil {
@@ -341,48 +321,172 @@ func TestAnUnlabelledPaneIsAFullSession(t *testing.T) {
 	}
 	var listed bool
 	for _, s := range sessions {
-		if !backend.IndexedPaneID(s.Name) {
-			t.Errorf("an unlabelled pane is named %q, want its pane id", s.Name)
+		if s.ID != target {
 			continue
 		}
-		if s.ID != s.Name {
-			t.Errorf("session %q reports id %q; an unlabelled pane's name IS its id", s.Name, s.ID)
-		}
-		if s.Name == target {
-			listed = true
+		listed = true
+		if want := displayName(workspace); s.Name != want {
+			t.Errorf("workspace %s is named %q, want its label or id %q", target, s.Name, want)
 		}
 	}
 	if !listed {
-		t.Fatalf("the unlabelled pane %s is not listed among %d sessions", target, len(sessions))
+		t.Fatalf("the workspace %s is not listed among %d sessions", target, len(sessions))
 	}
 
 	if got := b.Probe(ctx, target); got != backend.StatePresent {
-		t.Errorf("probing an unlabelled pane by id is %q, want %q", got, backend.StatePresent)
+		t.Errorf("probing a workspace by id is %q, want %q", got, backend.StatePresent)
 	}
 	panes, err := b.Panes(ctx, target)
 	if err != nil {
 		t.Fatalf("Panes(%s): %v", target, err)
 	}
-	if len(panes) != 1 || panes[0].SessionName != target {
-		t.Errorf("a pane listing for %s names session %+v", target, panes)
+	if len(panes) != 1 || panes[0].SessionID != target || panes[0].ID != pane.PaneID || panes[0].WindowIndex != 1 {
+		t.Errorf("a pane listing for %s reports %+v; want its one root pane in window 1", target, panes)
 	}
 
-	// Driven, not merely listed.
+	// Driven by workspace id, which acts on the pane the workspace shows.
 	warmShell(t, b, target)
 	if err := b.SendAtomic(ctx, target, `printf 'unlabelled-%d\n' 4`); err != nil {
 		t.Fatalf("SendAtomic: %v", err)
 	}
 	waitForScreen(t, b, target, "unlabelled-4")
+	// And by pane id, which is the same pane.
+	waitForScreen(t, b, pane.PaneID, "unlabelled-4")
 
-	// And attached, which is the operation that has to turn a pane id into the
-	// server-owned terminal behind it.
+	// And attached, which is the operation that has to turn a workspace into
+	// the server-owned terminal behind the pane it shows.
 	attachAndType(t, b, target, "attached-by-id")
 
 	if err := b.Kill(ctx, target); err != nil {
 		t.Fatalf("Kill: %v", err)
 	}
 	if got := b.Probe(ctx, target); got != backend.StateAbsent {
-		t.Errorf("a killed unlabelled pane probes %q, want %q", got, backend.StateAbsent)
+		t.Errorf("a killed workspace probes %q, want %q", got, backend.StateAbsent)
+	}
+	if got := b.Probe(ctx, pane.PaneID); got != backend.StateAbsent {
+		t.Errorf("the pane of a killed workspace probes %q, want %q", got, backend.StateAbsent)
+	}
+}
+
+// §3.6 A session spans every pane of its workspace, in every tab. Driving the
+// session drives the pane it is showing; stopping it takes every pane with it.
+func TestAWorkspaceSessionSpansItsPanes(t *testing.T) {
+	b := liveBackend(t)
+	ctx := context.Background()
+	created, err := b.Create(ctx, backend.CreateSpec{Name: "span"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !backend.IndexedWorkspaceID(created.ID) {
+		t.Fatalf("the created session's id is %q, want a workspace id", created.ID)
+	}
+
+	sessions, err := b.Sessions(ctx)
+	if err != nil {
+		t.Fatalf("Sessions: %v", err)
+	}
+	var found bool
+	for _, s := range sessions {
+		if s.Name == "span" && s.ID == created.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the created workspace is not listed by label and id: %+v", sessions)
+	}
+
+	root, err := b.Panes(ctx, "span")
+	if err != nil || len(root) != 1 {
+		t.Fatalf("Panes(span) = %v, %v; want the one root pane", root, err)
+	}
+	split := raw(t, b, "pane", "split", root[0].ID, "--direction", "down", "--no-focus")
+	var reply struct {
+		Result struct {
+			Pane paneRow `json:"pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(split), &reply); err != nil || reply.Result.Pane.PaneID == "" {
+		t.Fatalf("pane split answered no pane id: %v\n%s", err, split)
+	}
+	second := reply.Result.Pane.PaneID
+	tab := raw(t, b, "tab", "create", "--workspace", created.ID, "--no-focus")
+	var tabReply struct {
+		Result struct {
+			Tab      tabRow  `json:"tab"`
+			RootPane paneRow `json:"root_pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(tab), &tabReply); err != nil || tabReply.Result.Tab.TabID == "" {
+		t.Fatalf("tab create answered no tab id: %v\n%s", err, tab)
+	}
+
+	panes, err := b.Panes(ctx, "span")
+	if err != nil {
+		t.Fatalf("Panes(span): %v", err)
+	}
+	windows := map[string]int{}
+	for _, p := range panes {
+		if p.SessionName != "span" || p.SessionID != created.ID {
+			t.Errorf("pane %s names session %q/%q, want span/%s", p.ID, p.SessionName, p.SessionID, created.ID)
+		}
+		windows[p.ID] = p.WindowIndex
+	}
+	want := map[string]int{root[0].ID: 1, second: 1, tabReply.Result.RootPane.PaneID: 2}
+	if len(windows) != len(want) {
+		t.Fatalf("Panes(span) lists %v, want %v", windows, want)
+	}
+	for id, index := range want {
+		if windows[id] != index {
+			t.Errorf("pane %s is in window %d, want %d", id, windows[id], index)
+		}
+	}
+	tabPanes, err := b.Panes(ctx, tabReply.Result.Tab.TabID)
+	if err != nil || len(tabPanes) != 1 || tabPanes[0].ID != tabReply.Result.RootPane.PaneID {
+		t.Errorf("Panes(tab) = %v, %v; want the tab's one pane", tabPanes, err)
+	}
+
+	// Typing into the session lands in the pane the workspace shows — the
+	// root, which the split left focused — and not in the other pane.
+	warmShell(t, b, "span")
+	if err := b.SendAtomic(ctx, "span", `printf 'span-%d\n' 5`); err != nil {
+		t.Fatalf("SendAtomic: %v", err)
+	}
+	waitForScreen(t, b, root[0].ID, "span-5")
+	if screenHas(t, b, second, "span-5", time.Second) {
+		t.Errorf("text typed into the workspace reached the pane it was not showing")
+	}
+	// A pane target reaches exactly that pane.
+	warmShell(t, b, second)
+	if err := b.SendAtomic(ctx, second, `printf 'second-%d\n' 6`); err != nil {
+		t.Fatalf("SendAtomic: %v", err)
+	}
+	waitForScreen(t, b, second, "second-6")
+	if screenHas(t, b, root[0].ID, "second-6", time.Second) {
+		t.Errorf("text typed into a pane reached the workspace's focused pane instead")
+	}
+
+	// A status on the workspace is the workspace's; a pane's is its own.
+	if err := b.SetStatus(ctx, "span", "reviewing"); err != nil {
+		t.Fatalf("SetStatus(span): %v", err)
+	}
+	if err := b.SetStatus(ctx, second, "idle"); err != nil {
+		t.Fatalf("SetStatus(%s): %v", second, err)
+	}
+	if got, _ := b.Status(ctx, "span"); got != "reviewing" {
+		t.Errorf("Status(span) = %q, want %q", got, "reviewing")
+	}
+	if got, _ := b.Status(ctx, second); got != "idle" {
+		t.Errorf("Status(%s) = %q, want %q", second, got, "idle")
+	}
+
+	// Stopping the session takes every pane, in every tab.
+	if err := b.Kill(ctx, "span"); err != nil {
+		t.Fatalf("Kill(span): %v", err)
+	}
+	for _, target := range []string{"span", created.ID, root[0].ID, second, tabReply.Result.Tab.TabID, tabReply.Result.RootPane.PaneID} {
+		if got := b.Probe(ctx, target); got != backend.StateAbsent {
+			t.Errorf("after stopping the session %s probes %q, want %q", target, got, backend.StateAbsent)
+		}
 	}
 }
 
@@ -616,31 +720,26 @@ func TestAClosedFollowReportsWhyItEnded(t *testing.T) {
 	}
 }
 
-// §3.4 A process inside an unlabelled pane is told the same name a listing
-// gives that pane: its id. Answering with nothing would have `self` inside a
-// pane and `ls` outside it disagree about what the pane is called.
-func TestSessionOfAnUnlabelledPaneIsItsID(t *testing.T) {
+// §3.6 A process inside a pane is told the name of the WORKSPACE that owns it
+// — the same name a listing gives that workspace — so `self` inside a pane and
+// `ls` outside it agree about what the session is called.
+func TestSessionOfAPaneIsItsWorkspace(t *testing.T) {
 	b := liveBackend(t)
-	created := raw(t, b, "workspace", "create", "--no-focus")
-	var reply struct {
-		Result struct {
-			RootPane struct {
-				PaneID string `json:"pane_id"`
-			} `json:"root_pane"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal([]byte(created), &reply); err != nil || reply.Result.RootPane.PaneID == "" {
-		t.Fatalf("workspace create answered no root pane id: %v\n%s", err, created)
-	}
-	target := reply.Result.RootPane.PaneID
-	t.Cleanup(func() { _ = b.Kill(context.Background(), target) })
-
-	name, err := b.SessionOf(context.Background(), target)
+	created, err := b.Create(context.Background(), backend.CreateSpec{Name: "owner"})
 	if err != nil {
-		t.Fatalf("SessionOf(%s): %v", target, err)
+		t.Fatalf("Create: %v", err)
 	}
-	if name != target {
-		t.Errorf("SessionOf(%s) = %q, want the pane id", target, name)
+	panes, err := b.Panes(context.Background(), created.Name)
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("Panes(%s) = %v, %v; want one pane", created.Name, panes, err)
+	}
+
+	name, err := b.SessionOf(context.Background(), panes[0].ID)
+	if err != nil {
+		t.Fatalf("SessionOf(%s): %v", panes[0].ID, err)
+	}
+	if name != "owner" {
+		t.Errorf("SessionOf(%s) = %q, want the workspace's name %q", panes[0].ID, name, "owner")
 	}
 }
 

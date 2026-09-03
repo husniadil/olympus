@@ -49,6 +49,12 @@ window_title = ""
 
 // Attach prepares an attach client for the engine to run inside a PTY.
 //
+// Two clients, chosen by the spec (§8.10). The default is the raw per-pane
+// stream, `herdr terminal attach`, onto the pane the target resolves to — the
+// pane itself, or the pane a workspace or tab is showing (§3.6). A
+// session-client attach is herdr's own client, with its sidebar, tabs,
+// selection and scrollback, steered onto the target first.
+//
 // The presence gate is here so an attach onto nothing fails as not-found rather
 // than as whatever the client happens to print — and here it is a courtesy
 // rather than the load-bearing guard it is on zmx: herdr's attach does not
@@ -100,48 +106,58 @@ func (h *Herdr) Attach(ctx context.Context, target string, spec backend.AttachSp
 		args = append(args, "--takeover")
 	}
 	cmd := exec.CommandContext(ctx, "herdr", args...)
-	if h.startedTheServer() {
-		// Our server, our configuration directory: it is the one that server
-		// was booted against, and there is nothing of anybody else's in it.
-		cmd.Env = h.env(attachEnv())
-	} else {
-		// A server this handle did not start belongs to whoever runs it, and
-		// the attach client is the one invocation whose behaviour its
-		// configuration decides. Imposing a directory of Olympus's own would
-		// hand a human their own terminal configured like a fresh install
-		// (src/client/mod.rs:1225-1234).
-		cmd.Env = h.socketEnv(attachEnv())
-	}
+	cmd.Env = h.clientEnv()
 	return backend.Attachment{Cmd: cmd}, nil
 }
 
-// attachSessionClient runs `herdr session attach <name>` — the multiplexer's
-// own session client, which unlike the raw terminal stream carries selection,
-// scrollback and copy.
+// attachSessionClient runs herdr's own session client — which unlike the raw
+// terminal stream carries the sidebar, the tabs, selection, scrollback and copy
+// — steered onto the target first (§8.10).
 //
-// It deliberately does NOT resolvePane: herdr's session client resolves its
-// server from the CONFIGURATION DIRECTORY and ignores HERDR_SOCKET_PATH (env.go
-// §), so the target is a herdr SESSION name a caller supplies, not one of the
-// socket-addressed panes this backend otherwise drives. That decoupling is the
-// whole reason this is a separate client — Olympus's pane registry is simply
-// not the source of the name, and re-pointing it would be a backend rewrite.
+// The steering is a sequence of server requests, run here before the client is
+// spawned, because the client shows whatever the server has focused and takes
+// no target of its own. A workspace is focused; a tab is focused within its
+// focused workspace; a pane is zoomed within its focused tab, which also moves
+// focus onto it (measured: zooming a pane that was not focused answers
+// `focus_changed: true`, and zooming into a tab already zoomed on another pane
+// still moves focus). The steering is not undone when the client exits — the
+// server keeps the focus and the zoom a human would have left the same way.
 //
-// The ambient configuration is the right one to read (the operator's real
-// sessions live in their own config directory), so attachEnv is used unchanged
-// rather than env(): imposing Olympus's directory would look for the session in
-// a directory that never had it. attachEnv already strips the ambient HERDR_*
-// identity (HERDR_SESSION, HERDR_PANE_ID, HERDR_TAB_ID, HERDR_WORKSPACE_ID,
-// HERDR_CLIENT_SOCKET_PATH, HERDR_SOCKET_PATH), so the client does not detect
-// it is being launched from inside a herdr pane.
+// Which client is spawned depends on how the server was selected. A server
+// selected BY NAME is one of herdr's named sessions, and its client is
+// `herdr session attach <name>`: that client resolves the session under the
+// operator's configuration directory and needs the name, not the socket. A
+// server selected by PATH — Olympus's own default, or a `--socket-path` onto
+// somebody's headless server — has no name to attach; there plain `herdr`
+// with the socket override is the client, measured to attach the server on
+// that socket rather than the operator's default.
 //
-// herdr's `session attach` takes only a NAME — no --viewer and no --takeover
-// (verified against the binary) — so there is no read-only or supersession
-// control to pass. A viewer attach is already refused above; an explicit
-// opt-out of supersession is reported as unhonored rather than silently
-// dropped.
+// herdr's session client takes no --viewer and no --takeover (verified against
+// the binary), so there is no read-only or supersession control to pass. A
+// viewer attach is already refused above; an explicit opt-out of supersession
+// is reported as unhonored rather than silently dropped.
 func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec backend.AttachSpec) (backend.Attachment, error) {
-	cmd := exec.CommandContext(ctx, "herdr", "session", "attach", target)
-	env := attachEnv()
+	r, err := h.resolve(ctx, target)
+	if err != nil {
+		return backend.Attachment{}, err
+	}
+	for _, args := range steeringArgs(r) {
+		if _, err := h.run(ctx, args...); err != nil {
+			return backend.Attachment{}, err
+		}
+	}
+
+	var cmd *exec.Cmd
+	env := h.clientEnv()
+	if h.serverName != "" {
+		cmd = exec.CommandContext(ctx, "herdr", "session", "attach", h.serverName)
+		// The named session resolves under the operator's real configuration
+		// directory, which attachEnv already reads; the socket override would
+		// only say the same thing a second way.
+		env = attachEnv()
+	} else {
+		cmd = exec.CommandContext(ctx, "herdr")
+	}
 
 	att := backend.Attachment{Cmd: cmd}
 	if spec.Bare {
@@ -149,7 +165,7 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		// overrides the config FILE without changing the config directory the
 		// session resolves against (verified: the session still resolves), so
 		// the client renders as a plain pane while still attaching the same
-		// session. The temp file is reaped when the attach ends.
+		// server. The temp file is reaped when the attach ends.
 		path, err := writeBareConfig()
 		if err != nil {
 			return backend.Attachment{}, err
@@ -163,6 +179,43 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	}
 	cmd.Env = env
 	return att, nil
+}
+
+// steeringArgs is the sequence of herdr invocations that puts the server's
+// focus onto a resolved target, in the order the client will read it: the
+// workspace, then the tab within it, then the pane within that (§8.10).
+//
+// A workspace needs only the first; a tab the first two; a pane all three. The
+// pane step is a zoom rather than a bare focus because herdr has no
+// pane-focus request of its own, and a zoom both focuses the pane and shows it
+// alone, which is what a caller attaching one pane of a split tab means.
+func steeringArgs(r resolved) [][]string {
+	steps := [][]string{{"workspace", "focus", r.workspace.WorkspaceID}}
+	if r.kind == kindWorkspace {
+		return steps
+	}
+	steps = append(steps, []string{"tab", "focus", r.tab.TabID})
+	if r.kind == kindTab {
+		return steps
+	}
+	return append(steps, []string{"pane", "zoom", "--pane", r.pane.PaneID, "--on"})
+}
+
+// clientEnv is the environment an interactive client runs with, pointed at
+// this backend's server.
+//
+// A server this handle started is given this backend's own configuration
+// directory: it is the one that server was booted against, and there is
+// nothing of anybody else's in it. A server this handle did not start belongs
+// to whoever runs it, and the attach client is the one invocation whose
+// behaviour its configuration decides. Imposing a directory of Olympus's own
+// would hand a human their own terminal configured like a fresh install
+// (src/client/mod.rs:1225-1234).
+func (h *Herdr) clientEnv() []string {
+	if h.startedTheServer() {
+		return h.env(attachEnv())
+	}
+	return h.socketEnv(attachEnv())
 }
 
 // writeBareConfig lays the stripped config down in a temp file for one attach.

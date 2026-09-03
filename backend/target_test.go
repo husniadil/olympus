@@ -176,3 +176,30 @@ func TestPublicNumberDecodesHerdrsAlphabet(t *testing.T) {
 		}
 	}
 }
+
+// §3.6 The tab and workspace shapes of the same backend, spelled with the same
+// public numbers, and told apart from each other and from the pane shape.
+func TestIndexedTabAndWorkspaceIDs(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{"w1:t1", "w1:tA", "wA:t1", "w4Y:tZ"} {
+		if !backend.IndexedTabID(id) {
+			t.Errorf("%q is not recognised as a tab id", id)
+		}
+		if backend.IndexedPaneID(id) || backend.IndexedWorkspaceID(id) {
+			t.Errorf("%q is read as a pane or a workspace", id)
+		}
+	}
+	for _, id := range []string{"w1", "wA", "w12", "w4Y"} {
+		if !backend.IndexedWorkspaceID(id) {
+			t.Errorf("%q is not recognised as a workspace id", id)
+		}
+		if backend.IndexedPaneID(id) || backend.IndexedTabID(id) {
+			t.Errorf("%q is read as a pane or a tab", id)
+		}
+	}
+	for _, name := range []string{"", "w", "w1:", "w1:t", "w1:x1", "wI", "w1:p1", "work", "w1:t1:p1"} {
+		if backend.IndexedTabID(name) || backend.IndexedWorkspaceID(name) {
+			t.Errorf("the ordinary name %q is read as a tab or workspace id", name)
+		}
+	}
+}

@@ -78,7 +78,7 @@ ignored (behavior spec §8.7, §8.9):
 |---|---|---|---|
 | `--viewer` | `AsViewer` | read-only: no input, no resize | tmux, zmx; refused on meja and herdr |
 | `--keep-others` | `KeepOtherClients` | co-attach instead of displacing prior clients | all; meja and herdr's session client carry a notice where it cannot be honoured (§8.4); nothing to do under `--bare` on tmux |
-| `--client` | `WithSessionClient` | the multiplexer's own session client; target is a herdr SESSION name | herdr only |
+| `--client` | `WithSessionClient` | the multiplexer's own session client (sidebar, tabs, selection, scroll, copy), steered onto the target first: a workspace is focused, a tab is focused within it, a pane is zoomed within its tab (§8.10). With `--server` it attaches that named session; otherwise the server on the resolved socket | herdr only |
 | `--bare` | `AsBare` | a plain pane, no chrome: herdr's session client with its chrome hidden (implies `--client`), or on tmux a throwaway view onto the session, killed when the attach ends; target may be `<session>:<window>` | herdr, tmux |
 | `--cols`, `--rows` | `AttachSize` | initial size when stdin is not a terminal | all |
 
@@ -391,13 +391,24 @@ only on `start`, and is `created` | `reused` | `reaped`.
 }
 ```
 
-**On herdr every pane is a session**, and its `name` is its pane label where it
-has one and its `pane_id` where it has not — `w25:p8` is a perfectly ordinary
-session name there. Most panes on a real herdr server carry no label, because a
-label comes only from `herdr pane rename`; a TAB's label, which is how some
-tools name their workers, is a property of the tab and never appears on a pane
-row. Both spellings address the same pane, and a session may not be *created*
-with a name shaped like a pane id.
+**On herdr a session is a workspace, a window is a tab, and a pane is a pane**
+(behavior spec §3.6). A session's `name` is the workspace's label where it has
+one and its `id` — `w25` — where it has not; herdr labels a workspace from its
+directory when nobody names it, so several workspaces opened in one directory
+carry one label, and the `id` beside the `name` is how a caller addresses one
+exactly. A pane row's `session_name` and `session_id` are its workspace's, and
+`window_index` is its tab's number. `olympus ls` on a real herdr therefore lists
+what its sidebar shows, and `olympus panes <workspace>` every pane in it:
+
+```sh
+$ olympus ls --backend herdr --socket-path ~/.config/herdr/herdr.sock
+demo   w1   present
+tmp    w3   present
+$ olympus panes demo --json | jq '.data[] | [.pane_id, .window_index, .session_name]'
+["w1:p1", 1, "demo"]
+["w1:p2", 1, "demo"]
+["w1:p3", 2, "demo"]
+```
 
 `current_path` and `current_command` carry different meanings per backend
 (behavior spec §3.4) and trigger warnings on zmx and herdr per §0.8. Two are
@@ -416,12 +427,18 @@ always 0.
 
 `pane_id` works as a target anywhere a session name does, in each backend's own
 spelling — `%7` on tmux, `7` on meja, `w1:p2` on herdr, the session's name on
-zmx. A herdr session may not be NAMED like a pane id, and creation rejects one
-that is: the two shapes overlap there, and resolution has to be able to tell them
-apart. It addresses the
-**session that owns the pane**, not the pane: after a second window exists, an
-operation still runs against the session's active window. Behavior spec §10.1
-explains why precision here would cost the write lock.
+zmx. On tmux and meja it addresses the **session that owns the pane**, not the
+pane: after a second window exists, an operation still runs against the
+session's active window. Behavior spec §10.1 explains why precision there would
+cost the write lock.
+
+**herdr is the exception: a target is pane-precise.** `w1:p2` acts on that pane,
+`w1:t2` on the pane that tab is showing, and `w1` or a label on the pane the
+workspace is showing; `stop` closes the level named, with everything in it. A
+herdr session may not be NAMED like any of the three ids, and creation rejects
+one that is, because a workspace with an empty label is named by its id and the
+shapes have to stay apart. The trade — the write lock is keyed on the target as
+given — is recorded in behavior spec §10.1.
 
 **Screen** (`screen`): one or more targets in a single call.
 

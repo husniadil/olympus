@@ -745,39 +745,13 @@ kill returns; what is required is that the listing converges.
 These fields exist on every backend with genuinely different meanings, and MUST
 be documented at every door rather than reported as equivalent.
 
-**On herdr EVERY pane is a session, and its name is its label where it has one
-and its pane id where it has not.**
-
-An earlier revision listed only the panes carrying a label, reasoning that a
-session is something Olympus named. That removed the reason the backend exists.
-The panes worth driving are usually the ones something else created — a box's
-own headless herdr opens a workspace the moment it starts, a human splits more,
-another tool creates a tab per worker — and **none of them carry a pane label**.
-Measured on a live server: three panes, none labelled, so the listing answered
-nothing and even a pane id resolved to not-found.
-
-A label is not the only thing that looks like a name, and the near-miss is worth
-naming because it is the one a consumer will hit. A pane row's `label` is the
-TERMINAL's own manual label, set by `herdr pane rename`
-(`src/app/creation.rs:457`, from `terminal.manual_label`). A TAB's label —
-`herdr tab create --label <name>`, which is how at least one consumer names its
-workers — is a property of the tab (`src/app/api/tabs.rs:112`, `:158`, via
-`tab.set_custom_name`) and never appears on a pane row at all. Measured:
-`tab create --label worker-1` produced a tab row carrying that label and a pane
-row carrying none.
-
-Olympus MUST NOT substitute the tab's label for the pane's. A tab can hold
-several panes, so the name would not identify one, and it would be a name taken
-from a different object than the one being addressed. The pane id is the honest
-answer.
-
-Both spellings address the same pane: a labelled one answers to its label AND to
-its pane id, an unlabelled one to its pane id alone. The two namespaces cannot
-collide because creation refuses a name shaped like a pane id (§10). A label is
-not unique — herdr will let two panes carry the same one, and panes Olympus did
-not create are not held to the uniqueness §2.1 asks of creation — so resolution
-prefers an exact pane id and otherwise takes the oldest match, which at least
-makes the answer stable across calls.
+**On herdr a session is a WORKSPACE, a window is a TAB, and a pane is a pane.**
+The mapping, the three target shapes and what every verb does at each level are
+specified once, in §3.6, and every door cites it rather than restating it. What
+belongs here is the field-level consequence: a pane row's `session_name` is its
+workspace's name (the label, else the id), `session_id` is the workspace id, and
+`window_index` is the tab's number — a public number, so the tenth tab is
+`w1:tA` and its panes report 10.
 
 **`created_at` on herdr is derived from the pane's terminal id**, because herdr
 exposes no creation time anywhere in its API. The id is allocated as the
@@ -819,10 +793,10 @@ evidence that the command is still running.
 On herdr both fields are LIVE, and one of them is conditional. `current_path` is
 the foreground process's own directory and follows a `cd`. `current_command` is
 the live foreground process too, but it is a second request per row, and the
-whole-server pane listing is what target resolution reads before every
-pane-id-addressed operation (§10) — so it is populated for a TARGETED listing
-only, and a whole-server listing leaves it empty rather than putting a subprocess
-per pane on the cheapest read there is. Disclosed as a degraded operation (§0.8).
+whole-server pane listing is the cheapest read there is — so it is populated
+for a TARGETED listing only, and a whole-server listing leaves it empty rather
+than putting a subprocess per pane on every caller who asked what exists.
+Disclosed as a degraded operation (§0.8).
 
 **`attached` is always false on herdr.** Its socket API reports no per-terminal
 client count, so the field is a declaration rather than an observation, and a
@@ -844,6 +818,77 @@ each report a clean not-found, not a connection failure. The `error` arm is
 reserved for genuinely unreachable backends.
 
 Probe MUST NOT return a transport error; backend failure is the `error` state.
+
+### 3.6 herdr: workspace › tab › pane
+
+herdr's server owns workspaces, tabs and panes rather than sessions, and the
+hierarchy maps onto Olympus's the way tmux's does:
+
+| Olympus | herdr | id | name |
+|---|---|---|---|
+| session | workspace | `w5` | its label where it has one, else its id |
+| window | tab | `w5:t2` | `window_index` is the tab's number |
+| pane | pane | `w5:p3` | — |
+
+Every number is a herdr public number (§10), so the shapes MUST accept letters:
+the tenth workspace is `wA`, the tenth tab of it `wA:tA`.
+
+An earlier revision made every PANE a session, named by its pane label or its
+pane id. That made `ls` on a real herdr a flat list of panes with no workspace
+in sight, `stop` on a "session" close one pane of a workspace, and a caller who
+wanted the workspace — the thing a human sees in the sidebar and the thing a
+fleet tool creates per worker — unable to name it at all. The mapping above is
+what herdr's own vocabulary means, and it is uniform with tmux's, which is why
+it replaced the flat one.
+
+**Naming.** A workspace is named by its label, and by its id where the label is
+empty. herdr labels a workspace from its directory when nobody names it —
+measured: `~` for the home directory, `tmp` for `/tmp` — so an unlabelled
+workspace is one somebody emptied (`workspace rename w4 ""`), and the far more
+common shape is several workspaces carrying the SAME label because they were
+opened in one directory. A label is therefore not unique. Resolution prefers an
+exact id and otherwise takes the lowest-numbered match, which is stable across
+calls; a caller who needs to be exact addresses by id, and every session row
+carries the id beside the name so a listing hands out both. Creation refuses a
+name shaped like any id in the hierarchy (§10), because a workspace with an
+empty label is NAMED by its id and a label of that shape would make one name
+address two workspaces.
+
+**Three target shapes.** A target's spelling says which level it addresses: a
+pane id is a pane, a tab id is a tab, and anything else is a workspace — by id
+or by label. A verb aimed at a workspace or a tab acts on the pane that level is
+SHOWING: the focused pane of the tab, and for a workspace the focused pane of
+its active tab. Which pane that is comes from the server's own layout rows —
+not from a pane row's `focused` flag, which is focus within the tab and stays
+set on a tab the workspace is no longer showing (measured). Every read that
+resolves a target takes ONE request, `herdr api snapshot`, which carries all
+three levels at one moment; walking `workspace list`, `tab list` and
+`pane list` would read three moments of a server that changes between them.
+
+| verb | workspace (`w5`, label) | tab (`w5:t2`) | pane (`w5:p3`) |
+|---|---|---|---|
+| type, paste, press, submit, send, interrupt | the pane the active tab shows | the pane the tab shows | that pane |
+| screen, screen metadata, follow | the pane the active tab shows | the pane the tab shows | that pane |
+| attach (raw stream) | the pane the active tab shows | the pane the tab shows | that pane |
+| attach (session client) | steered onto the workspace (§8.10) | onto the tab | onto the pane, zoomed |
+| panes | every pane of the workspace | the tab's panes | that pane |
+| probe | present if the workspace exists | if the tab exists | if the pane exists |
+| stop, kill | `workspace close`: every tab and pane | `tab close`: every pane in it | `pane close` |
+| status | the workspace's own metadata | the pane the tab shows | the pane's own metadata |
+| self | the workspace's name | — | — |
+
+Stopping closes at the level named rather than closing the resolved pane, because
+closing the focused pane of a workspace that has two would leave the workspace
+standing with the other — a session told to stop that did not. Closing the only
+pane of a workspace closes the tab and the workspace with it (measured), so a
+pane-addressed stop of a single-pane session still leaves nothing behind.
+
+**Creation** makes a workspace with one root pane, labels both with the name,
+and returns the WORKSPACE: `id` is `w5`, `name` is the label. The size is
+accepted and ignored (§2.1), and a command is refused (§2.3.1).
+
+**A pane target is pane-precise here**, which is the one deliberate exception to
+§10.1 and is recorded there.
 
 ---
 
@@ -1710,6 +1755,57 @@ base's own clients are never displaced by a bare attach, which is its point.
 zmx and meja have neither a chrome-drawing client nor views, so a bare attach is
 `UNSUPPORTED` there (§12).
 
+### 8.10 A session-client attach on herdr is steered onto its target
+
+herdr has two clients, and they are different programs. The default attach is
+the raw per-pane stream, `herdr terminal attach`, onto the pane the target
+resolves to (§3.6) — a plain terminal with no chrome and no selection. The
+session client — `--client`, and `--bare`, which implies it — is herdr's own
+application: sidebar, tabs, mouse selection, scrollback and copy. It shows
+whatever the SERVER has focused and takes no target of its own, so Olympus MUST
+steer the server before spawning it, level by level in the order the client
+will read them:
+
+| target | steering |
+|---|---|
+| workspace | `workspace focus <ws>` |
+| tab | `workspace focus <ws>`, then `tab focus <tab>` |
+| pane | both of the above, then `pane zoom --pane <pane> --on` |
+
+The pane step is a zoom rather than a focus because herdr has no pane-focus
+request, and a zoom both focuses the pane and shows it alone — which is what a
+caller attaching one pane of a split tab means. Measured: zooming a pane that
+was not focused answers `focus_changed: true`, and zooming into a tab already
+zoomed on another pane reports `already_zoomed` and still moves focus. The
+steering is server requests over the socket, so a session-client attach IS a
+server call (an earlier revision asserted it never made one, and that
+assertion is gone). It is not undone when the client exits: the server keeps
+the focus and the zoom a human would have left the same way.
+
+Which client is spawned depends on how the server was selected (§13.2):
+
+- **By name** (`--server <name>`): the server is one of herdr's named
+  sessions, and its client is `herdr session attach <name>`, resolved under the
+  operator's configuration directory — that client needs the name, not the
+  socket.
+- **By path** (Olympus's own default socket, or `--socket-path` onto a headless
+  server): there is no named session to attach. The client is plain `herdr`
+  with the socket override, measured to attach the server on that socket rather
+  than the operator's default. A server Olympus started is given Olympus's own
+  configuration directory, the one it was booted against; a server Olympus
+  found keeps the operator's (§17.5).
+
+`--bare` overrides the configuration FILE with the stripped one (§8.9) without
+moving the configuration directory, so the client renders as a plain pane and
+still reaches the same server. The session client has no viewer role and no
+co-attach control (§8.7, §8.4): a viewer attach is refused, and `--keep-others`
+is reported as unhonored rather than dropped. A target that does not exist is
+not-found before any client is spawned, the same gate as §8.1.
+
+There is deliberately no `<server>/<target>` target grammar. The server is
+`--server`, the same option every other verb takes; a second spelling inside the
+target would be a second contract to keep in step.
+
 ---
 
 ## 9. Views
@@ -1820,14 +1916,16 @@ Only the SPELLING differs, so only the spelling is per-backend:
 | tmux | `%0` | The prefix cannot begin a session name Olympus would use. |
 | meja | `1` | meja rejects a session name that is entirely numeric, so a bare integer can only be a pane. |
 | zmx | the session's own name | No pane concept; the row is synthesized 1:1 from the session, so resolution is the identity. |
-| herdr | `w1:p2`, `w4Y:pA` | Not structurally unambiguous — see below. It is also the NAME of any pane nothing has labelled (§3.4). Each segment is a herdr public number: base 32 over `123456789ABCDEFGHJKMNPQRSTVWXYZ0`, digits for the first nine allocations and letters from the tenth, so the shape MUST accept letters or it stops matching real ids on any server that has seen its tenth workspace, tab or pane. Measured: the tenth pane is `w1:pA`, the tenth workspace `wA`, and the workspace counter survives a restart. |
+| herdr | `w1:p2`, `w4Y:pA` | Not structurally unambiguous — see below. The same alphabet spells the other two levels, `w1` for a workspace and `w1:t2` for a tab, and a workspace with an empty label is NAMED by its id (§3.6). Each segment is a herdr public number: base 32 over `123456789ABCDEFGHJKMNPQRSTVWXYZ0`, digits for the first nine allocations and letters from the tenth, so the shapes MUST accept letters or they stop matching real ids on any server that has seen its tenth workspace, tab or pane. Measured: the tenth pane is `w1:pA`, the tenth workspace `wA`, and the workspace counter survives a restart. |
 
 herdr is the exception that has to be handled rather than declared away: it will
-accept a pane label of any spelling, `w1:p2` included, so a session could be
-shadowed by the shape that addresses panes. The backend therefore REJECTS such a
-name at creation as a usage error, which is what turns "probably a pane" into
-"certainly a pane" — the same guarantee meja gets for free from its own naming
-rule, bought explicitly.
+accept a workspace label of any spelling, `w1:p2` included, so a session could be
+shadowed by the shape that addresses panes — or by a workspace id, or a tab id.
+The backend therefore REJECTS a name of any of the three shapes at creation as a
+usage error, which is what turns "probably a pane" into "certainly a pane" — the
+same guarantee meja gets for free from its own naming rule, bought explicitly.
+On herdr the shape is read by the backend rather than passed into the shared
+resolution, because a pane id there does NOT resolve to its session (§10.1).
 
 The shape MUST be passed into resolution rather than branched on inside it. One
 rule with a per-backend spelling stays one rule; a copy per backend is where the
@@ -1862,6 +1960,20 @@ decision and differs between them: measured, tmux switches to the new window
 while meja stays on the current one. Olympus MUST NOT depend on either, and
 tests of this behaviour MUST assert that a pane id and a session name are
 indistinguishable rather than asserting which window received the text.
+
+**herdr is pane-precise, and it is the one deliberate exception to this
+section.** A target passes through resolution unchanged and the backend reads
+its level from its shape (§3.6): `w5:p3` acts on that pane, not on the pane its
+workspace is showing, and `w5:t2` acts on the pane that tab is showing. The
+reason is structural: every herdr request already addresses a pane, so
+precision costs no addressing — what it costs is the lock. The write lock (§11)
+is keyed on the target as given, so a caller driving `w5` and a caller driving
+`w5:p3` serialize against nothing even while the workspace is showing that
+pane. Recorded rather than fixed: keying the lock on the owning workspace would
+put a listing before every lock take, on the path §11 keeps subprocess-free,
+and two callers driving two panes of one workspace — the common shape on a
+herdr fleet — are not contending for anything. A caller who wants the
+session-scoped guarantee addresses the workspace.
 
 Every tmux backend operation addresses sessions through exact-match `=<name>`
 syntax, which does **not** accept a bare pane id (`%0`) even though tmux's own
@@ -2188,9 +2300,11 @@ The store must outlive the process that wrote it — the reporter is inside the
 session and the reader is outside, and they never run at the same moment. On
 tmux this is a session-scoped user option, which tmux keeps and never acts on.
 zmx has no per-session metadata of any kind, so it declares the capability false.
-herdr keeps display-only pane metadata on the server and hands it back on the
-pane row, which is the same shape of store as tmux's user option: written by one
-process, read by another, outliving both.
+herdr keeps display-only metadata on the server for a workspace and for a pane
+alike, and hands it back on the row, which is the same shape of store as tmux's
+user option: written by one process, read by another, outliving both. A
+session's status is the workspace's metadata; a pane target's is the pane's own
+(§3.6).
 
 Capabilities MUST NOT include whether a session outlives its command. That is a
 property of the **caller's** own wrapper — does the shell it spawned keep running
@@ -2639,7 +2753,8 @@ Recorded so they are not re-proposed as missing features:
   single-window and single-pane, which is the only reason §9.4's side effect is
   unobservable. Windows and panes are *reported* — every pane row carries its
   window index — and never created: there is no verb, no tool and no method that
-  makes either. tmux and meja have windows; zmx has neither windows nor panes,
+  makes either. tmux and meja have windows, and so does herdr, whose tabs they
+are (§3.6); zmx has neither windows nor panes,
   and its pane row is synthesized from the session, so its window index is
   always 0. What follows when somebody else adds a window is §10's business.
 - **No embedded multiplexer, and no PTY-only degraded mode.** §0.7.

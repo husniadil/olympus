@@ -16,19 +16,31 @@ const statusToken = "status"
 
 // SetStatus records an opaque label on a session (§13.1).
 //
-// herdr keeps display-only pane metadata on the server and hands it back on the
-// pane row, which is a store that outlives the process that wrote it — the
-// property that makes a status possible at all, since the reporter is inside
-// the session and the reader is outside and they never run at the same moment.
+// herdr keeps display-only metadata on the server for a workspace and for a
+// pane alike, and hands it back on the row, which is a store that outlives the
+// process that wrote it — the property that makes a status possible at all,
+// since the reporter is inside the session and the reader is outside and they
+// never run at the same moment.
 //
-// The value is stored and returned exactly as given. Olympus does not interpret
-// it and defines no vocabulary of states.
+// The status lives on the level the target names: a workspace's status is the
+// workspace's, so every pane in it reads the same one; a pane's is its own. A
+// tab has no metadata of its own, so a tab target's status is its focused
+// pane's (§3.6). The value is stored and returned exactly as given. Olympus
+// does not interpret it and defines no vocabulary of states.
 func (h *Herdr) SetStatus(ctx context.Context, target, status string) error {
-	row, err := h.resolvePane(ctx, target)
+	r, err := h.resolve(ctx, target)
 	if err != nil {
 		return err
 	}
-	args := []string{"pane", "report-metadata", row.PaneID, "--source", statusSource}
+	var args []string
+	if r.kind == kindWorkspace {
+		args = []string{"workspace", "report-metadata", r.workspace.WorkspaceID, "--source", statusSource}
+	} else {
+		if r.pane.PaneID == "" {
+			return backend.Errorf(backend.CodeSessionNotFound, "%s %s has no pane to act on", r.kind, target)
+		}
+		args = []string{"pane", "report-metadata", r.pane.PaneID, "--source", statusSource}
+	}
 	if status == "" {
 		// Clearing rather than storing an empty value, so a status that was
 		// unset and one that was set to nothing read the same way.
@@ -45,11 +57,14 @@ func (h *Herdr) SetStatus(ctx context.Context, target, status string) error {
 // Empty is a real answer, not an error: a caller must be able to tell "has
 // reported nothing" from "could not ask" (§3.5, §13.1).
 func (h *Herdr) Status(ctx context.Context, target string) (string, error) {
-	row, err := h.resolvePane(ctx, target)
+	r, err := h.resolve(ctx, target)
 	if err != nil {
 		return "", err
 	}
-	return row.Tokens[statusToken], nil
+	if r.kind == kindWorkspace {
+		return r.workspace.Tokens[statusToken], nil
+	}
+	return r.pane.Tokens[statusToken], nil
 }
 
 // The grouped-view concept does not exist here: a pane belongs to one tab of

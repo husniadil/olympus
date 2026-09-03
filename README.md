@@ -220,10 +220,15 @@ panes that other tools created on a herdr you already run. Olympus never starts,
 reconfigures or stops a server it found; asking it to stop one is refused,
 because that would take every pane on it down.
 
-Every pane there is a session. Its name is the pane's label if `herdr pane
-rename` gave it one, and its pane id (`w25:p8`) otherwise — which is most of
-them, since a *tab* label is a property of the tab and never reaches a pane. You
-cannot *create* a session whose name is spelled like a pane id.
+A herdr *workspace* is a session there, a *tab* is a window and a pane is a
+pane — the same shape tmux gets. `olympus ls` lists the workspaces, named by
+their label (`demo`) or, where the label is empty, by their id (`w25`); `olympus
+panes demo` lists every pane in one, with the tab's number as `window_index`. A
+verb aimed at a workspace acts on the pane it is showing; `w25:p8` reaches
+exactly that pane, and `w25:t2` the pane that tab is showing. `olympus stop`
+closes the level you named, with everything in it. `attach --client` opens
+herdr's own client — sidebar, tabs, mouse — focused onto the target. You cannot
+*create* a session whose name is spelled like a workspace, tab or pane id.
 
 A private socket is not a private configuration: tmux fixes a server's settings
 at boot from your `tmux.conf`, so your file reaches Olympus's sessions whichever

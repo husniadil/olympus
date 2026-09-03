@@ -4,13 +4,18 @@
 // proved against backend/backendtest. Where a comment here names a section, the
 // obvious implementation is the wrong one and the section says why.
 //
-// One structural difference shapes most of this file. herdr's server owns
-// workspaces, tabs and panes rather than sessions, and a pane's process is the
-// shell its own configuration names — there is no per-pane argv anywhere in its
-// request vocabulary. So an Olympus session is a PANE: creation makes a
-// workspace and labels its root pane, listing reports every pane under its
-// label or, where it has none, its pane id (§3.4), and a command at creation
-// is refused rather than typed (§2.3.1).
+// herdr's hierarchy is workspace › tab › pane, and it maps onto Olympus's
+// session › window › pane the way tmux's does: a workspace is a session (named
+// by its label, else by its id, "w5"), a tab is a window ("w5:t2", whose number
+// is the window index), and a pane is a pane ("w5:p3"). A verb aimed at a
+// workspace or a tab acts on the pane it is showing. The mapping, the target
+// shapes and what each verb does at each level are specified once, in
+// behavior §3.6; this file cites it rather than restating it.
+//
+// One structural difference shapes creation. A pane's process is the shell
+// herdr's own configuration names — there is no per-pane argv anywhere in its
+// request vocabulary — so a command at creation is refused rather than typed
+// (§2.3.1).
 package herdr
 
 import (
@@ -83,6 +88,11 @@ type Herdr struct {
 	// performs would otherwise put Olympus's own state tree inside the
 	// operator's configuration directory (§13.2).
 	socketOnly bool
+	// serverName is the named session the socket belongs to, when the server
+	// was selected by name (WithServerSocket). It is what the session client
+	// attaches, since that client addresses a named session by its name and
+	// not by its socket (§8.10). Empty for a path-addressed server.
+	serverName string
 
 	mu sync.Mutex
 	// started is set when this handle brought the server up itself. It is
@@ -275,8 +285,8 @@ func (h *Herdr) Create(ctx context.Context, spec backend.CreateSpec) (backend.Se
 	}
 
 	// A name is the session's identity here, and herdr will happily label two
-	// panes the same. One corrected argument fixes it, which §12 makes the
-	// definition of a usage error.
+	// workspaces the same. One corrected argument fixes it, which §12 makes
+	// the definition of a usage error.
 	sessions, err := h.Sessions(ctx)
 	if err != nil {
 		return backend.Session{}, err
@@ -303,28 +313,32 @@ func (h *Herdr) Create(ctx context.Context, spec backend.CreateSpec) (backend.Se
 	}
 	var created struct {
 		Result struct {
-			RootPane paneRow `json:"root_pane"`
+			Workspace workspaceRow `json:"workspace"`
+			RootPane  paneRow      `json:"root_pane"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(out), &created); err != nil {
 		return backend.Session{}, backend.Wrapf(backend.CodeUnexpected, err, "reading the created workspace")
 	}
-	pane := created.Result.RootPane
-	if pane.PaneID == "" {
+	workspace, pane := created.Result.Workspace, created.Result.RootPane
+	if workspace.WorkspaceID == "" || pane.PaneID == "" {
 		return backend.Session{}, backend.Errorf(backend.CodeUnexpected,
-			"herdr created a workspace that reports no root pane")
+			"herdr created a workspace that reports no workspace id or no root pane")
 	}
 
-	// The label is the identity, so a failure here leaves a pane nobody can
-	// address. Reap it rather than leaking an unreachable session.
+	// The root pane carries the label too, so a pane listing — or a human in
+	// the sidebar — sees which pane the session began as. A failure here is a
+	// workspace whose pane could not be labelled; the workspace is the
+	// session and is still addressable, but Olympus made a shape it did not
+	// mean to, so it is reaped rather than left half-made (§3.6).
 	if _, err := h.run(ctx, "pane", "rename", pane.PaneID, spec.Name); err != nil {
-		_, _ = h.run(ctx, "pane", "close", pane.PaneID)
+		_, _ = h.run(ctx, "workspace", "close", workspace.WorkspaceID)
 		return backend.Session{}, err
 	}
 
 	return backend.Session{
 		Name:     spec.Name,
-		ID:       pane.PaneID,
+		ID:       workspace.WorkspaceID,
 		Attached: false,
 		Dead:     false,
 		Liveness: backend.LivenessPresent,
@@ -333,126 +347,91 @@ func (h *Herdr) Create(ctx context.Context, spec backend.CreateSpec) (backend.Se
 	}, nil
 }
 
-// validateName rejects a name that could not be told apart from a pane id.
+// validateName rejects a name that could not be told apart from an id in the
+// hierarchy.
 //
-// Resolution reads a target shaped like "w1:p2" or "w4Y:pA" as a pane (§10), so a session
-// answering to that spelling would be shadowed by every pane listing. It is
-// USAGE because one corrected argument fixes it.
+// Resolution reads a target shaped like "w1" as a workspace id, "w1:t2" as a
+// tab and "w1:p2" as a pane (§10, §3.6), so a session answering to any of those
+// spellings would be shadowed by the id — and a workspace nothing has labelled
+// is NAMED by its id, so a label of that shape would make one name address two
+// workspaces. It is USAGE because one corrected argument fixes it.
 func validateName(name string) error {
 	if name == "" {
 		return backend.Errorf(backend.CodeUsage, "a session needs a name")
 	}
-	if backend.IndexedPaneID(name) {
+	switch {
+	case backend.IndexedPaneID(name):
 		return backend.Errorf(backend.CodeUsage,
 			"session name %q is spelled like a herdr pane id, which addresses a pane rather than a session", name)
+	case backend.IndexedTabID(name):
+		return backend.Errorf(backend.CodeUsage,
+			"session name %q is spelled like a herdr tab id, which addresses a tab rather than a session", name)
+	case backend.IndexedWorkspaceID(name):
+		return backend.Errorf(backend.CodeUsage,
+			"session name %q is spelled like a herdr workspace id, which is the name of whichever workspace has that id", name)
 	}
 	return nil
 }
 
-// A paneRow is the part of herdr's pane shape Olympus reads.
-type paneRow struct {
-	PaneID     string `json:"pane_id"`
-	TerminalID string `json:"terminal_id"`
-	TabID      string `json:"tab_id"`
-	Label      string `json:"label"`
-	CWD        string `json:"cwd"`
-	// ForegroundCWD tracks the foreground process rather than the pane's
-	// spawn directory, which is what makes current_path live here (§3.4).
-	ForegroundCWD string            `json:"foreground_cwd"`
-	Tokens        map[string]string `json:"tokens"`
-	Scroll        *struct {
-		OffsetFromBottom int `json:"offset_from_bottom"`
-		ViewportRows     int `json:"viewport_rows"`
-	} `json:"scroll"`
-}
-
+// Sessions lists every workspace on the server. Each one is an Olympus
+// session, named by its label where it has one and by its workspace id where
+// it has not (§3.6).
 func (h *Herdr) Sessions(ctx context.Context) ([]backend.Session, error) {
-	rows, err := h.paneRows(ctx)
+	snap, err := h.snapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
-	sessions := make([]backend.Session, 0, len(rows))
-	for _, row := range rows {
+	sessions := make([]backend.Session, 0, len(snap.Workspaces))
+	for _, ws := range snap.Workspaces {
 		sessions = append(sessions, backend.Session{
-			Name: displayName(row),
-			// The pane id is the server's own identity for the terminal and
+			Name: displayName(ws),
+			// The workspace id is the server's own identity for it and
 			// survives a rename, so it is a real id distinct from the name.
-			ID: row.PaneID,
+			ID: ws.WorkspaceID,
 			// herdr's socket API reports no per-terminal client count, so this
 			// is always false rather than sometimes wrong. Disclosed at every
 			// door (§3.4).
 			Attached: false,
 			Dead:     false,
-			// A pane whose process exits is removed from the listing, so every
-			// listed row is one the server vouches for. There is no err field
-			// to classify and no window in which a row is indeterminate (§3.2).
+			// A workspace whose last pane exits is removed from the listing,
+			// so every listed row is one the server vouches for. There is no
+			// err field to classify and no window in which a row is
+			// indeterminate (§3.2).
 			Liveness: backend.LivenessPresent,
-			CWD:      row.CWD,
+			// A workspace has no directory of its own; the pane it is showing
+			// has one, and that is the pane every verb on the workspace acts
+			// on (§3.6).
+			CWD: snap.focusedPaneOf(ws.ActiveTabID).CWD,
 		})
 	}
 	return sessions, nil
 }
 
-// paneRows lists every pane on the server. Each one is an Olympus session.
-//
-// An earlier revision listed only the panes carrying a LABEL, on the reasoning
-// that a session is something Olympus named. That was wrong, and wrong in the
-// direction that removed the reason this backend exists: the panes worth
-// driving are usually the ones something else created — a box's own headless
-// herdr, a human's `pane split`, another tool's workspace — and none of them
-// carry a label. Measured on a live server: three panes, none labelled, so a
-// listing answered nothing and even a pane id resolved to not-found.
-//
-// So every pane is a session and the NAME is the label where there is one, the
-// pane id where there is not (§3.4). Both spellings address the same pane, and
-// the two namespaces cannot collide because creation refuses a name shaped like
-// a pane id (§10).
-func (h *Herdr) paneRows(ctx context.Context) ([]paneRow, error) {
-	out, err := h.run(ctx, "pane", "list")
-	if err != nil {
-		if errors.Is(err, errNoServer) {
-			// There is nothing to find; nothing went wrong asking (§3.3).
-			return nil, nil
-		}
-		return nil, err
-	}
-	var listed struct {
-		Result struct {
-			Panes []paneRow `json:"panes"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal([]byte(out), &listed); err != nil {
-		return nil, backend.Wrapf(backend.CodeUnexpected, err, "reading the pane listing")
-	}
-	return listed.Result.Panes, nil
-}
-
-// displayName is the name a pane answers to.
-//
-// The label when a pane carries one, because that is what a human or another
-// tool chose to call it; the pane id otherwise, because a session has to have a
-// name and inventing one would be a name nothing else in the system knows.
-func displayName(row paneRow) string {
-	if row.Label != "" {
-		return row.Label
-	}
-	return row.PaneID
-}
-
+// Panes lists panes. An empty target is every pane on the server; a target is
+// the panes it contains — one for a pane, a tab's for a tab, a workspace's for
+// a workspace (§3.6).
 func (h *Herdr) Panes(ctx context.Context, target string) ([]backend.Pane, error) {
-	rows, err := h.paneRows(ctx)
+	snap, err := h.snapshot(ctx)
 	if err != nil {
 		return nil, err
+	}
+	var scope resolved
+	if target != "" {
+		scope, err = snap.resolve(target)
+		if err != nil {
+			return nil, err
+		}
 	}
 	panes := []backend.Pane{}
-	for _, row := range rows {
-		if target != "" && !addresses(row, target) {
+	for _, row := range snap.Panes {
+		if target != "" && !scope.contains(row) {
 			continue
 		}
+		ws, _ := snap.workspaceByID(row.WorkspaceID)
 		pane := backend.Pane{
 			ID:          row.PaneID,
-			SessionName: displayName(row),
-			SessionID:   row.PaneID,
+			SessionName: displayName(ws),
+			SessionID:   row.WorkspaceID,
 			WindowIndex: tabIndex(row.TabID),
 			Dead:        false,
 			CreatedAt:   createdAt(row.TerminalID),
@@ -466,17 +445,13 @@ func (h *Herdr) Panes(ctx context.Context, target string) ([]backend.Pane, error
 		}
 		if target != "" {
 			// Only for a TARGETED listing. The live foreground process is a
-			// second request per row, and a whole-server listing is what
-			// target resolution reads before every pane-id-addressed
-			// operation (§10) — paying a subprocess per pane there would put
-			// the cost of this field on the cheapest read there is. Disclosed
-			// at every door (§3.4).
+			// second request per row, and a whole-server listing is the
+			// cheapest read there is — paying a subprocess per pane there
+			// would put the cost of this field on every caller who asked
+			// what exists. Disclosed at every door (§3.4).
 			pane.CurrentCommand = h.foregroundCommand(ctx, row.PaneID)
 		}
 		panes = append(panes, pane)
-	}
-	if target != "" && len(panes) == 0 {
-		return nil, backend.Errorf(backend.CodeSessionNotFound, "no session %s", target)
 	}
 	return panes, nil
 }
@@ -556,68 +531,67 @@ func (h *Herdr) foregroundCommand(ctx context.Context, paneID string) string {
 	return processes[len(processes)-1].Name
 }
 
-// Probe answers presence, never a transport error (§3.5).
+// Probe answers presence, never a transport error (§3.5). A target is present
+// when the workspace, tab or pane it names exists (§3.6).
 func (h *Herdr) Probe(ctx context.Context, target string) backend.State {
-	rows, err := h.paneRows(ctx)
+	snap, err := h.snapshot(ctx)
 	if err != nil {
 		// A server hiccup must never read as absent: a caller polling across a
 		// flaky backend needs "definitely gone" and "could not ask" to be
 		// different answers.
 		return backend.StateError
 	}
-	for _, row := range rows {
-		if addresses(row, target) {
-			return backend.StatePresent
-		}
+	if _, err := snap.resolve(target); err != nil {
+		// A name that never existed is absent even with no server running:
+		// the snapshot collapses that into an empty hierarchy, and the error
+		// arm is reserved for a genuinely unreachable backend.
+		return backend.StateAbsent
 	}
-	// A name that never existed is absent even with no server running: the
-	// listing collapses that into an empty list, and the error arm is reserved
-	// for a genuinely unreachable backend.
-	return backend.StateAbsent
+	return backend.StatePresent
 }
 
-// addresses reports whether a target names this pane, by either spelling.
-//
-// A labelled pane answers to its label AND to its pane id, the same way a tmux
-// session answers to its name and to "%0". An unlabelled one answers to its
-// pane id alone, which is the only name it has.
-func addresses(row paneRow, target string) bool {
-	return row.PaneID == target || (row.Label != "" && row.Label == target)
+// resolve turns a target into the rows every herdr verb addresses, against the
+// server as it is right now (§3.6).
+func (h *Herdr) resolve(ctx context.Context, target string) (resolved, error) {
+	snap, err := h.snapshot(ctx)
+	if err != nil {
+		return resolved{}, err
+	}
+	return snap.resolve(target)
 }
 
-// resolvePane turns a session name into the pane every herdr verb addresses.
-//
-// A label is not unique — herdr will let two panes carry the same one, and
-// panes this backend did not create are not held to the uniqueness Create
-// enforces (§2.1). The oldest match wins, so the answer is at least stable
-// across calls rather than following whatever order the server listed them in.
-// A pane id matches at most one row, so the tie-break never applies there.
+// resolvePane turns a target into the ONE pane a verb acts on: the pane itself
+// for a pane target, the tab's focused pane for a tab, and the focused pane of
+// the active tab for a workspace (§3.6). Every verb that drives or reads a
+// terminal goes through this, so a workspace and its focused pane are the same
+// target to all of them.
 func (h *Herdr) resolvePane(ctx context.Context, target string) (paneRow, error) {
-	rows, err := h.paneRows(ctx)
+	r, err := h.resolve(ctx, target)
 	if err != nil {
 		return paneRow{}, err
 	}
-	var found *paneRow
-	for i := range rows {
-		if !addresses(rows[i], target) {
-			continue
-		}
-		if rows[i].PaneID == target {
-			// An exact pane id is unambiguous and beats any label match.
-			return rows[i], nil
-		}
-		if found == nil || createdAt(rows[i].TerminalID) < createdAt(found.TerminalID) {
-			found = &rows[i]
-		}
+	if r.pane.PaneID == "" {
+		// The level exists and shows nothing — a workspace or tab the
+		// snapshot caught mid-teardown, with its layout gone before its row.
+		// Not-found rather than unexpected: by the time the caller reads
+		// this, the target is on its way out (§3.3).
+		return paneRow{}, backend.Errorf(backend.CodeSessionNotFound,
+			"%s %s has no pane to act on", r.kind, target)
 	}
-	if found == nil {
-		return paneRow{}, backend.Errorf(backend.CodeSessionNotFound, "no session %s", target)
-	}
-	return *found, nil
+	return r.pane, nil
 }
 
+// Kill ends whatever the target names: a workspace with every tab and pane in
+// it, a tab with every pane in it, or one pane (§3.6).
+//
+// The three are the same close at three levels rather than one close of the
+// resolved pane, because closing the focused pane of a workspace that has two
+// would leave the workspace standing with the other — a session that was told
+// to stop and did not. Closing the only pane of a workspace closes the tab and
+// the workspace with it, so a pane-addressed stop of a single-pane session
+// still leaves nothing behind. Measured.
 func (h *Herdr) Kill(ctx context.Context, target string) error {
-	row, err := h.resolvePane(ctx, target)
+	r, err := h.resolve(ctx, target)
 	if err != nil {
 		if backend.CodeOf(err) == backend.CodeSessionNotFound {
 			// Already the desired state.
@@ -625,9 +599,14 @@ func (h *Herdr) Kill(ctx context.Context, target string) error {
 		}
 		return err
 	}
-	// Closing the only pane of a workspace closes the tab and the workspace
-	// with it, so a session Olympus made leaves nothing behind. Measured.
-	_, err = h.run(ctx, "pane", "close", row.PaneID)
+	switch r.kind {
+	case kindPane:
+		_, err = h.run(ctx, "pane", "close", r.pane.PaneID)
+	case kindTab:
+		_, err = h.run(ctx, "tab", "close", r.tab.TabID)
+	default:
+		_, err = h.run(ctx, "workspace", "close", r.workspace.WorkspaceID)
+	}
 	if err != nil && backend.CodeOf(err) == backend.CodeSessionNotFound {
 		return nil
 	}
@@ -802,17 +781,18 @@ func AmbientSocketPath() string {
 	return ""
 }
 
-// SessionOf reports the session name owning a pane id.
+// SessionOf reports the session owning a pane id: the name of the workspace
+// the pane belongs to (§3.6).
 //
-// herdr publishes a pane's ID to the pane but not its label, so a process that
-// wants to name its own session has to ask the server — of the socket it is
-// actually inside, which is what AmbientSocketPath answers. The answer is the
-// same name a listing gives the pane, so an unlabelled one is named by its id
-// here too rather than by nothing.
+// herdr publishes a pane's ID to the pane but not its workspace's label, so a
+// process that wants to name its own session has to ask the server — of the
+// socket it is actually inside, which is what AmbientSocketPath answers. The
+// answer is the same name a listing gives the workspace, so one nothing has
+// labelled is named by its id here too rather than by nothing.
 func (h *Herdr) SessionOf(ctx context.Context, paneID string) (string, error) {
-	row, err := h.resolvePane(ctx, paneID)
+	r, err := h.resolve(ctx, paneID)
 	if err != nil {
 		return "", err
 	}
-	return displayName(row), nil
+	return displayName(r.workspace), nil
 }

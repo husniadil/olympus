@@ -8,8 +8,9 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
-// WithServerSocket selects a herdr server by the socket of one of its NAMED
-// sessions, found by name through Servers or LookupServer.
+// WithServerSocket selects a herdr server by NAME, addressed through the
+// socket of that named session — found by name through Servers or
+// LookupServer.
 //
 // It differs from WithSocketPath in one way that matters: the configuration
 // and state directories are NOT redirected. A named session's socket lives
@@ -19,8 +20,13 @@ import (
 // backend built this way carries the socket alone, the way an attach onto a
 // server Olympus did not start already does — and the server is never started
 // by Olympus, only driven (§2.9.1, §13.2).
-func WithServerSocket(path string) Option {
-	return func(h *Herdr) { h.socketPath = path; h.socketOnly = true }
+//
+// The name is kept as well as the socket because one client needs it: herdr's
+// session client attaches a named session BY NAME (`herdr session attach
+// <name>`), and that is the client a session-client attach on this handle
+// spawns (§8.10).
+func WithServerSocket(name, path string) Option {
+	return func(h *Herdr) { h.socketPath = path; h.socketOnly = true; h.serverName = name }
 }
 
 // A serverRow is the part of `herdr session list --json` Olympus reads.

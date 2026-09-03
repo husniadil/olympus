@@ -51,7 +51,7 @@ func TestServerListingParsesHerdrRows(t *testing.T) {
 func TestServerSocketDoesNotRedirectConfigurationOrState(t *testing.T) {
 	t.Parallel()
 	socket := "/home/op/.config/herdr/sessions/work/herdr.sock"
-	b := New(WithServerSocket(socket))
+	b := New(WithServerSocket("work", socket))
 
 	env := b.env(nil)
 	for _, kv := range env {
@@ -79,7 +79,7 @@ func TestServerSocketLeavesTheConfigurationTreeAlone(t *testing.T) {
 	configHome := shortDir(t)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	socket := filepath.Join(configHome, "herdr", "sessions", "w", "herdr.sock")
-	b := New(WithServerSocket(socket))
+	b := New(WithServerSocket("w", socket))
 	ctx := context.Background()
 
 	sessions, err := b.Sessions(ctx)
@@ -169,7 +169,7 @@ func TestServersSeesANamedServerAndStopsIt(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	b := New(WithServerSocket(socket))
+	b := New(WithServerSocket(name, socket))
 	var listed []backend.Server
 	deadline := time.Now().Add(serverStartBudget())
 	for {

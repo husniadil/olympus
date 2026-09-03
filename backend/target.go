@@ -52,6 +52,34 @@ func IndexedPaneID(target string) bool {
 	return publicNumber(window) && publicNumber(pane)
 }
 
+// IndexedTabID is the shape of a tab id on the same backend: "w<number>:t<number>".
+// A tab is the backend's window, so this is the shape a window-addressing target
+// takes there (§3.6).
+func IndexedTabID(target string) bool {
+	rest, ok := strings.CutPrefix(target, "w")
+	if !ok {
+		return false
+	}
+	workspace, tab, ok := strings.Cut(rest, ":t")
+	if !ok {
+		return false
+	}
+	return publicNumber(workspace) && publicNumber(tab)
+}
+
+// IndexedWorkspaceID is the shape of a workspace id on the same backend:
+// "w<number>". A workspace is the backend's session, and its id is the name a
+// workspace nothing has labelled answers to — so a session may not be CREATED
+// with a name of this shape either, or its id and its name would name two
+// different workspaces (§3.6).
+func IndexedWorkspaceID(target string) bool {
+	rest, ok := strings.CutPrefix(target, "w")
+	if !ok {
+		return false
+	}
+	return publicNumber(rest)
+}
+
 // publicNumberAlphabet is the digit set of a herdr public id, in digit order.
 // I, L, O and U are deliberately absent from it, and lowercase never appears.
 const publicNumberAlphabet = "123456789ABCDEFGHJKMNPQRSTVWXYZ0"

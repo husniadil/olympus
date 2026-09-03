@@ -45,8 +45,9 @@ func KeepOtherClients() AttachOption {
 //
 // Only herdr distinguishes the two; the other backends always hand their
 // session client, so this is a no-op there and Attach rejects it on a backend
-// that has no separate session client. When set, the target names the backend's
-// own session rather than an Olympus-resolved pane.
+// that has no separate session client. The target is an ordinary Olympus
+// target — a workspace, a tab or a pane (behavior §3.6) — and the client is
+// steered onto it before it is spawned (§8.10).
 func WithSessionClient() AttachOption {
 	return func(s *backend.AttachSpec) { s.SessionClient = true }
 }
@@ -56,7 +57,7 @@ func WithSessionClient() AttachOption {
 //
 //   - herdr: the session client with its chrome hidden. It implies
 //     WithSessionClient, since chrome is the session client's to hide, and the
-//     target is a herdr SESSION name.
+//     target is the same workspace, tab or pane any other verb takes.
 //   - tmux: a view (behavior §9) onto the session, attached instead of the
 //     session itself and killed when the attach ends. A view is already bare by
 //     construction — no status bar, no prefix (§9.3) — and a grouped session

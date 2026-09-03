@@ -208,7 +208,7 @@ func open(cfg config, opts ...Option) (*Olympus, error) {
 		var options []herdr.Option
 		switch {
 		case cfg.server != "":
-			options = append(options, herdr.WithServerSocket(cfg.socketPath))
+			options = append(options, herdr.WithServerSocket(cfg.server, cfg.socketPath))
 		case cfg.socketPath != "":
 			options = append(options, herdr.WithSocketPath(cfg.socketPath))
 		}
@@ -282,12 +282,12 @@ func (o *Olympus) resolveTarget(ctx context.Context, target string) (string, err
 		// merely probable, and no session can be shadowed by a pane.
 		return backend.ResolveTarget(target, backend.NumericPaneID, lister)
 	case backend.Herdr:
-		// herdr spells pane ids "w<workspace>:p<pane>". herdr itself would
-		// accept a session label of that spelling, so the backend refuses one
-		// at creation — which is what makes the shape unambiguous here rather
-		// than merely probable, the same guarantee meja gets from its own
-		// naming rule.
-		return backend.ResolveTarget(target, backend.IndexedPaneID, lister)
+		// herdr is pane-precise, and deliberately so (§10.1): a target passes
+		// through unresolved, and the backend reads its shape itself —
+		// "w5" or a label is a workspace, "w5:t2" a tab, "w5:p3" a pane —
+		// and acts on that level rather than on the session that owns it
+		// (§3.6). The empty-target rule still applies.
+		return backend.ResolveTarget(target, nil, nil)
 	}
 	return backend.ResolveTarget(target, backend.PrefixedPaneID, lister)
 }
@@ -370,8 +370,25 @@ func (o *Olympus) Info(ctx context.Context, target string) (Info, error) {
 	if err != nil {
 		return info, err
 	}
+	panes, err := o.backend.Panes(ctx, resolved)
+	if err != nil {
+		if CodeOf(err) == backend.CodeSessionNotFound {
+			info.State = backend.StateAbsent
+			return info, nil
+		}
+		return info, err
+	}
+	// The session is found by the resolved name, and failing that by the
+	// name the target's own panes report as their owner. The second lookup
+	// is for a backend whose targets pass through resolution unchanged
+	// (herdr, §10.1): there the resolved target may be a window or a pane,
+	// and only its pane rows know which session it belongs to.
+	owner := resolved
+	if len(panes) > 0 && panes[0].SessionName != "" {
+		owner = panes[0].SessionName
+	}
 	for i := range sessions {
-		if sessions[i].Name == resolved {
+		if sessions[i].Name == resolved || sessions[i].Name == owner {
 			info.Session = &sessions[i]
 			break
 		}
@@ -379,16 +396,6 @@ func (o *Olympus) Info(ctx context.Context, target string) (Info, error) {
 	if info.Session == nil {
 		info.State = backend.StateAbsent
 		return info, nil
-	}
-
-	panes, err := o.backend.Panes(ctx, resolved)
-	if err != nil {
-		if CodeOf(err) == backend.CodeSessionNotFound {
-			info.State = backend.StateAbsent
-			info.Session = nil
-			return info, nil
-		}
-		return info, err
 	}
 	info.Panes = panes
 	info.Warnings = warn(o.resolution.Backend, opPaneListing)

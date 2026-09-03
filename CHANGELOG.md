@@ -6,6 +6,54 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed — BREAKING on the herdr backend
+
+herdr's hierarchy now maps onto Olympus's the way tmux's does: a **workspace**
+is a session, a **tab** is a window, and a **pane** is a pane. Previously every
+pane was a session. Olympus has no external consumers yet, so the mapping
+changed in place; everything that meant something different before is listed
+here. Behavior spec §3.6 is the single description; §8.10 covers attach.
+
+- **`ls` lists workspaces, not panes.** A row's `name` is the workspace's label
+  where it has one and its id (`w25`) where the label is empty — herdr labels a
+  workspace from its directory when nobody names it, so `~` and `tmp` are what
+  unlabelled workspaces are usually called, and the `id` beside the `name` is
+  how a caller addresses one exactly. A pane label no longer names anything.
+- **`panes` rows name their workspace.** `session_name` and `session_id` are the
+  owning workspace's; `window_index` is the tab's number. `panes <workspace>`
+  lists every pane in it, `panes <tab>` the tab's, `panes <pane>` that one.
+- **Three target shapes, pane-precise.** `w5` (or a label) is a workspace,
+  `w5:t2` a tab, `w5:p3` a pane. A verb aimed at a workspace or a tab acts on
+  the pane it is showing; a pane target acts on exactly that pane — herdr is
+  the one backend where a pane id does NOT resolve to its owning session, and
+  the write lock is keyed on the target as given (spec §10.1).
+- **`stop` closes the level you named.** A workspace with every tab and pane in
+  it (`workspace close`), a tab with every pane in it (`tab close`), or one pane
+  (`pane close`). Before, `stop` always closed one pane.
+- **`start`/`new` return the workspace.** The created session's `id` is now the
+  workspace id (`w5`) rather than the root pane's id; the name, the labelled root
+  pane and the ensure semantics are unchanged.
+- **`attach --client` and `--bare` take an ordinary target and steer the server
+  onto it** — `workspace focus`, then `tab focus`, then `pane zoom --on` for a
+  pane — before spawning herdr's session client. The target is no longer a herdr
+  session name: the server is `--server <name>`, and the client attaches that
+  named session (`herdr session attach <name>`), or plain `herdr` on the
+  resolved socket when the server was addressed by path. A session-client
+  attach therefore makes server calls, and is not-found before any client is
+  spawned. There is deliberately no `<server>/<target>` grammar.
+- **`self` inside a pane names its workspace**, not the pane.
+- **`status` on a workspace is the workspace's metadata** (`workspace
+  report-metadata`); on a pane it stays the pane's.
+- **A session may not be named like a workspace id, a tab id or a pane id.**
+  Creation rejects all three shapes as `USAGE`; before, only the pane shape was
+  refused.
+- **Go:** `herdr.WithServerSocket` takes the server's name as well as its
+  socket, `backend.IndexedTabID` and `backend.IndexedWorkspaceID` join
+  `IndexedPaneID`, and `olympus.OpenSessionName` is now used only by the bare
+  attach on tmux.
+- **CLI/MCP shapes are unchanged**: no field, flag, tool or code was added or
+  removed; what changed is what the herdr rows and targets mean.
+
 ## [0.3.0]
 
 ### Added

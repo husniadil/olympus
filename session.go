@@ -91,12 +91,10 @@ func (o *Olympus) Open(ctx context.Context, target string) (*Session, error) {
 // OpenSessionName returns a handle addressing a backend session by its own
 // name, WITHOUT resolving a target or probing Olympus's pane registry.
 //
-// It exists for session-client attach. herdr's `session attach` addresses a
-// session that lives outside the socket-addressed panes Olympus drives (it
-// resolves from the configuration directory, not the socket), so the ordinary
-// Open — which resolves a target to a pane and probes for it — would reject the
-// name before the backend ever saw it. Presence is left to the backend's own
-// client, which reports a missing session itself. It brings nothing into being.
+// It exists for the bare attach on tmux, whose target is `<session>:<window>`
+// — not a session, so the ordinary Open would reject it before the ergonomic
+// layer could split it, resolve the session half and report a missing session
+// or window itself (§8.9). It brings nothing into being.
 func (o *Olympus) OpenSessionName(name string) *Session {
 	return &Session{ol: o, name: name}
 }
