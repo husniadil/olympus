@@ -71,6 +71,24 @@ func AsBare() AttachOption {
 	return func(s *backend.AttachSpec) { s.Bare = true }
 }
 
+// BareViewName names the view a bare attach on tmux creates, rather than
+// letting Olympus generate one. A caller that drives the view while the attach
+// runs — `view scroll`, `view focus` — needs its name, and an attach, being
+// interactive, has no channel to report one back. The name must carry the
+// reserved view prefix (behavior §17.1); anything else is refused as usage
+// before a view exists, and so is the option on a backend whose bare attach
+// makes no view.
+func BareViewName(name string) AttachOption {
+	return func(s *backend.AttachSpec) { s.BareView = name }
+}
+
+// BareWithoutMouse creates the bare attach's view without mouse reporting, for
+// a client that keeps its own text selection and scrolls the view through
+// `view scroll` instead. Usage on a backend whose bare attach makes no view.
+func BareWithoutMouse() AttachOption {
+	return func(s *backend.AttachSpec) { s.BareNoMouse = true }
+}
+
 // splitBareTarget separates `<session>:<window>` for a bare attach on tmux. The
 // first colon is the split: tmux rewrites a colon out of any session name it is
 // given (measured: `new-session -s a:b` creates `a_b`), so a session name never
@@ -99,6 +117,13 @@ func (s *Session) Attach(ctx context.Context, in, out *os.File, errOut *os.File,
 	if spec.SessionClient && s.ol.Backend() != backend.Herdr {
 		return 0, backend.Errorf(backend.CodeUnsupported,
 			"the %s backend has no separate session client: its attach already hands you one", s.ol.Backend())
+	}
+	if (spec.BareView != "" || spec.BareNoMouse) && !(spec.Bare && s.ol.Backend() == backend.Tmux) {
+		// The two options describe a view, and only a bare attach on tmux
+		// makes one. Refused rather than ignored: a caller naming a view it
+		// then drives would otherwise drive nothing, silently.
+		return 0, backend.Errorf(backend.CodeUsage,
+			"a view name and mouse setting apply to a bare attach on tmux only, which is the one that creates a view")
 	}
 	if spec.Bare {
 		switch s.ol.Backend() {
@@ -181,9 +206,18 @@ func (s *Session) prepareBareView(ctx context.Context, spec backend.AttachSpec) 
 	if err != nil {
 		return backend.Attachment{}, err
 	}
-	// Mouse on, as CreateView defaults it: a bare attach is for looking, and
-	// a wheel that scrolls is the point of a view.
-	view, err := s.ol.backend.CreateView(ctx, base, backend.ViewSpec{Name: viewName(base), Mouse: true, Window: window})
+	// Mouse on unless the caller opted out, as CreateView defaults it: a bare
+	// attach is for looking, and a wheel that scrolls is the point of a view.
+	// The name is the caller's when they gave one — they will drive the view
+	// by it — and must keep the reserved shape so it stays enumerable.
+	name := spec.BareView
+	if name == "" {
+		name = viewName(base)
+	} else if !strings.HasPrefix(name, viewPrefix) {
+		return backend.Attachment{}, backend.Errorf(backend.CodeUsage,
+			"a view is named %s<base>-<nonce>; %q would be invisible to `view ls` and to every sweep", viewPrefix, name)
+	}
+	view, err := s.ol.backend.CreateView(ctx, base, backend.ViewSpec{Name: name, Mouse: !spec.BareNoMouse, Window: window})
 	if err != nil {
 		return backend.Attachment{}, err
 	}

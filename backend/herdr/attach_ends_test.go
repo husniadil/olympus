@@ -13,21 +13,6 @@ import (
 	"github.com/husniadil/olympus/internal/engine"
 )
 
-// withoutNestingMarker drops HERDR_ENV from a client's environment. herdr's
-// session client refuses to start inside a herdr pane ("nested herdr is
-// disabled by default"), and this suite is often run from one; the marker
-// says nothing about which server the client attaches, which the socket
-// override already decides.
-func withoutNestingMarker(env []string) []string {
-	out := env[:0:0]
-	for _, kv := range env {
-		if !hasKey(kv, "HERDR_ENV") {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
-
 // §8.10 A session-client attach ends with its target. The client is attached
 // to the whole session, so when the workspace it was steered onto closes,
 // herdr moves it to another workspace rather than ending it; the attach must
@@ -64,7 +49,6 @@ func TestSessionClientAttachEndsWhenTheWorkspaceCloses(t *testing.T) {
 	if state := att.Probe(ctx); state != backend.StatePresent {
 		t.Fatalf("the attachment's Probe answers %q for a workspace that exists", state)
 	}
-	att.Cmd.Env = withoutNestingMarker(att.Cmd.Env)
 
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {

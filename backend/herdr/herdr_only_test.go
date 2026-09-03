@@ -216,6 +216,20 @@ func TestHerdrsOwnAddressingVariablesAreStripped(t *testing.T) {
 	}
 }
 
+// §1.3 The nesting marker is stripped from an attach client's environment.
+// herdr's session client refuses to start inside a herdr pane ("nested herdr
+// is disabled by default"), so an Olympus driven from one could never open a
+// session client; the marker decides nothing about which server is attached.
+func TestTheNestingMarkerIsStrippedFromAnAttachClient(t *testing.T) {
+	t.Setenv("HERDR_ENV", "1")
+	b := New(WithSocketPath(filepath.Join(t.TempDir(), "h.sock")))
+	for _, kv := range b.clientEnv() {
+		if hasKey(kv, "HERDR_ENV") {
+			t.Fatalf("an attach client carries %q, which makes herdr refuse to start as nested", kv)
+		}
+	}
+}
+
 // Stop is safe against a server that is not running: it is the desired state
 // already, and a cleanup that failed for having succeeded would fail every case.
 func TestStoppingAServerThatIsNotRunningSucceeds(t *testing.T) {

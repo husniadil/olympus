@@ -32,6 +32,42 @@ func TestBareAttachIsRefusedWhereNothingCanBeBare(t *testing.T) {
 	}
 }
 
+// A view name and a mouse setting describe the view a bare attach on tmux
+// creates, and nothing else creates one: on herdr the bare attach is a session
+// client, and without --bare there is no view at all. Refused as usage before
+// anything runs, rather than ignored — a caller that names a view and then
+// drives it would otherwise be driving nothing.
+func TestAViewNameOrMouseSettingIsUsageOutsideATmuxBareAttach(t *testing.T) {
+	cases := []struct {
+		name string
+		be   backend.Name
+		opts []AttachOption
+	}{
+		{"named view on herdr", backend.Herdr, []AttachOption{AsBare(), BareViewName("olympus-view-x-1")}},
+		{"mouse off on herdr", backend.Herdr, []AttachOption{AsBare(), BareWithoutMouse()}},
+		{"named view without bare on tmux", backend.Tmux, []AttachOption{BareViewName("olympus-view-x-1")}},
+	}
+	for _, c := range cases {
+		ol := fakeOlympus(&fakeBackend{caps: backend.Capabilities{Backend: c.be}})
+		_, err := ol.OpenSessionName("whatever").Attach(context.Background(), nil, nil, nil, c.opts...)
+		if backend.CodeOf(err) != backend.CodeUsage {
+			t.Errorf("%s: %q, want %q (err %v)", c.name, backend.CodeOf(err), backend.CodeUsage, err)
+		}
+	}
+}
+
+// A caller-chosen view name must keep the reserved shape (§17.1), or the view
+// would be invisible to `view ls` and to every sweep. Refused before a view
+// exists: the fake has no views, so reaching CreateView would fail differently.
+func TestAViewNameOutsideTheReservedShapeIsUsage(t *testing.T) {
+	ol := fakeOlympus(&fakeBackend{caps: backend.Capabilities{Backend: backend.Tmux}})
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, Bare: true, BareView: "mine"}
+	_, err := ol.OpenSessionName("base").prepareBareView(context.Background(), spec)
+	if backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("an unprefixed view name is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
+}
+
 // tmux rewrites a colon out of any session name it is given, so the first
 // colon is the session's end and everything after it is the window, whole — a
 // window name may itself carry one.
@@ -152,6 +188,28 @@ func TestABareAttachOnTmuxOpensAViewPinnedToTheWindow(t *testing.T) {
 	}
 	if state := ol.backend.Probe(ctx, "base"); state != backend.StatePresent {
 		t.Errorf("reaping the view took the base with it: base is %q", state)
+	}
+
+	// A caller-named view, without mouse reporting: the name is the one given
+	// (so the caller can drive it by name while attached) and the view's
+	// mouse option is off, while a generated view's is on.
+	named := backend.AttachSpec{Role: backend.RoleController, Supersede: true, Bare: true,
+		BareView: "olympus-view-base-mine", BareNoMouse: true}
+	att, err = ol.OpenSessionName("base:second").prepareBareView(ctx, named)
+	if err != nil {
+		t.Fatalf("preparing a named bare attach: %v", err)
+	}
+	if got := tmux("show-options", "-v", "-t", "=olympus-view-base-mine:", "mouse"); got != "off" {
+		t.Errorf("a --no-mouse view has mouse %q, want off", got)
+	}
+	if !strings.Contains(strings.Join(att.Cmd.Args, " "), "attach-session -t =olympus-view-base-mine") {
+		t.Errorf("the attach argv does not target the named view:\n  %s", strings.Join(att.Cmd.Args, " "))
+	}
+	if err := att.Close(); err != nil {
+		t.Errorf("the named attachment's cleanup failed: %v", err)
+	}
+	if views, _ := ol.Views(ctx, "base"); len(views) != 0 {
+		t.Errorf("the named view outlived its attach: %+v", views)
 	}
 
 	// A window the base does not have is not-found, and creates nothing.

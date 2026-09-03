@@ -267,6 +267,55 @@ func TestSpawnedSessionsGetASanitizedEnvironment(t *testing.T) {
 // history lines that never appeared as one on screen. The observable is a line
 // longer than the pane: rejoined in the viewport capture, still split in the
 // history one.
+// §5.1 A capture target may name a window: `<session>:<window>` reads that
+// window's active pane, which is what a reader of a view pinned to it (§8.9)
+// needs, and which the session's own active pane may not be showing. A window
+// the session lacks is not-found, and the plain session form is unchanged.
+func TestACaptureTargetMayNameAWindow(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-win"})
+	warm(t, b, name)
+	ctx := context.Background()
+
+	socket := socketOf(t, b)
+	tmux := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("tmux", append([]string{"-S", socket}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("tmux %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	tmux("new-window", "-d", "-t", "="+name+":", "-n", "second")
+	tmux("send-keys", "-t", "="+name+":second.", "printf 'in-window-%d\\n' 2", "Enter")
+	waitForScreen(t, b, name+":second", "in-window-2")
+
+	byName, err := b.Screen(ctx, name+":second", backend.ScreenOpts{})
+	if err != nil {
+		t.Fatalf("capturing by window name: %v", err)
+	}
+	byIndex, err := b.Screen(ctx, name+":1", backend.ScreenOpts{})
+	if err != nil {
+		t.Fatalf("capturing by window index: %v", err)
+	}
+	session, err := b.Screen(ctx, name, backend.ScreenOpts{})
+	if err != nil {
+		t.Fatalf("capturing the session: %v", err)
+	}
+	for label, text := range map[string]string{"by name": byName.Text, "by index": byIndex.Text} {
+		if !strings.Contains(text, "in-window-2") {
+			t.Errorf("the capture %s does not show the second window:\n%s", label, text)
+		}
+	}
+	if strings.Contains(session.Text, "in-window-2") {
+		t.Errorf("the session capture shows the unselected window, so the window shape leaked into the plain form:\n%s", session.Text)
+	}
+	if _, err := b.Screen(ctx, name+":nine", backend.ScreenOpts{}); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("a window the session lacks is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
+	}
+	if _, err := b.ScreenMeta(ctx, name+":second"); err != nil {
+		t.Errorf("metadata for a window target: %v", err)
+	}
+}
+
 func TestHistoryCaptureDoesNotRejoinWrappedLines(t *testing.T) {
 	b := newBackend(t)
 	name := create(t, b, backend.CreateSpec{Name: "oly-wrap"})

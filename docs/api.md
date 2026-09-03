@@ -81,6 +81,8 @@ ignored (behavior spec §8.7, §8.9):
 | `--keep-others` | `KeepOtherClients` | co-attach instead of displacing prior clients | all; meja and herdr's session client carry a notice where it cannot be honoured (§8.4); nothing to do under `--bare` on tmux |
 | `--client` | `WithSessionClient` | the multiplexer's own session client (sidebar, tabs, selection, scroll, copy), steered onto the target first: a workspace is focused, a tab is focused within it, a pane is zoomed within its tab (§8.10). With `--server` it attaches that named session; otherwise the server on the resolved socket | herdr only |
 | `--bare` | `AsBare` | a plain pane, no chrome: herdr's session client with its chrome hidden (implies `--client`), or on tmux a throwaway view onto the session, killed when the attach ends; target may be `<session>:<window>` | herdr, tmux |
+| `--view` | `BareViewName` | with `--bare` on tmux, the view's name — it must begin with `olympus-view-` (§17.1) — so a caller can `view scroll` and `view focus` it while attached; an attach has no channel to report a generated name back | tmux; usage elsewhere |
+| `--no-mouse` | `BareWithoutMouse` | with `--bare` on tmux, create the view without mouse reporting, for a client that keeps its own selection and scrolls through `view scroll` | tmux; usage elsewhere |
 | `--cols`, `--rows` | `AttachSize` | initial size when stdin is not a terminal | all |
 
 ### 1.1 Verbs are named for intent, not mechanism
@@ -579,14 +581,16 @@ session, zmx's one directory — and is specified in behavior §13.2.
       "capabilities": { "native_scrollback": true, "views": false, "remain_on_exit": false,
                         "server_env": false, "control_keys": false,
                         "spawn_sizing": false, "spawn_command": true,
-                        "session_status": false, "tracks_alt_screen": false, "servers": true } },
+                        "session_status": false, "tracks_alt_screen": false, "servers": true,
+                        "session_client": false, "bare": false } },
     { "name": "herdr", "installed": true, "version": "0.8.2", "floor": "0.8.2",
       "below_floor": false,
       "isolation": "socket at /tmp/olympus-herdr/herdr.sock; its configuration and saved layout live beside it, invisible to your own herdr",
       "capabilities": { "native_scrollback": false, "views": false, "remain_on_exit": false,
                         "server_env": false, "control_keys": true,
                         "spawn_sizing": false, "spawn_command": false,
-                        "session_status": true, "tracks_alt_screen": false, "servers": true },
+                        "session_status": true, "tracks_alt_screen": false, "servers": true,
+                        "session_client": true, "bare": true },
       "managed_options": { "update.manifest_check": "false", "update.version_check": "false" } },
     { "name": "tmux", "installed": true, "version": "3.7b", "floor": "3.3",
       "below_floor": false,
@@ -594,7 +598,8 @@ session, zmx's one directory — and is specified in behavior §13.2.
       "capabilities": { "native_scrollback": false, "views": true, "remain_on_exit": true,
                         "server_env": true, "control_keys": true,
                         "spawn_sizing": true, "spawn_command": true,
-                        "session_status": true, "tracks_alt_screen": true, "servers": true },
+                        "session_status": true, "tracks_alt_screen": true, "servers": true,
+                        "session_client": false, "bare": true },
       "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []

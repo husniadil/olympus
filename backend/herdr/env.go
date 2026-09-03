@@ -29,6 +29,13 @@ var strippedVars = []string{
 	// server started from inside one would otherwise inherit it, and this
 	// backend's own socket override is appended after the strip.
 	"HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID",
+	// herdr's own nesting marker. Its session client refuses to start when it
+	// is set ("nested herdr is disabled by default"), so a caller driving
+	// Olympus from inside a herdr pane could never open a session client at
+	// all. The marker says nothing about which server the client attaches —
+	// the socket override or the session name already decides that — so
+	// dropping it costs nothing (behavior §1.3).
+	"HERDR_ENV",
 }
 
 func lang() string {

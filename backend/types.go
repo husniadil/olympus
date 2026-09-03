@@ -187,4 +187,15 @@ type Capabilities struct {
 	// socket. It says nothing about stopping one: a backend can enumerate
 	// servers it has no way to stop, and reports that as unsupported.
 	Servers bool `json:"servers"`
+	// SessionClient reports whether the backend has a session client that is
+	// distinct from its raw per-pane stream — chrome, selection, scrollback,
+	// copy — which an attach can ask for (behavior §8.10). Only herdr draws
+	// the distinction; everywhere else the ordinary attach already is the
+	// session client, and asking for one is refused as a caller mistake.
+	SessionClient bool `json:"session_client"`
+	// Bare reports whether an attach can show a session as a plain pane with
+	// no chrome: herdr's session client with its chrome hidden, or a throwaway
+	// view on tmux (behavior §8.9). A caller offering a "clean" attach branches
+	// on this rather than on the backend's name.
+	Bare bool `json:"bare"`
 }

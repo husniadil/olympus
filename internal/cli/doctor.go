@@ -202,5 +202,7 @@ func capabilityRows() []capabilityRow {
 		{"session status", func(c backend.Capabilities) bool { return c.SessionStatus }},
 		{"alt-screen tracking", func(c backend.Capabilities) bool { return c.TracksAltScreen }},
 		{"servers", func(c backend.Capabilities) bool { return c.Servers }},
+		{"session client", func(c backend.Capabilities) bool { return c.SessionClient }},
+		{"bare attach", func(c backend.Capabilities) bool { return c.Bare }},
 	}
 }

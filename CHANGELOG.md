@@ -6,6 +6,39 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A bare attach on tmux can be named and made mouse-less.** `olympus attach
+  <session>[:<window>] --bare --view <name> --no-mouse`, and `BareViewName` /
+  `BareWithoutMouse` in Go. An attach is interactive and has no channel to
+  report a generated view name back, yet a consumer that scrolls the view
+  (`view scroll`) or focuses a pane in it (`view focus`) while the attach runs
+  has to address it; the name must begin with `olympus-view-` (§17.1) or it is
+  `USAGE` before a view exists. `--no-mouse` is for a client that keeps its
+  own text selection. Either flag on a backend whose bare attach makes no view
+  is `USAGE`, not ignored. Behavior spec §8.9.
+- **A tmux capture may name a window.** `screen <session>:<window>` reads that
+  window's active pane, by index or by name, so the reader of a view pinned to
+  a window has the same window's history. Every other verb stays
+  session-scoped; `stop <session>:<window>` is not a way to close a window.
+  Behavior spec §5.1.
+- **Two capabilities: `session_client` and `bare`.** Whether a backend has a
+  session client distinct from its raw per-pane stream (herdr) and whether an
+  attach can be bare (herdr, tmux), so a consumer offering a "clean" or
+  "mirror" attach branches on the capability rather than on the backend's
+  name. Reported by `capabilities`, `doctor` and `info`. Behavior spec §13.
+
+### Fixed
+
+- **herdr's `servers` capability was reported false.** `olympus servers` has
+  listed herdr's named sessions since 0.3.0, but `capabilities` said the
+  backend could not enumerate them. It now says `true`.
+- **`HERDR_ENV` is stripped from a herdr attach client.** herdr's session
+  client refuses to start with the nesting marker set ("nested herdr is
+  disabled"), so an Olympus driven from inside a herdr pane could never open
+  one with `--client` or `--bare`. The marker decides nothing about which
+  server is attached. Behavior spec §1.3.
+
 ## [0.4.4]
 
 ### Added

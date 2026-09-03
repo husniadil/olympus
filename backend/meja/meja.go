@@ -235,5 +235,8 @@ func (m *Meja) Capabilities() backend.Capabilities {
 		// own store, and nothing in its CLI enumerates them, so a server here
 		// is addressed by knowing its socket path and by nothing else (§13.2).
 		Servers: false,
+		// One client and no views: nothing to hide and nothing to attach bare.
+		SessionClient: false,
+		Bare:          false,
 	}
 }

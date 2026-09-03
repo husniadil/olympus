@@ -86,6 +86,10 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		// Named sockets in tmux's per-user directory are its servers, and the
 		// directory can be read (§13.2).
 		Servers: true,
+		// The ordinary attach is already the session client; a bare attach is
+		// a throwaway view (§8.9).
+		SessionClient: false,
+		Bare:          true,
 	}
 }
 
@@ -109,6 +113,21 @@ func (t *Tmux) Version(ctx context.Context) (string, error) {
 func sessionTarget(name string) string { return "=" + name }
 func windowTarget(name string) string  { return "=" + name + ":" }
 func paneTarget(name string) string    { return "=" + name + ":." }
+
+// capturePaneTarget is paneTarget with one extra shape: `<session>:<window>`
+// addresses that window's active pane rather than the session's. A capture is
+// the one operation that takes it (behavior §5.1): a bare attach pins a view
+// to a window (§8.9), and whoever is reading that view needs the same window's
+// history, which the session's active pane may not be showing. Every other
+// operation keeps §10.1's session scope and never sees this helper. The split
+// is the first colon, as §8.9 splits it; a window the session lacks is what
+// tmux reports it as, and `named` maps that to not-found.
+func capturePaneTarget(target string) string {
+	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
+		return "=" + session + ":" + window + "."
+	}
+	return paneTarget(target)
+}
 
 func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Session, error) {
 	if spec.Name == "" {
@@ -413,7 +432,7 @@ func (t *Tmux) Screen(ctx context.Context, target string, opts backend.ScreenOpt
 		return backend.Capture{}, named(target, err)
 	}
 
-	args := []string{"capture-pane", "-p", "-t", paneTarget(target)}
+	args := []string{"capture-pane", "-p", "-t", capturePaneTarget(target)}
 	if opts.Colors {
 		args = append(args, "-e")
 	}
@@ -442,7 +461,7 @@ func (t *Tmux) ScreenMeta(ctx context.Context, target string) (backend.ScreenMet
 }
 
 func (t *Tmux) screenMeta(ctx context.Context, target string) (backend.ScreenMeta, error) {
-	out, err := t.run(ctx, nil, "list-panes", "-t", paneTarget(target), "-F", "#{alternate_on}\x1f#{scroll_position}")
+	out, err := t.run(ctx, nil, "list-panes", "-t", capturePaneTarget(target), "-F", "#{alternate_on}\x1f#{scroll_position}")
 	if err != nil {
 		return backend.ScreenMeta{}, err
 	}

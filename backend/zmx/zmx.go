@@ -91,6 +91,9 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		// One directory, one daemon: a single row, but an answerable one
 		// (§13.2).
 		Servers: true,
+		// One client and no views: nothing to hide and nothing to attach bare.
+		SessionClient: false,
+		Bare:          false,
 	}
 }
 

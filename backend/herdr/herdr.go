@@ -231,6 +231,12 @@ func (h *Herdr) Capabilities() backend.Capabilities {
 		// reports it, so the flag would always be false and a caller could not
 		// tell that from "not on the alternate screen" (§5.3).
 		TracksAltScreen: false,
+		// Named sessions are servers, listed by `herdr session list` (§13.2).
+		Servers: true,
+		// Two clients: the raw per-pane stream and herdr's own application,
+		// which a bare attach runs with its chrome hidden (§8.10).
+		SessionClient: true,
+		Bare:          true,
 	}
 }
 

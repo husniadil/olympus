@@ -129,6 +129,18 @@ type AttachSpec struct {
 	// construction (§9.3) — so a tmux backend never sees it set. A backend
 	// with neither reports CodeUnsupported before anything is spawned.
 	Bare bool
+	// BareView names the view a bare attach on tmux creates, instead of a
+	// generated name. A caller that has to drive the view while the attach
+	// runs — scroll it, focus a pane in it — needs to know its name, and an
+	// interactive attach has no channel to report one back. It MUST carry the
+	// reserved view prefix (behavior §17.1), or `view ls` and every sweep
+	// would miss it. Consumed above this interface; usage on any backend but
+	// tmux.
+	BareView string
+	// BareNoMouse creates the bare attach's view without mouse reporting, so
+	// a client that keeps its own text selection is not handed the wheel and
+	// the click. Consumed above this interface with BareView.
+	BareNoMouse bool
 }
 
 // An Attachment is what to run in order to be attached, not something already

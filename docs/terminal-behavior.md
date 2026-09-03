@@ -284,7 +284,11 @@ an interactive attach MUST inherit the operator's real `TERM` — forcing
 `xterm-256color` would misrepresent the terminal the human is sitting at.
 
 It MUST strip `TMUX`, `TMUX_PANE`, `ZMX_SESSION`, and `ZMX_SESSION_PREFIX`, and
-MUST default `LANG` per §1.1.
+MUST default `LANG` per §1.1. On herdr it MUST also strip `HERDR_ENV`, the
+nesting marker herdr sets inside its own panes: the session client refuses to
+start with it set ("nested herdr is disabled"), so a caller driving Olympus from
+inside a herdr pane could never open one. The marker decides nothing about which
+server is attached — the socket override or the session name already does.
 
 `ZMX_SESSION` is worse here than on the spawn path: `zmx attach <name>` launched
 from inside a zmx session **ignores `<name>` entirely** and fails with
@@ -1063,6 +1067,16 @@ scrollback it is wrong: `capture-pane -J -S -` rejoins a long line that tmux
 already wrapped at capture time with its own historical continuation, silently
 merging two separate scrollback lines that never appeared as one on screen.
 
+**A tmux capture target MAY name a window**, `<session>:<window>`, by index or
+by name, and it then reads that window's active pane. This is the one
+operation outside §8.9 that takes the shape, and it exists for §8.9's reader:
+a bare attach pins a view to a window, and whoever reads that view wants the
+same window's scrollback, which the session's own active pane may not be
+showing. The split is the first colon, as §8.9 splits it. A window the session
+lacks is `SESSION_NOT_FOUND`. §10.1 is otherwise unchanged: every other
+operation stays session-scoped, and `stop <session>:<window>` is not a way to
+close a window.
+
 ### 5.2 zmx capture: no rejoin, opt-in colors
 
 zmx's history command has **no `-J` equivalent**. A line hitting the session PTY's
@@ -1743,6 +1757,17 @@ it is given, so a session name never contains one, and a window name may. The
 window MUST be validated against the base before the view exists (§9.4), and a
 window the base does not have is `SESSION_NOT_FOUND` with nothing created.
 
+The caller MAY name the view and MAY turn its mouse reporting off. An attach is
+interactive and has no channel to report a generated name back, yet a consumer
+that scrolls the view from outside (§9.2) or focuses a pane in it (§9.6) while
+the attach runs has to address it; a name the caller chose is the only way it
+can. The name MUST carry the reserved prefix (§17.1) or it is `USAGE` before a
+view exists — an unprefixed view would be invisible to enumeration and to every
+sweep. Mouse reporting off is for a client that keeps its own text selection and
+drives the scroll through §9.2 instead. Either option on a backend whose bare
+attach makes no view is `USAGE`, not ignored: a caller naming a view it then
+drives would otherwise drive nothing, silently.
+
 What a bare attach cannot promise: the active *pane* within a window is the
 window's, shared with the base. A bare view of a multi-pane window shows the
 base's active pane, and Olympus never selects a pane in a view (§9.4).
@@ -2283,7 +2308,15 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
 server environment, control keys, spawn sizing, spawn command, session status,
-alt-screen tracking, servers.
+alt-screen tracking, servers, session client, bare attach.
+
+**Session client and bare attach are capabilities because they decide which
+attach a caller can offer.** A consumer presenting a "clean" or a "mirror"
+attach otherwise has to branch on the backend's name, and that table goes
+stale the moment a backend gains or loses a client. `session_client` is true
+where the backend has a client distinct from its raw per-pane stream (§8.10);
+`bare` is true where an attach can show a session as a plain pane with no
+chrome (§8.9). Both are refused as `UNSUPPORTED` where false.
 
 **Spawn command is a capability because a session's process is not always the
 caller's to choose.** A backend whose panes run the program its own
