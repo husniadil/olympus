@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.1]
+
+### Fixed
+
+- **A workspace or tab attach on herdr zooms out of the zoom a pane attach
+  left.** Steering onto a pane zooms it within its tab (§8.10), and that zoom
+  is server state that outlived the attach; steering onto the workspace or
+  the tab then showed that one pane still, and nothing a caller could target
+  brought the split back. The workspace and tab steps now end with
+  `pane zoom --off` on the tab's focused pane when its layout is zoomed. A
+  tab that is not zoomed gets no extra request; a pane attach is unchanged.
+
 ## [0.9.0]
 
 ### Added
@@ -575,7 +587,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/husniadil/olympus/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/husniadil/olympus/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/husniadil/olympus/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/husniadil/olympus/compare/v0.6.0...v0.7.0
