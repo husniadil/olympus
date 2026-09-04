@@ -187,6 +187,7 @@ cases, and the backends they belong to:
 | detached run poll | herdr | a window over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.7) |
 | pane listing | herdr | `current_command` is reported for a targeted listing only (§3.4) |
 | pane listing | herdr | `attached` is always false: no per-terminal client count exists (§3.4) |
+| session listing | herdr | `focused` marks the workspace the server is showing; absent on every other backend, whose clients each show their own session (§3.4) |
 | detached run poll | zmx | the requested window size is ignored (§6.7) |
 | graceful kill | zmx | exec-spawned sessions cannot be interrupted (§2.8.1) |
 

@@ -373,12 +373,16 @@ delivers that reply to somebody else's terminal, silently.
   "dead": false,
   "liveness": "present",
   "cwd": "/repo",
-  "outcome": "created"
+  "outcome": "created",
+  "focused": true
 }
 ```
 
 `liveness` is the backend-owned tri-state (behavior spec §3.2). `outcome` appears
-only on `start`, and is `created` | `reused` | `reaped`.
+only on `start`, and is `created` | `reused` | `reaped`. `focused` appears only
+on herdr and marks the workspace the server is showing — the one every session
+client on that server displays (behavior §8.10); on backends whose clients each
+show their own session it is absent (§3.4).
 
 **Pane row** (`info`):
 

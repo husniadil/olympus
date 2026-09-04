@@ -67,6 +67,11 @@ type Session struct {
 	Dead     bool     `json:"dead"`
 	Liveness Liveness `json:"liveness"`
 	CWD      string   `json:"cwd"`
+	// Focused marks the one session the server itself is showing, on a
+	// backend that has a server-wide focus (herdr: the focused workspace,
+	// which every session client on that server displays). Absent on
+	// backends whose clients each show their own session (§3.4).
+	Focused bool `json:"focused,omitempty"`
 	// Outcome is set by start and left empty everywhere else, so a listing row
 	// never implies an action was taken.
 	Outcome Outcome `json:"outcome,omitempty"`

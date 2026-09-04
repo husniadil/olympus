@@ -412,6 +412,10 @@ func (h *Herdr) Sessions(ctx context.Context) ([]backend.Session, error) {
 			// has one, and that is the pane every verb on the workspace acts
 			// on (§3.6).
 			CWD: snap.focusedPaneOf(ws.ActiveTabID).CWD,
+			// The server has one focus, and every session client on it shows
+			// this workspace; a consumer steering clients (§8.10) reads it to
+			// tell a client whose target is not what it is showing.
+			Focused: ws.WorkspaceID == snap.FocusedWorkspaceID,
 		})
 	}
 	return sessions, nil

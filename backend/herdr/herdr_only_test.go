@@ -834,3 +834,48 @@ func TestTheTenthTabHasWindowIndexTen(t *testing.T) {
 		t.Errorf("no pane reports window index 10 for tab %s; rows: %+v", tenth, panes)
 	}
 }
+
+// A session row says whether its workspace is the one the server is showing:
+// the focus every session client on the server displays. Steering one
+// workspace clears the other.
+func TestSessionsMarkTheFocusedWorkspace(t *testing.T) {
+	b := liveBackend(t)
+	ctx := context.Background()
+	create := func() string {
+		var reply struct {
+			Result struct {
+				Workspace workspaceRow `json:"workspace"`
+			} `json:"result"`
+		}
+		out := raw(t, b, "workspace", "create", "--no-focus")
+		if err := json.Unmarshal([]byte(out), &reply); err != nil || reply.Result.Workspace.WorkspaceID == "" {
+			t.Fatalf("workspace create answered no workspace id: %v\n%s", err, out)
+		}
+		return reply.Result.Workspace.WorkspaceID
+	}
+	first := create()
+	second := create()
+	if err := b.Focus(ctx, first); err != nil {
+		t.Fatalf("Focus(%s): %v", first, err)
+	}
+	focusedOf := func() map[string]bool {
+		sessions, err := b.Sessions(ctx)
+		if err != nil {
+			t.Fatalf("Sessions: %v", err)
+		}
+		m := map[string]bool{}
+		for _, s := range sessions {
+			m[s.ID] = s.Focused
+		}
+		return m
+	}
+	if got := focusedOf(); !got[first] || got[second] {
+		t.Fatalf("after focusing %s: focused flags %v", first, got)
+	}
+	if err := b.Focus(ctx, second); err != nil {
+		t.Fatalf("Focus(%s): %v", second, err)
+	}
+	if got := focusedOf(); got[first] || !got[second] {
+		t.Fatalf("after focusing %s: focused flags %v", second, got)
+	}
+}

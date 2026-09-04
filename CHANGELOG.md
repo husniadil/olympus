@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Session rows on herdr carry `focused`**: true on the one workspace the
+  server is showing, which is what every session client on that server
+  displays (§8.10). A consumer that steers clients onto targets can now tell
+  a client whose target is not what it is showing, and say so, instead of
+  letting the label claim one workspace over another's screen. Absent on
+  the other backends, whose clients each show their own session (§3.4).
+
 ## [0.9.2]
 
 ### Fixed
