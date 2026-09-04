@@ -597,9 +597,18 @@ session, zmx's one directory — and is specified in behavior §13.2.
 
 ```json
 { "pane_id": "w5F:p1", "session_name": "gamelan", "session_id": "w5F",
-  "agent": "claude", "status": "working", "title": "Stop music on Chrome",
+  "agent": "claude", "status": "working", "status_source": "native",
+  "title": "Stop music on Chrome",
   "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "herdr",
   "usage": [{ "label": "5h", "percent": 33 }, { "label": "7d", "percent": 48 }] }
+```
+
+and on a backend without detection of its own:
+
+```json
+{ "pane_id": "%3", "session_name": "fix", "session_id": "$3",
+  "agent": "codex", "status": "blocked", "status_source": "screen",
+  "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "command" }
 ```
 
 The listing answers on every backend and is never `UNSUPPORTED`; with no
@@ -608,16 +617,23 @@ agent it is `[]`, never null (behavior §3.7). `pane_id`, `session_name` and
 canonical name (`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`, `cursor`, `pi`, `omp`, `copilot`, `devin`, `agy`, `cline`, `droid`, `kimi`, `kiro`, `kilo`, `hermes`, `qodercli`, `qwen`, `mastracode`, `maki`, `muse`, `grok`, or whatever a
 natively-detecting backend reports; an alias such as `cursor-agent` or
 `claude-code` is reported under its canonical name). `status` is `working`,
-`idle` or `unknown`. `detected_by` is how the row was found: `herdr`, the
-backend's own detection, whose rows carry `status` and `title`; or `command`,
-a known agent's name found in the pane's processes, whose rows are `unknown`
-with no `title` and no `usage`. A `command` row is found by walking the
-pane's process subtree from its `pid` — so an agent running under the pane's
-shell, or as a `node` script, is listed under the vocabulary's name — and by
-the foreground command where the pane has no `pid` (behavior §3.7).
-`title` and `usage` are omitted where absent. `usage[].percent` is an integer 0–100 and
-`usage[].label` the short label the agent shows (`5h`, `7d`, a model name).
-`capabilities` reports `agent_status` where rows can carry a status.
+`idle`, `blocked` (waiting on a person: a permission prompt, a question) or
+`unknown`. `status_source` says where a known status came from — `native`,
+the backend's own detection; `screen`, read off a capture of the pane by the
+agent's manifest — and is omitted when the status is `unknown`, which means
+no evidence, never a guess. `detected_by` is how the row was found: `herdr`,
+the backend's own detection, whose rows carry `status` and `title`; or
+`command`, a known agent's name found in the pane's processes, whose rows
+carry a screen-derived `status` and no `title` and no `usage`. A `command`
+row is found by walking the pane's process subtree from its `pid` — so an
+agent running under the pane's shell, or as a `node` script, is listed under
+the vocabulary's name — and by the foreground command where the pane has no
+`pid`; its status costs one capture of the pane per row per call, for agents
+that have a manifest (behavior §3.7). `title` and `usage` are omitted where
+absent. `usage[].percent` is an integer 0–100 and `usage[].label` the short
+label the agent shows (`5h`, `7d`, a model name). `capabilities` reports
+`agent_status` where rows can carry a status: true on every backend, native
+on herdr and screen-derived elsewhere.
 
 **Doctor** (`doctor`):
 
@@ -634,7 +650,7 @@ the foreground command where the pane has no `pid` (behavior §3.7).
                         "spawn_sizing": false, "spawn_command": true,
                         "session_status": false, "tracks_alt_screen": false, "servers": true,
                         "session_client": false, "bare": false, "focus": false, "rename": false,
-                        "agent_status": false } },
+                        "agent_status": true } },
     { "name": "herdr", "installed": true, "version": "0.8.2", "floor": "0.8.2",
       "below_floor": false,
       "isolation": "socket at /tmp/olympus-herdr/herdr.sock; its configuration and saved layout live beside it, invisible to your own herdr",
@@ -653,7 +669,7 @@ the foreground command where the pane has no `pid` (behavior §3.7).
                         "spawn_sizing": true, "spawn_command": true,
                         "session_status": true, "tracks_alt_screen": true, "servers": true,
                         "session_client": false, "bare": true, "focus": true, "rename": true,
-                        "agent_status": false },
+                        "agent_status": true },
       "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []

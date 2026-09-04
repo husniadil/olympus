@@ -3,6 +3,7 @@ package olympus
 import (
 	"bufio"
 	"context"
+	"os"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/agentstate"
 )
 
 // agentAliases is the vocabulary of agents the command heuristic knows: every
@@ -187,17 +189,24 @@ func (t *processTree) walk(pid int, visit func(argv []string)) {
 //
 // Every backend answers; this is never unsupported. A backend that detects
 // agents itself (backend.AgentLister) reports rows with a status and a title,
-// and says so in Capabilities.AgentStatus. Everywhere else the rows are
-// derived from the pane listing: a pane whose process subtree, or failing a
-// known pid its foreground command, names a known agent is an agent, with
-// `detected_by: "command"` and a status of unknown — the heuristic knows the
-// agent's name and nothing else, and MUST NOT invent a state it cannot see
-// (behavior §3.7).
+// marked `status_source: "native"`. Everywhere else the rows are derived
+// from the pane listing: a pane whose process subtree, or failing a known
+// pid its foreground command, names a known agent is an agent, with
+// `detected_by: "command"`, and its status is read off a capture of the
+// pane by the agent's manifest, marked `status_source: "screen"`. A screen
+// no rule recognises, an agent with no manifest, a capture that fails: all
+// unknown, with no source — the listing MUST NOT invent a state it cannot
+// see (behavior §3.7).
 func (o *Olympus) Agents(ctx context.Context) ([]backend.Agent, error) {
 	if lister, ok := o.backend.(backend.AgentLister); ok {
 		agents, err := lister.Agents(ctx)
 		if agents == nil && err == nil {
 			agents = []backend.Agent{}
+		}
+		for i := range agents {
+			if agents[i].Status != backend.AgentUnknown {
+				agents[i].StatusSource = backend.StatusSourceNative
+			}
 		}
 		return agents, err
 	}
@@ -225,6 +234,15 @@ func (o *Olympus) Agents(ctx context.Context) ([]backend.Agent, error) {
 		break
 	}
 
+	// A capture addresses a session, whose screen is its active pane's
+	// (§10). That is the pane's own screen for every session Olympus
+	// creates, and for any session holding one pane; where a session holds
+	// several, no pane's status is read off a screen that may be another's.
+	panesIn := map[string]int{}
+	for _, pane := range panes {
+		panesIn[pane.SessionName]++
+	}
+
 	agents := []backend.Agent{}
 	for _, pane := range panes {
 		var name string
@@ -237,17 +255,89 @@ func (o *Olympus) Agents(ctx context.Context) ([]backend.Agent, error) {
 		if !ok {
 			continue
 		}
+		status, source := backend.AgentUnknown, ""
+		if panesIn[pane.SessionName] == 1 {
+			status, source = o.screenStatus(ctx, pane, name)
+		}
 		agents = append(agents, backend.Agent{
-			PaneID:      pane.ID,
-			SessionName: pane.SessionName,
-			SessionID:   pane.SessionID,
-			Agent:       name,
-			Status:      backend.AgentUnknown,
-			CWD:         pane.CurrentPath,
-			DetectedBy:  backend.DetectedByCommand,
+			PaneID:       pane.ID,
+			SessionName:  pane.SessionName,
+			SessionID:    pane.SessionID,
+			Agent:        name,
+			Status:       status,
+			StatusSource: source,
+			CWD:          pane.CurrentPath,
+			DetectedBy:   backend.DetectedByCommand,
 		})
 	}
 	return agents, nil
+}
+
+// detectionRows is how many lines of a scrollback capture stand in for the
+// viewport where the backend cannot capture the viewport alone: the default
+// the manifests' own engine assumes when a terminal's height is unknown.
+const detectionRows = 24
+
+// screenStatus reads a command-detected agent's status off its pane
+// (behavior §3.7): one capture per row, of the visible screen and no
+// scrollback, evaluated by the agent's manifest together with the pane's
+// title where the backend reports one. The viewport is what the manifests
+// were written against — a prompt already answered above it must not read
+// as a blocker — so on a backend whose capture is the whole scrollback the
+// tail stands in for it. Trailing blanks are trimmed off every line first:
+// one backend pads rows to the pane's width, and a pattern anchored at the
+// end of a line is written for a row that ends where its text does.
+//
+// The title is the one the agent set through OSC 0/2, which tmux reports
+// as #{pane_title}. tmux's default for a pane no program has titled is the
+// host name, and two manifests read any non-empty title as idle, so the
+// host name is not passed: it is the terminal's word, not the agent's.
+//
+// An agent with no manifest is not captured. A capture that fails leaves
+// the status unknown with no source: the row is still an agent, and the
+// listing is worth more than the missing status.
+func (o *Olympus) screenStatus(ctx context.Context, pane backend.Pane, agent string) (status, source string) {
+	manifest, ok := agentstate.Lookup(agent)
+	if !ok {
+		return backend.AgentUnknown, ""
+	}
+	capture, err := o.backend.Screen(ctx, pane.SessionName, backend.ScreenOpts{})
+	if err != nil {
+		return backend.AgentUnknown, ""
+	}
+	screen := trimLineEnds(capture.Text)
+	if o.backend.Capabilities().NativeScrollback {
+		screen = tailLines(screen, detectionRows)
+	}
+	title := pane.Title
+	if host, err := os.Hostname(); err == nil && title == host {
+		title = ""
+	}
+	state := manifest.Evaluate(agentstate.Input{Screen: screen, OSCTitle: title})
+	if state.State == agentstate.Unknown {
+		return backend.AgentUnknown, ""
+	}
+	return string(state.State), backend.StatusSourceScreen
+}
+
+// trimLineEnds drops trailing spaces, tabs and carriage returns from every
+// line, keeping the line structure.
+func trimLineEnds(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " \t\r")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// tailLines is the last n lines of text, trailing newline kept.
+func tailLines(text string, n int) string {
+	trimmed := strings.TrimSuffix(text, "\n")
+	lines := strings.Split(trimmed, "\n")
+	if len(lines) <= n {
+		return text
+	}
+	return strings.Join(lines[len(lines)-n:], "\n") + text[len(trimmed):]
 }
 
 // readProcesses reads the process table through whatever the handle was

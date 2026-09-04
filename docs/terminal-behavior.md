@@ -943,11 +943,12 @@ the two ways differ in what the row can carry:
 
 - **Native detection** — `detected_by: "herdr"`. The backend watches its
   panes for agents itself and reports each one's state. A backend with native
-  detection MUST report `status` (`working` or `idle`) and `title` on every
-  row, and MUST set the `agent_status` capability so a caller can learn before
-  asking that the rows will carry them. A state the backend spells that is
-  outside the vocabulary is reported as `unknown`, not passed through: the
-  vocabulary is semver-bound (api §7).
+  detection MUST report `status` (`working`, `idle` or `blocked`) and `title`
+  on every row, marked `status_source: "native"`, and MUST set the
+  `agent_status` capability so a caller can learn before asking that the
+  rows will carry them. A state the backend spells that is outside the
+  vocabulary is reported as `unknown`, not passed through: the vocabulary is
+  semver-bound (api §7).
 - **The command heuristic** — `detected_by: "command"`. The backend has no
   detection, so the ergonomic layer derives rows from the whole-server pane
   listing. Where the pane's `pid` is known (§3.4) detection MUST inspect the
@@ -965,9 +966,9 @@ the two ways differ in what the row can carry:
   wins: a name unwrapped from a runtime's argv outranks a plain binary, so
   `node …/bin/codex` outranks the `codex` helper it forks, and the first
   found wins among equals. A pane is listed once, whatever else below it
-  carries the name. The heuristic knows the agent's name and nothing else,
-  so it MUST NOT invent a status — every such row is `unknown` — and
-  carries no title and no usage. The `agent_status` capability is false.
+  carries the name. The heuristic knows the agent's name and nothing else;
+  the status is read off the pane's screen, below, and the row carries no
+  title and no usage.
 
 The name reported is the vocabulary's canonical one, not the token matched:
 the vocabulary is a table of every alias a running agent's binary may carry
@@ -985,8 +986,56 @@ shell running an agent reports the shell, or `node` for an agent that is a
 script, and a pane spawned onto a shell on zmx reports the shell's argv
 forever (§3.4). The process table is read once per listing; where it cannot
 be read the listing does not fail, it falls back to the foreground command
-for every pane. A caller wanting to know whether a command-detected agent is
-idle reads its screen.
+for every pane.
+
+**Status is a real state or nothing.** `status` is `working`, `idle`,
+`blocked` or `unknown`. `blocked` — the agent waiting on a person: a
+permission prompt, a question, a trust dialog — is a state of its own and
+MUST be reported wherever it is known, never folded into `unknown` or
+`idle`; it is the state a caller most needs to act on. `unknown` means no
+evidence, and a row MUST NOT carry any other status without evidence: a
+manifest with no rule matching the screen, an agent with no manifest, a
+capture that failed, are all `unknown` — never a guess, and never a
+fallback to `idle`.
+
+**Where the status came from MUST be disclosed**, in `status_source`:
+`native` for a state the backend reported itself, `screen` for one read off
+a capture of the pane. It is omitted when the status is `unknown`, because
+there is nothing to attribute. A screen-derived status MUST be marked
+`screen`: it was read from a snapshot, is only as current as the capture,
+and can be fooled by text on the screen that looks like the agent's own.
+
+**Screen-derived status** is how a command-detected row gets a status. For
+each such row the ergonomic layer captures the pane's session — the visible
+screen, no scrollback, which is the viewport the rules were written against;
+on a backend whose only capture is the whole scrollback the last 24 lines
+stand in for it — trims trailing blanks off every row, and evaluates the
+agent's manifest over it: the agent's own rules for what its screen shows
+while working, idle or blocked, plus the pane's title where the backend
+reports one, which is the title the agent set through OSC 0/2. A pane title
+that is only the terminal's default (tmux's host name) is not the agent's
+word and is not passed. The capture addresses the session, whose screen is
+its active pane's (§10); a session holding more than one pane therefore has
+its agent rows left `unknown` rather than read off a screen that may be
+another pane's. The cost is one capture per command-detected row per call,
+and only for agents that have a manifest. The `agent_status` capability is
+true on every backend whose panes can be captured, which is all of them;
+`status_source` says which kind of status a row carries.
+
+The manifests are herdr's, vendored (`internal/agentstate/manifests/`,
+Apache 2.0) and evaluated by a port of herdr's engine: regions of the screen
+(the bottom N non-blank lines, what follows the last horizontal rule, the
+composer box, the title), matchers over them (substrings, case-insensitive;
+regular expressions; per-line regular expressions; `any`, `all` and `not`
+gates), and a priority per rule — the highest matching rule wins, the first
+in the manifest among equals. A rule marked `skip_state_update` recognises
+an overlay through which the state cannot be read (a transcript viewer, a
+model picker) and yields `unknown`. One departure from herdr, deliberate:
+herdr watches a pane continuously and falls back to `idle` when nothing
+matches, because a screen with no evidence there is a settled screen; a
+listing reads one snapshot, so here nothing matching is `unknown`. Agents
+with no manifest upstream (aider, goose, omp, mastracode) are listed with
+`unknown` and their screens are not captured.
 
 `usage`, where a natively detecting backend reports it, is the agent's own
 quota readout: an ordered list of `{label, percent}` bars, the label as the

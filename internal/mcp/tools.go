@@ -624,7 +624,7 @@ func register(s *sdk.Server) {
 			return stopped, nil, err
 		})
 
-	addTool(s, "list_agents", "List the coding agents running in panes: which pane, which agent, and its status and title where the backend detects agents itself. Every backend answers; where only the foreground command is known the status is unknown.",
+	addTool(s, "list_agents", "List the coding agents running in panes: which pane, which agent, its status (working, idle, blocked) and its title where the backend detects agents itself. Every backend answers; a row found by command has its status read off the pane's screen (status_source: screen), and a screen no rule recognises is unknown.",
 		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) ([]backend.Agent, []olympus.Warning, error) {
 			agents, err := ol.Agents(ctx)
 			if agents == nil {

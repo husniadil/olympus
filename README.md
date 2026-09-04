@@ -204,16 +204,20 @@ one down with every session on it. What a server *is* differs by backend and
 the listing says so; meja cannot enumerate its profiles, so it has neither.
 
 **Agents are found in panes, on every backend.** `olympus agents` lists the
-coding agents running — which pane, which agent, its directory — and each row
-says how it was found. On herdr, which watches its panes for agents itself,
-rows carry the agent's status, what it is working on and its usage bars; on
+coding agents running — which pane, which agent, its directory, and whether
+it is `working`, `idle` or `blocked` on a prompt — and each row says how it
+was found. On herdr, which watches its panes for agents itself, rows carry
+the agent's status natively, what it is working on and its usage bars; on
 the other backends a row is a pane whose processes include a known agent
 (`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`, `cursor`,
 `pi`, `omp`, `copilot`, `devin`, `agy`, `cline`, `droid`, `kimi`, `kiro`,
 `kilo`, `hermes`, `qodercli`, `qwen`, `mastracode`, `maki`, `muse`, `grok`) —
 found by walking the pane's process tree, so an agent running under the
-pane's shell counts — with its status `unknown` rather than guessed.
-`olympus capabilities` reports `agent_status` where the rows can carry one.
+pane's shell counts — and its status is read off a capture of the pane by
+the agent's manifest, one capture per row. `status_source` says which
+(`native` or `screen`); what no rule recognises is `unknown` rather than
+guessed. `olympus capabilities` reports `agent_status` where the rows can
+carry one.
 
 Two more backends are supported and come last in that order, each answering only
 when nothing before it is installed, since sessions never migrate between
@@ -342,3 +346,7 @@ output is not stable and should not be parsed.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Agent status manifests are herdr's, Apache 2.0, © herdr authors: the files
+under `internal/agentstate/manifests/`, with the license text beside them and
+the vendored commit recorded in [NOTICE](NOTICE).

@@ -27,10 +27,24 @@ var counter atomic.Int64
 // variable because the spawn environment is scrubbed (§1.1).
 var impersonatedAgents = map[string]bool{"claude": true, "codex": true}
 
+// paintedScreens are what a stand-in agent prints before it sleeps, when
+// started as `<agent> --paint <name>`: a screen shaped the way the real
+// agent draws its own, transcribed from the agent's manifest fixtures. It
+// is named rather than passed as text so nothing crosses a shell.
+var paintedScreens = map[string]string{
+	"claude-working": "────────────────────────────────────────────────────────────────\n" +
+		"❯\n" +
+		"────────────────────────────────────────────────────────────────\n" +
+		"  ⏵⏵ auto mode on · 1 shell · esc to interrupt\n",
+}
+
 // TestMain lets the test binary re-exec itself as the stand-in agent, the way
 // the engine's tests re-exec it as a slot holder.
 func TestMain(m *testing.M) {
 	if impersonatedAgents[filepath.Base(os.Args[0])] {
+		if len(os.Args) == 3 && os.Args[1] == "--paint" {
+			fmt.Print(paintedScreens[os.Args[2]])
+		}
 		time.Sleep(10 * time.Minute)
 		return
 	}
@@ -1498,5 +1512,80 @@ func TestAgentsListsPanesRunningAKnownAgentCommand(t *testing.T) {
 	table := run(t, append(flags, "agents")...)
 	if !strings.HasPrefix(table.stdout, "PANE") || !strings.Contains(table.stdout, "claude") {
 		t.Errorf("human table %q does not lead with the columns and name the agent", table.stdout)
+	}
+}
+
+// §3.7 On a backend with no agent detection of its own, a command-detected
+// row's status is read off the pane's screen and says so: a pane running a
+// binary named claude that has painted a claude-shaped turn — the composer
+// box with "esc to interrupt" below it — lists as working, with
+// `status_source: "screen"`, and the capability says rows carry a status.
+// The impersonated binary paints the fixture itself and sleeps, so no real
+// agent is started and no text crosses a shell.
+func TestAgentsReadStatusOffTheScreen(t *testing.T) {
+	flags := isolation(t)
+	dir, err := os.MkdirTemp(os.TempDir(), "olys")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := filepath.Join(dir, "claude")
+	if err := os.WriteFile(fake, binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session := name()
+	t.Cleanup(func() { run(t, append(flags, "stop", session, "--force")...) })
+	if got := run(t, append(flags, "start", session, "--dir", dir, "--", fake, "--paint", "claude-working")...); got.code != 0 {
+		t.Fatalf("starting the painted agent session: exit %d: %s%s", got.code, got.stdout, got.stderr)
+	}
+
+	// The paint lands a few milliseconds after the pane exists, so the
+	// listing is polled until the status is read or the deadline passes.
+	var listed result
+	var row map[string]any
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		listed = run(t, append(flags, "agents", "--json")...)
+		if listed.code != 0 {
+			t.Fatalf("exit %d: %s%s", listed.code, listed.stdout, listed.stderr)
+		}
+		rows, _ := listed.envelope(t).Data.([]any)
+		if len(rows) == 1 {
+			row, _ = rows[0].(map[string]any)
+		}
+		if row != nil && row["status"] == "working" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if row == nil {
+		t.Fatalf("no agent listed: %s", listed.stdout)
+	}
+	for field, value := range map[string]any{
+		"agent": "claude", "status": "working", "status_source": "screen", "detected_by": "command",
+	} {
+		if row[field] != value {
+			t.Errorf("%s is %v, want %v (row %v)", field, row[field], value, row)
+		}
+	}
+
+	caps := run(t, append(flags, "capabilities", "--json")...)
+	if caps.code != 0 {
+		t.Fatalf("exit %d: %s%s", caps.code, caps.stdout, caps.stderr)
+	}
+	if got, _ := caps.envelope(t).Data.(map[string]any); got["agent_status"] != true {
+		t.Errorf("agent_status is %v on tmux, want true: rows carry a screen-derived status", got["agent_status"])
+	}
+
+	table := run(t, append(flags, "agents")...)
+	if !strings.Contains(table.stdout, "working") {
+		t.Errorf("human table %q does not show the status", table.stdout)
 	}
 }

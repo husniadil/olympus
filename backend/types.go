@@ -224,10 +224,10 @@ type Capabilities struct {
 	// (behavior §2.11): a session, and a window, tab or pane where the
 	// backend names those too. False where names are fixed at creation.
 	Rename bool `json:"rename"`
-	// AgentStatus reports whether agent rows can carry a status and a title
-	// (behavior §3.7): the backend detects agents itself rather than leaving
-	// the ergonomic layer to recognise a foreground command's name. Without
-	// it every row's status is unknown, and a caller wanting to know whether
-	// an agent is idle has to read its screen.
+	// AgentStatus reports whether agent rows can carry a status (behavior
+	// §3.7): the backend detects agents itself, or its panes can be
+	// captured so the ergonomic layer can read a status off the screen. A
+	// row says which in status_source. Without it every row's status is
+	// unknown.
 	AgentStatus bool `json:"agent_status"`
 }

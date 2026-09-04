@@ -25,6 +25,10 @@ type fakeBackend struct {
 	sessions []backend.Session
 	meta     backend.ScreenMeta
 	text     string
+	// screens, when set, is what a capture of each target answers instead
+	// of text; screenErr, when set, is what every capture fails with.
+	screens   map[string]string
+	screenErr error
 
 	// screenOpts records what each capture ASKED for, which is the only way to
 	// observe that a history request was dropped rather than merely unanswered.
@@ -93,8 +97,14 @@ func (f *fakeBackend) Submit(context.Context, string) error {
 
 func (f *fakeBackend) SendAtomic(context.Context, string, string) error { return nil }
 
-func (f *fakeBackend) Screen(_ context.Context, _ string, opts backend.ScreenOpts) (backend.Capture, error) {
+func (f *fakeBackend) Screen(_ context.Context, target string, opts backend.ScreenOpts) (backend.Capture, error) {
 	f.screenOpts = append(f.screenOpts, opts)
+	if f.screenErr != nil {
+		return backend.Capture{}, f.screenErr
+	}
+	if text, ok := f.screens[target]; ok {
+		return backend.Capture{Text: text}, nil
+	}
 	return backend.Capture{Text: f.text}, nil
 }
 

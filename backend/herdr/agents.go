@@ -92,12 +92,14 @@ func parseAgents(out string, snap snapshot) ([]backend.Agent, error) {
 }
 
 // agentStatus maps herdr's status onto the shared vocabulary. Anything herdr
-// spells that is not one of the two known states is unknown rather than
+// spells that is not one of the three known states is unknown rather than
 // passed through: the vocabulary is semver-bound and a new spelling upstream
-// must not appear on the wire unannounced.
+// must not appear on the wire unannounced. blocked — the agent waiting on a
+// person — was folded into unknown until 0.12.0, which hid the one state a
+// caller most needs to act on.
 func agentStatus(s string) string {
 	switch s {
-	case backend.AgentWorking, backend.AgentIdle:
+	case backend.AgentWorking, backend.AgentIdle, backend.AgentBlocked:
 		return s
 	}
 	return backend.AgentUnknown

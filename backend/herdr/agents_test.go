@@ -9,8 +9,9 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
-// §3.7 herdr detects agents itself, so its rows carry status and title: the
-// rows of `herdr agent list` map onto the shared shape, the workspace
+// §3.7 herdr detects agents itself, so its rows carry status — working, idle
+// or blocked — and title: the rows of `herdr agent list` map onto the shared
+// shape, the workspace
 // is named the way Sessions names it, and the usage bars are read out of the
 // display tokens in numeric order.
 func TestAgentListingParsesHerdrRows(t *testing.T) {
@@ -18,7 +19,8 @@ func TestAgentListingParsesHerdrRows(t *testing.T) {
 	const fixture = `{"id":"cli:agent:list","result":{"agents":[` +
 		`{"agent":"claude","agent_status":"idle","cwd":"/home/op/gamelan","focused":false,"foreground_cwd":"/home/op/gamelan","pane_id":"w5F:p1","revision":618,"tab_id":"w5F:t1","terminal_title":"✳ Stop music on Chrome","terminal_title_stripped":"Stop music on Chrome",` +
 		`"tokens":{"usage_1":"-    5h: ▰▰▰▱▱▱▱▱▱▱  33%","usage_2":"-    7d: ▰▰▰▰▱▱▱▱▱▱  48%","usage_3":"- fable: ▰▰▰▰▰▰▱▱▱▱  69%","usage_hdr":"usage:"},"workspace_id":"w5F"},` +
-		`{"agent":"codex","agent_status":"thinking","cwd":"/home/op/other","pane_id":"w6:p2","tab_id":"w6:t1","terminal_title_stripped":"","tokens":{"usage_1":"not a bar","usage_x":"- 5h: 10%"},"workspace_id":"w6"}` +
+		`{"agent":"codex","agent_status":"thinking","cwd":"/home/op/other","pane_id":"w6:p2","tab_id":"w6:t1","terminal_title_stripped":"","tokens":{"usage_1":"not a bar","usage_x":"- 5h: 10%"},"workspace_id":"w6"},` +
+		`{"agent":"codex","agent_status":"blocked","cwd":"/home/op/ask","pane_id":"w7:p1","tab_id":"w7:t1","terminal_title_stripped":"Allow command?","tokens":{},"workspace_id":"w7"}` +
 		`],"type":"agent_list"}}`
 	snap := snapshot{Workspaces: []workspaceRow{{WorkspaceID: "w5F", Label: "gamelan"}}}
 
@@ -38,6 +40,12 @@ func TestAgentListingParsesHerdrRows(t *testing.T) {
 		{
 			PaneID: "w6:p2", SessionName: "w6", SessionID: "w6", Agent: "codex",
 			Status: "unknown", CWD: "/home/op/other", DetectedBy: "herdr",
+		},
+		// blocked is a state of its own, not folded into unknown: it is the
+		// one a caller most needs to act on.
+		{
+			PaneID: "w7:p1", SessionName: "w7", SessionID: "w7", Agent: "codex",
+			Status: "blocked", Title: "Allow command?", CWD: "/home/op/ask", DetectedBy: "herdr",
 		},
 	}
 	if !reflect.DeepEqual(agents, want) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,9 +14,9 @@ import (
 
 // §3.7 On a backend with no agent detection of its own and no pid on the
 // pane, an agent is a pane whose foreground command has a known agent's name.
-// The heuristic knows the name and nothing else: the status is unknown, not
-// guessed, the row says it was found by command, and the rest of the row is
-// the pane's own identity.
+// The heuristic knows the name and nothing else; with nothing on the screen
+// the status is unknown, not guessed, the row says it was found by command,
+// and the rest of the row is the pane's own identity.
 func TestAgentsAreDerivedFromPaneCommandsWithoutInventingAStatus(t *testing.T) {
 	t.Parallel()
 	f := &fakeBackend{
@@ -86,9 +87,9 @@ type listingBackend struct {
 func (l *listingBackend) Agents(context.Context) ([]backend.Agent, error) { return l.agents, nil }
 
 // §3.7 A backend with its own detection is asked, not second-guessed: its rows
-// pass through with their status, title and usage, and the pane heuristic
-// does not run beside them — a pane it already reported would otherwise be
-// listed twice.
+// pass through with their status, title and usage, marked as the backend's
+// own (`status_source: "native"`), and the pane heuristic does not run
+// beside them — a pane it already reported would otherwise be listed twice.
 func TestAgentsPreferTheBackendsOwnDetection(t *testing.T) {
 	t.Parallel()
 	native := backend.Agent{
@@ -113,9 +114,17 @@ func TestAgentsPreferTheBackendsOwnDetection(t *testing.T) {
 	}
 	got, _ := json.Marshal(agents[0])
 	// Transcribed from api §5's agent row, not read back off the value.
-	want := `{"pane_id":"w5F:p1","session_name":"gamelan","session_id":"w5F","agent":"claude","status":"working","title":"Stop music on Chrome","cwd":"/repo/gamelan","detected_by":"herdr","usage":[{"label":"5h","percent":33},{"label":"7d","percent":48}]}`
+	want := `{"pane_id":"w5F:p1","session_name":"gamelan","session_id":"w5F","agent":"claude","status":"working","status_source":"native","title":"Stop music on Chrome","cwd":"/repo/gamelan","detected_by":"herdr","usage":[{"label":"5h","percent":33},{"label":"7d","percent":48}]}`
 	if string(got) != want {
 		t.Errorf("marshalled to\n\t%s\nwant\n\t%s", got, want)
+	}
+
+	// A native row whose status the backend could not name carries no
+	// source: there is nothing to attribute.
+	l.agents = []backend.Agent{{PaneID: "w6:p2", Agent: "codex", Status: "unknown", DetectedBy: "herdr"}}
+	agents, err = o.Agents(context.Background())
+	if err != nil || len(agents) != 1 || agents[0].StatusSource != "" {
+		t.Errorf("an unknown native status is (%+v, %v), want no status_source", agents, err)
 	}
 
 	// And a native listing with nothing in it is still an array.
@@ -337,5 +346,155 @@ func TestProcessTableParsing(t *testing.T) {
 	}
 	if got := parseProcessTable(out); !reflect.DeepEqual(got, want) {
 		t.Errorf("parsed\n\t%+v\nwant\n\t%+v", got, want)
+	}
+}
+
+// claudeWorking is a claude screen mid-turn, transcribed from the
+// manifest's own fixtures: the composer box with "esc to interrupt" in the
+// footer below it.
+const claudeWorking = "────────────────────────────────────────────────────────────────\n" +
+	"❯\n" +
+	"────────────────────────────────────────────────────────────────\n" +
+	"  ⏵⏵ auto mode on · 1 shell · esc to interrupt\n"
+
+// §3.7 A command-detected row's status is read off the pane's screen by the
+// agent's manifest, one capture per row, and marked `status_source:
+// "screen"`. What the screen does not show is unknown with no source: an
+// agent with no manifest (not captured at all), a screen no rule recognises,
+// and a title that is only tmux's default host name, which two manifests
+// would otherwise read as idle. blocked is a state of its own.
+func TestAgentsReadTheirStatusOffTheScreen(t *testing.T) {
+	t.Parallel()
+	host, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeBackend{
+		caps: backend.Capabilities{Backend: backend.Tmux, AgentStatus: true},
+		panes: []backend.Pane{
+			{ID: "%1", SessionName: "turn", SessionID: "$1", CurrentCommand: "claude", CurrentPath: "/a"},
+			{ID: "%2", SessionName: "quiet", SessionID: "$2", CurrentCommand: "codex", CurrentPath: "/b", Title: "project"},
+			{ID: "%3", SessionName: "old", SessionID: "$3", CurrentCommand: "aider", CurrentPath: "/c"},
+			{ID: "%4", SessionName: "blank", SessionID: "$4", CurrentCommand: "claude", CurrentPath: "/d"},
+			{ID: "%5", SessionName: "host", SessionID: "$5", CurrentCommand: "codex", CurrentPath: "/e", Title: host},
+			{ID: "%6", SessionName: "asking", SessionID: "$6", CurrentCommand: "claude", CurrentPath: "/f"},
+			// Two panes in one session: a capture of the session is the
+			// active pane's screen, which may be the other's, so neither
+			// is read.
+			{ID: "%7", SessionName: "split", SessionID: "$7", CurrentCommand: "claude", CurrentPath: "/g"},
+			{ID: "%8", SessionName: "split", SessionID: "$7", CurrentCommand: "codex", CurrentPath: "/g"},
+		},
+		// A capture addresses the pane's session (§10). Padded to a width,
+		// the way one backend prints rows, since a pattern anchored at the
+		// end of a line must still match.
+		screens: map[string]string{
+			"turn":   padRows(claudeWorking),
+			"quiet":  "› Use /skills to list available skills\n",
+			"old":    "Working...\n",
+			"blank":  "  ⏵⏵ auto mode on · 1 shell · ← for agents\n",
+			"host":   "› Use /skills to list available skills\n",
+			"asking": "do you want to proceed?\nbash command: rm -rf /tmp/test\n❯ 1. Yes\n  2. No\n\nEsc to cancel · Tab to amend · ctrl+e to explain\n",
+			"split":  claudeWorking,
+		},
+	}
+	agents, err := fakeOlympus(f).Agents(context.Background())
+	if err != nil {
+		t.Fatalf("Agents: %v", err)
+	}
+	want := []backend.Agent{
+		{PaneID: "%1", SessionName: "turn", SessionID: "$1", Agent: "claude", Status: "working", StatusSource: "screen", CWD: "/a", DetectedBy: "command"},
+		{PaneID: "%2", SessionName: "quiet", SessionID: "$2", Agent: "codex", Status: "idle", StatusSource: "screen", CWD: "/b", DetectedBy: "command"},
+		{PaneID: "%3", SessionName: "old", SessionID: "$3", Agent: "aider", Status: "unknown", CWD: "/c", DetectedBy: "command"},
+		{PaneID: "%4", SessionName: "blank", SessionID: "$4", Agent: "claude", Status: "unknown", CWD: "/d", DetectedBy: "command"},
+		{PaneID: "%5", SessionName: "host", SessionID: "$5", Agent: "codex", Status: "unknown", CWD: "/e", DetectedBy: "command"},
+		{PaneID: "%6", SessionName: "asking", SessionID: "$6", Agent: "claude", Status: "blocked", StatusSource: "screen", CWD: "/f", DetectedBy: "command"},
+		{PaneID: "%7", SessionName: "split", SessionID: "$7", Agent: "claude", Status: "unknown", CWD: "/g", DetectedBy: "command"},
+		{PaneID: "%8", SessionName: "split", SessionID: "$7", Agent: "codex", Status: "unknown", CWD: "/g", DetectedBy: "command"},
+	}
+	if !reflect.DeepEqual(agents, want) {
+		t.Errorf("listed\n\t%+v\nwant\n\t%+v", agents, want)
+	}
+	// One capture per row with a manifest in a one-pane session, of the
+	// visible screen only; none for the agent without one, none for the
+	// shared session.
+	if len(f.screenOpts) != 5 {
+		t.Errorf("%d captures for eight rows, want one per manifest-bearing row in its own session (5)", len(f.screenOpts))
+	}
+	for _, opts := range f.screenOpts {
+		if opts != (backend.ScreenOpts{}) {
+			t.Errorf("a capture asked for %+v, want the visible screen alone", opts)
+		}
+	}
+	got, _ := json.Marshal(agents[0])
+	wantJSON := `{"pane_id":"%1","session_name":"turn","session_id":"$1","agent":"claude","status":"working","status_source":"screen","cwd":"/a","detected_by":"command"}`
+	if string(got) != wantJSON {
+		t.Errorf("marshalled to\n\t%s\nwant\n\t%s", got, wantJSON)
+	}
+	got, _ = json.Marshal(agents[2])
+	if strings.Contains(string(got), "status_source") {
+		t.Errorf("an unknown status carries a source: %s", got)
+	}
+}
+
+// padRows pads every line to 80 columns, the way a width-padding backend
+// prints a capture.
+func padRows(screen string) string {
+	lines := strings.Split(screen, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = line + strings.Repeat(" ", 80-len([]rune(line)))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// §3.7 A capture that fails does not fail the listing, and does not invent a
+// status either: the row is still an agent, unknown with no source.
+func TestAgentsStayUnknownWhenTheCaptureFails(t *testing.T) {
+	t.Parallel()
+	f := &fakeBackend{
+		caps:      backend.Capabilities{Backend: backend.Tmux, AgentStatus: true},
+		panes:     []backend.Pane{{ID: "%1", SessionName: "turn", SessionID: "$1", CurrentCommand: "claude", CurrentPath: "/a"}},
+		text:      claudeWorking,
+		screenErr: backend.Errorf(backend.CodeBackendUnavailable, "the server went away"),
+	}
+	agents, err := fakeOlympus(f).Agents(context.Background())
+	if err != nil {
+		t.Fatalf("Agents: %v", err)
+	}
+	want := []backend.Agent{{PaneID: "%1", SessionName: "turn", SessionID: "$1", Agent: "claude", Status: "unknown", CWD: "/a", DetectedBy: "command"}}
+	if !reflect.DeepEqual(agents, want) {
+		t.Errorf("listed %+v, want %+v", agents, want)
+	}
+}
+
+// §3.7 Where the backend's capture is the whole scrollback rather than the
+// viewport, the tail stands in for the screen: a state the agent showed
+// long ago must not be read as its state now.
+func TestAgentsReadOnlyTheTailOfAScrollbackCapture(t *testing.T) {
+	t.Parallel()
+	stale := "Working...\n" + strings.Repeat("output\n", 40) + "> \n"
+	for _, c := range []struct {
+		native bool
+		want   string
+	}{{true, "unknown"}, {false, "working"}} {
+		f := &fakeBackend{
+			caps:  backend.Capabilities{Backend: backend.Zmx, AgentStatus: true, NativeScrollback: c.native},
+			panes: []backend.Pane{{ID: "s", SessionName: "s", SessionID: "s", CurrentCommand: "pi", CurrentPath: "/a"}},
+			text:  stale,
+		}
+		agents, err := fakeOlympus(f).Agents(context.Background())
+		if err != nil || len(agents) != 1 {
+			t.Fatalf("Agents: %v, %+v", err, agents)
+		}
+		if agents[0].Status != c.want {
+			t.Errorf("native_scrollback=%v: status %s, want %s", c.native, agents[0].Status, c.want)
+		}
+	}
+	if got := tailLines("a\nb\nc\n", 2); got != "b\nc\n" {
+		t.Errorf("tailLines kept %q", got)
+	}
+	if got := tailLines("a\nb", 5); got != "a\nb" {
+		t.Errorf("tailLines of a short text is %q", got)
 	}
 }

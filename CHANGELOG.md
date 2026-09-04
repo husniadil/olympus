@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`blocked` is an agent status**: the agent waiting on a person — a
+  permission prompt, a question, a trust dialog — reported wherever it is
+  known and never folded into `unknown` or `idle` (§3.7). It is the state a
+  caller most needs to act on.
+- **Screen-derived status on tmux, zmx and meja**: a command-detected agent
+  row now carries `working`, `idle` or `blocked`, read off a capture of the
+  pane by the agent's own detection manifest — herdr's manifests, vendored
+  under `internal/agentstate/manifests/` (Apache 2.0, © herdr authors; see
+  NOTICE) and evaluated by a port of herdr's engine. One capture of the
+  visible screen per row per call, for the 21 agents that have a manifest;
+  what no rule recognises stays `unknown`, never a guess. The `agent_status`
+  capability is true on every backend.
+- **`status_source` on agent rows**: `native` where the backend reported the
+  status itself (herdr), `screen` where it was read off a capture; omitted
+  when the status is `unknown`.
+
+### Changed
+
+- **herdr's `blocked` is no longer folded into `unknown`**: `herdr agent
+  list` has reported it all along, and Olympus mapped it to `unknown` because
+  the vocabulary had no word for it.
+
 ## [0.11.0]
 
 ### Added

@@ -97,8 +97,9 @@ func (z *Zmx) Capabilities() backend.Capabilities {
 		// One pane per session: nothing to bring to the front.
 		Focus:  false,
 		Rename: false,
-		// No agent detection (§3.7).
-		AgentStatus: false,
+		// No agent detection of its own, but a session can be captured, so
+		// the layer above reads an agent's status off its screen (§3.7).
+		AgentStatus: true,
 	}
 }
 

@@ -15,9 +15,14 @@ type Agent struct {
 	// qodercli, qwen, mastracode, maki, muse, grok), or whatever a
 	// natively-detecting backend reports.
 	Agent string `json:"agent"`
-	// Status is working, idle or unknown. It is unknown wherever only the
-	// command name was seen: the heuristic MUST NOT invent one.
+	// Status is working, idle, blocked or unknown. Blocked is the agent
+	// waiting on a person — a permission prompt, a question. It is unknown
+	// wherever nothing showed a state: the listing MUST NOT invent one.
 	Status string `json:"status"`
+	// StatusSource is where a known status came from: native, the backend's
+	// own detection; or screen, read off a capture of the pane by the
+	// agent's manifest. Omitted when the status is unknown.
+	StatusSource string `json:"status_source,omitempty"`
 	// Title is what the agent is working on, where the backend reports it.
 	Title string `json:"title,omitempty"`
 	// CWD is the directory the agent is working in.
@@ -25,7 +30,8 @@ type Agent struct {
 	// DetectedBy is how the row was found: the backend's own detection
 	// (herdr), which carries status, title and usage; or a known agent's
 	// name in the pane's process tree — its foreground command where the
-	// pane has no PID — which carries none of them.
+	// pane has no PID — which carries a status only where the pane's screen
+	// could be read, and never a title or usage.
 	DetectedBy string `json:"detected_by"`
 	// Usage is the agent's quota readout where the backend reports one, in
 	// the order the backend lists it.
@@ -43,7 +49,16 @@ type AgentUsage struct {
 const (
 	AgentWorking = "working"
 	AgentIdle    = "idle"
+	AgentBlocked = "blocked"
 	AgentUnknown = "unknown"
+)
+
+// Agent status sources.
+const (
+	// StatusSourceNative is a status the backend reported itself.
+	StatusSourceNative = "native"
+	// StatusSourceScreen is a status read off a capture of the pane.
+	StatusSourceScreen = "screen"
 )
 
 // Agent detection sources.
@@ -61,8 +76,9 @@ const (
 // An AgentLister enumerates the agents a backend detects itself. It is
 // optional in a different way from ServerLister: a backend without it is not
 // unsupported, the layer above derives the rows from the pane listing instead
-// (behavior §3.7). Implementing it means the backend can report status, and
-// its Capabilities MUST say so in AgentStatus.
+// (behavior §3.7). Implementing it means the backend reports status itself;
+// its Capabilities MUST say so in AgentStatus, as MUST any backend whose
+// panes can be captured, since the layer above reads status off the screen.
 type AgentLister interface {
 	Agents(ctx context.Context) ([]Agent, error)
 }

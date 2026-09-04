@@ -95,9 +95,9 @@ func (t *Tmux) Capabilities() backend.Capabilities {
 		Focus: true,
 		// rename-session, rename-window, and a pane title via select-pane -T.
 		Rename: true,
-		// No agent detection: an agent is a pane whose foreground command
-		// has a known name, and its status cannot be asked (§3.7).
-		AgentStatus: false,
+		// No agent detection of its own, but a pane can be captured, so the
+		// layer above reads an agent's status off its screen (§3.7).
+		AgentStatus: true,
 	}
 }
 
