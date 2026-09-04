@@ -20,17 +20,17 @@ import (
 
 var counter atomic.Int64
 
-// impersonatedAgent is the name the test binary answers to as a stand-in
-// agent: copied under this name and started in a pane, it sleeps, so the
-// pane's foreground command is a binary called claude without any real agent
+// impersonatedAgents are the names the test binary answers to as a stand-in
+// agent: copied under one of these names and started in a pane, it sleeps,
+// so the pane holds a process called claude or codex without any real agent
 // being started under a test. Keyed on argv rather than an environment
 // variable because the spawn environment is scrubbed (§1.1).
-const impersonatedAgent = "claude"
+var impersonatedAgents = map[string]bool{"claude": true, "codex": true}
 
 // TestMain lets the test binary re-exec itself as the stand-in agent, the way
 // the engine's tests re-exec it as a slot holder.
 func TestMain(m *testing.M) {
-	if filepath.Base(os.Args[0]) == impersonatedAgent {
+	if impersonatedAgents[filepath.Base(os.Args[0])] {
 		time.Sleep(10 * time.Minute)
 		return
 	}
@@ -1376,12 +1376,15 @@ func TestServersStopKillsARunningServer(t *testing.T) {
 }
 
 // §3.7 `agents` answers on a backend with no agent detection of its own: a
-// pane whose foreground command is a known agent is listed, found by command
+// pane whose process subtree holds a known agent is listed, found by command
 // and with an unknown status; a pane running a shell is not; and with none
-// the answer is an empty array, never null, never unsupported. The "agent"
-// is this test binary copied under the name claude (TestMain) — a real binary
-// whose name tmux reports as the pane's command, where a copied system sleep
-// is killed by macOS and a symlink or script reports the program underneath.
+// the answer is an empty array, never null, never unsupported. The "agents"
+// are this test binary copied under the names claude and codex (TestMain) —
+// real binaries whose names the process table reports, where a copied system
+// sleep is killed by macOS and a symlink or script reports the program
+// underneath. claude runs as the pane's own process; codex runs as the CHILD
+// of a shell whose foreground command tmux reports as the shell, so only the
+// walk down from `#{pane_pid}` can find it.
 func TestAgentsListsPanesRunningAKnownAgentCommand(t *testing.T) {
 	flags := isolation(t)
 	dir, err := os.MkdirTemp(os.TempDir(), "olya")
@@ -1410,19 +1413,27 @@ func TestAgentsListsPanesRunningAKnownAgentCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake := filepath.Join(dir, impersonatedAgent)
-	if err := os.WriteFile(fake, binary, 0o755); err != nil {
-		t.Fatal(err)
+	fakes := map[string]string{}
+	for agent := range impersonatedAgents {
+		fakes[agent] = filepath.Join(dir, agent)
+		if err := os.WriteFile(fakes[agent], binary, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	shell, agent := name(), name()
-	for _, n := range []string{shell, agent} {
+	shell, agent, child := name(), name(), name()
+	for _, n := range []string{shell, agent, child} {
 		t.Cleanup(func() { run(t, append(flags, "stop", n, "--force")...) })
 	}
 	if got := run(t, append(flags, "start", shell)...); got.code != 0 {
 		t.Fatalf("starting a shell session: exit %d: %s%s", got.code, got.stdout, got.stderr)
 	}
-	if got := run(t, append(flags, "start", agent, "--dir", dir, fake)...); got.code != 0 {
+	if got := run(t, append(flags, "start", agent, "--dir", dir, fakes["claude"])...); got.code != 0 {
 		t.Fatalf("starting the agent session: exit %d: %s%s", got.code, got.stdout, got.stderr)
+	}
+	// A second command after the agent keeps the shell from exec'ing it, so
+	// codex is the shell's child and the shell stays the pane's process.
+	if got := run(t, append(flags, "start", child, "--dir", dir, "--", "sh", "-c", fakes["codex"]+"; true")...); got.code != 0 {
+		t.Fatalf("starting the shell-wrapped agent session: exit %d: %s%s", got.code, got.stdout, got.stderr)
 	}
 
 	// tmux hands the argv to `sh -c`, which reads as the pane's command until
@@ -1436,26 +1447,52 @@ func TestAgentsListsPanesRunningAKnownAgentCommand(t *testing.T) {
 			t.Fatalf("exit %d: %s%s", listed.code, listed.stdout, listed.stderr)
 		}
 		rows, _ = listed.envelope(t).Data.([]any)
-		if len(rows) == 1 || time.Now().After(deadline) {
+		if len(rows) == 2 || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("listed %d agents, want the one impersonated: %s", len(rows), listed.stdout)
+	if len(rows) != 2 {
+		t.Fatalf("listed %d agents, want the two impersonated: %s", len(rows), listed.stdout)
 	}
-	row, _ := rows[0].(map[string]any)
-	for field, want := range map[string]any{
-		"agent": "claude", "status": "unknown", "detected_by": "command", "session_name": agent,
-	} {
-		if row[field] != want {
-			t.Errorf("%s is %v, want %v (row %v)", field, row[field], want, row)
+	bySession := map[string]map[string]any{}
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
+		bySession[row["session_name"].(string)] = row
+	}
+	for session, want := range map[string]string{agent: "claude", child: "codex"} {
+		row := bySession[session]
+		for field, value := range map[string]any{
+			"agent": want, "status": "unknown", "detected_by": "command",
+		} {
+			if row[field] != value {
+				t.Errorf("%s: %s is %v, want %v (row %v)", session, field, row[field], value, row)
+			}
+		}
+		for _, absent := range []string{"title", "usage"} {
+			if _, present := row[absent]; present {
+				t.Errorf("%s is present on a command-detected row: %v", absent, row)
+			}
 		}
 	}
-	for _, absent := range []string{"title", "usage"} {
-		if _, present := row[absent]; present {
-			t.Errorf("%s is present on a command-detected row: %v", absent, row)
-		}
+
+	// The proof that the tree was walked: the wrapped agent's pane reports
+	// the shell as its foreground command, not codex, so the command match
+	// alone could not have listed it.
+	panes := run(t, append(flags, "panes", child, "--json")...)
+	if panes.code != 0 {
+		t.Fatalf("exit %d: %s%s", panes.code, panes.stdout, panes.stderr)
+	}
+	paneRows, _ := panes.envelope(t).Data.([]any)
+	if len(paneRows) != 1 {
+		t.Fatalf("listed %d panes for %s, want one: %s", len(paneRows), child, panes.stdout)
+	}
+	pane, _ := paneRows[0].(map[string]any)
+	if pid, _ := pane["pid"].(float64); pid <= 0 {
+		t.Errorf("the pane row carries pid %v, want the pane's process id", pane["pid"])
+	}
+	if pane["current_command"] == "codex" {
+		t.Errorf("the pane's foreground command is codex, so this case did not exercise the walk: %v", pane)
 	}
 
 	table := run(t, append(flags, "agents")...)

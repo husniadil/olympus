@@ -39,6 +39,10 @@ type Olympus struct {
 	scope      string
 	locks      *engine.Locks
 	lockWait   time.Duration
+	// processTable, when set, replaces `ps` as the agent listing's view of
+	// the machine's processes (§3.7). Nil on every handle Open builds; the
+	// unit tests set it to walk a fixture table.
+	processTable func(context.Context) ([]process, error)
 }
 
 type config struct {

@@ -207,10 +207,13 @@ the listing says so; meja cannot enumerate its profiles, so it has neither.
 coding agents running — which pane, which agent, its directory — and each row
 says how it was found. On herdr, which watches its panes for agents itself,
 rows carry the agent's status, what it is working on and its usage bars; on
-the other backends a row is a pane whose foreground command is a known agent
-(`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`,
-`cursor-agent`), with its status `unknown` rather than guessed. `olympus
-capabilities` reports `agent_status` where the rows can carry one.
+the other backends a row is a pane whose processes include a known agent
+(`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`, `cursor`,
+`pi`, `omp`, `copilot`, `devin`, `agy`, `cline`, `droid`, `kimi`, `kiro`,
+`kilo`, `hermes`, `qodercli`, `qwen`, `mastracode`, `maki`, `muse`, `grok`) —
+found by walking the pane's process tree, so an agent running under the
+pane's shell counts — with its status `unknown` rather than guessed.
+`olympus capabilities` reports `agent_status` where the rows can carry one.
 
 Two more backends are supported and come last in that order, each answering only
 when nothing before it is installed, since sessions never migrate between

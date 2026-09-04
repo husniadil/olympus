@@ -1428,3 +1428,23 @@ func TestRenameRenamesASessionAWindowAndAPaneTitle(t *testing.T) {
 		t.Errorf("renaming a missing window is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
 	}
 }
+
+// §3.4 A pane row carries the pane's process id, `#{pane_pid}`: the root the
+// agent listing walks (§3.7). Asserted positive, never merely present: a
+// wrong format variable expands to empty with exit 0, so a zero here is the
+// silently zeroed column §3.4 warns about.
+func TestPaneRowsCarryThePanesProcessID(t *testing.T) {
+	b := newBackend(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-pid"})
+
+	panes, err := b.Panes(context.Background(), name)
+	if err != nil {
+		t.Fatalf("listing panes: %v", err)
+	}
+	if len(panes) == 0 {
+		t.Fatal("no panes")
+	}
+	if panes[0].PID <= 0 {
+		t.Errorf("the row has pid %d, want #{pane_pid}", panes[0].PID)
+	}
+}

@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Pane rows carry `pid`**: the pane's own process id where the backend
+  reports one — tmux's `#{pane_pid}`, the `pid=` field of zmx's listing —
+  and omitted where it does not (meja, herdr; §3.4). It is the root `agents`
+  walks.
+
+### Changed
+
+- **`agents` walks the pane's process tree** instead of matching the
+  foreground command's name (§3.7). The foreground command is the pane's
+  process-group leader by its executable, so an agent started from an
+  interactive shell read as the shell (or as `node` for a script), and a zmx
+  session spawned onto a shell read as that shell forever — measured with
+  three real agents in three panes and none of them listed. Where the pane
+  has a `pid`, the pane's own process is asked first, then the shell's
+  direct children, then the best-scoring process below; a runtime or shell
+  (`node`, `bun`, `python`, `sh`…) is named by the script it runs rather
+  than by itself, so `node …/bin/codex` is codex, and an agent installed
+  through npm is recognised from its package directory (`claude-code`,
+  `@openai/codex`, `@google/gemini-cli`). A pane with no `pid` still falls
+  back to the foreground command, and so does the whole listing if `ps`
+  cannot be run.
+- **The agent vocabulary is herdr's alias table, reported under canonical
+  names.** `pi`, `omp`, `copilot`, `devin`, `agy`, `cline`, `droid`, `kimi`,
+  `kiro`, `kilo`, `hermes`, `qodercli`, `qwen`, `mastracode`, `maki`, `muse`
+  and `grok` join the names already known, every alias herdr recognises
+  (`claude-code`, `devin-cli`, `github-copilot`, `muse-bin-<version>`, …)
+  maps to its canonical name, and names are matched lowercased. One
+  shipped value moves with it: a pane running `cursor-agent` now reports
+  `agent: "cursor"`, as herdr's own rows do, rather than `cursor-agent`.
+
 ## [0.10.0]
 
 ### Added

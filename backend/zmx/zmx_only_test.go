@@ -357,3 +357,23 @@ func TestZmxHasNowhereToKeepAStatus(t *testing.T) {
 		t.Errorf("Status reports %v, want UNSUPPORTED", backend.CodeOf(err))
 	}
 }
+
+// §3.4 A pane row carries the session's process id, read from the `pid=`
+// field of the long listing: the one live fact the row has, and the root the
+// agent listing walks (§3.7). Zero would mean the field was not parsed, and
+// a zeroed pid silently turns every agent under a shell invisible.
+func TestPaneRowsCarryTheSessionsProcessID(t *testing.T) {
+	b := newBackend(t)
+	name := startShell(t, b, "oly-pid")
+
+	panes, err := b.Panes(context.Background(), name)
+	if err != nil {
+		t.Fatalf("listing panes: %v", err)
+	}
+	if len(panes) == 0 {
+		t.Fatal("no panes")
+	}
+	if panes[0].PID <= 0 {
+		t.Errorf("the row has pid %d, want the session's process id from the listing's pid= field", panes[0].PID)
+	}
+}

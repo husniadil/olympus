@@ -796,6 +796,12 @@ format variable yields a silently zeroed column rather than an error. The only
 usable birth time is `#{session_created}`. zmx has a real per-row `created` field,
 read directly.
 
+**`pid` is 0 where the backend does not report one.** It is the pane's own
+process — tmux's `#{pane_pid}`, the `pid=` field of zmx's listing — and the
+root the agent listing walks (§3.7). meja's format has no such variable and
+herdr's snapshot carries no process id, so their rows omit it; a caller on
+those backends gets the foreground-command match and nothing deeper.
+
 A consequence: **pane id is not unique across rows** once a grouped view exists,
 because a base session and its views share the same underlying window and pane,
 so a full pane listing reports the same pane id for every group member. Consumers
@@ -920,14 +926,15 @@ accepted and ignored (§2.1), and a command is refused (§2.3.1).
 ### 3.7 Agents in panes
 
 The agent listing answers which panes a coding agent is running in — claude,
-codex, gemini, aider, opencode, goose, amp, cursor-agent — and, where the
-backend can tell, what it is doing. It is a listing over panes, not a new
-level of the hierarchy: every row names its pane and its session the way a
-pane row does (§3.4, §3.6).
+codex, gemini, aider, opencode, goose, amp, cursor, pi, omp, copilot, devin,
+agy, cline, droid, kimi, kiro, kilo, hermes, qodercli, qwen, mastracode,
+maki, muse, grok — and, where the backend can tell, what it is doing. It is
+a listing over panes, not a new level of the hierarchy: every row names its
+pane and its session the way a pane row does (§3.4, §3.6).
 
 The verb MUST answer on every backend, and MUST NOT be `UNSUPPORTED`: a
 backend with no way to see an agent still has panes, and a pane whose
-foreground command is one of the agents above IS an agent, whatever else the
+processes include one of the agents above IS an agent, whatever else the
 backend cannot say about it. The answer is an array, empty when there is no
 agent, never null.
 
@@ -943,17 +950,43 @@ the two ways differ in what the row can carry:
   vocabulary is semver-bound (api §7).
 - **The command heuristic** — `detected_by: "command"`. The backend has no
   detection, so the ergonomic layer derives rows from the whole-server pane
-  listing: a pane is an agent when the base name of its command's first
-  token, compared case-sensitively, is one of the names above. The heuristic
-  knows the command's name and nothing else, so it MUST NOT invent a status —
-  every such row is `unknown` — and carries no title and no usage. The
-  `agent_status` capability is false.
+  listing. Where the pane's `pid` is known (§3.4) detection MUST inspect the
+  pane's process subtree, and where it is not, detection MUST fall back to
+  the pane's foreground command, read as an argv. A process is named by its
+  argv the same way in both: by argv0's base name when that is an agent's,
+  and when argv0 is a runtime or shell — sh, bash, zsh, fish, tmux, node,
+  bun, python in any versioned spelling — by the script argument it runs,
+  found by skipping options; an eval flag (`-e`, `-p`, `-c`, `-m`) means it
+  runs no script and names nothing. Names are compared lowercased, with a
+  wrapper suffix (`.js`, `.cmd`) removed. In the subtree the pane's own
+  process is asked first, then its direct children — a pane spawned onto an
+  agent IS the agent, and a pane spawned onto a shell runs it as the shell's
+  child — and only then every process below, where the best-scoring one
+  wins: a name unwrapped from a runtime's argv outranks a plain binary, so
+  `node …/bin/codex` outranks the `codex` helper it forks, and the first
+  found wins among equals. A pane is listed once, whatever else below it
+  carries the name. The heuristic knows the agent's name and nothing else,
+  so it MUST NOT invent a status — every such row is `unknown` — and
+  carries no title and no usage. The `agent_status` capability is false.
 
-The heuristic inherits `current_command`'s divergences (§3.4): live on tmux,
-the spawn argv on zmx — so a session spawned onto an agent stays listed
-there until it ends — and empty on a whole-server listing on herdr, which is
-why herdr answers natively rather than through it. A caller wanting to know
-whether a command-detected agent is idle reads its screen.
+The name reported is the vocabulary's canonical one, not the token matched:
+the vocabulary is a table of every alias a running agent's binary may carry
+(`claude-code` and `claude` are claude; `cursor-agent` and `cursor` are
+cursor; `agy`, `antigravity` and `antigravity-cli` are agy; muse's launcher
+execs `muse-bin-<version>`) mapped to one name each. An agent installed
+through npm runs as `node …/@anthropic-ai/claude-code/cli.js`, where no token
+is called claude, so the vocabulary also names the package directories that
+identify one (`claude-code` → claude, `@openai/codex` → codex,
+`@google/gemini-cli` → gemini), and a token whose path holds one counts.
+
+The subtree is why the walk exists: the foreground command a backend reports
+is the pane's process-group leader by its executable name, so an interactive
+shell running an agent reports the shell, or `node` for an agent that is a
+script, and a pane spawned onto a shell on zmx reports the shell's argv
+forever (§3.4). The process table is read once per listing; where it cannot
+be read the listing does not fail, it falls back to the foreground command
+for every pane. A caller wanting to know whether a command-detected agent is
+idle reads its screen.
 
 `usage`, where a natively detecting backend reports it, is the agent's own
 quota readout: an ordered list of `{label, percent}` bars, the label as the

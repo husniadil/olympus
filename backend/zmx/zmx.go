@@ -304,6 +304,9 @@ func (z *Zmx) Panes(ctx context.Context, target string) ([]backend.Pane, error) 
 			continue
 		}
 		created, _ := strconv.ParseInt(row["created"], 10, 64)
+		// The session's process, which is the root of the tree the agent
+		// listing walks (§3.7): the one live fact this row carries.
+		pid, _ := strconv.Atoi(row["pid"])
 		panes = append(panes, backend.Pane{
 			// zmx has no pane concept, so the row is synthesized from the
 			// session and keyed on its name. There is nothing else stable to
@@ -321,6 +324,7 @@ func (z *Zmx) Panes(ctx context.Context, target string) ([]backend.Pane, error) 
 			CurrentPath:    row["start_dir"],
 			CurrentCommand: row["cmd"],
 			Liveness:       classifyLiveness(row),
+			PID:            pid,
 		})
 	}
 	if target != "" && len(panes) == 0 {

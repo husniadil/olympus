@@ -319,7 +319,7 @@ func (t *Tmux) Sessions(ctx context.Context) ([]backend.Session, error) {
 	return sessions, nil
 }
 
-const paneFormat = "#{pane_id}\x1f#{session_name}\x1f#{session_id}\x1f#{window_index}\x1f#{pane_dead}\x1f#{session_created}\x1f#{pane_current_path}\x1f#{pane_current_command}\x1f#{window_name}\x1f#{pane_title}"
+const paneFormat = "#{pane_id}\x1f#{session_name}\x1f#{session_id}\x1f#{window_index}\x1f#{pane_dead}\x1f#{session_created}\x1f#{pane_current_path}\x1f#{pane_current_command}\x1f#{window_name}\x1f#{pane_title}\x1f#{pane_pid}"
 
 func (t *Tmux) Panes(ctx context.Context, target string) ([]backend.Pane, error) {
 	args := []string{"list-panes", "-F", paneFormat}
@@ -366,6 +366,9 @@ func (t *Tmux) Panes(ctx context.Context, target string) ([]backend.Pane, error)
 		}
 		if len(f) >= 10 {
 			pane.WindowName, pane.Title = f[8], f[9]
+		}
+		if len(f) >= 11 {
+			pane.PID = atoi(f[10])
 		}
 		panes = append(panes, pane)
 	}

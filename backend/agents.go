@@ -9,9 +9,11 @@ type Agent struct {
 	PaneID      string `json:"pane_id"`
 	SessionName string `json:"session_name"`
 	SessionID   string `json:"session_id"`
-	// Agent is the agent's name: claude, codex, gemini, aider, opencode,
-	// goose, amp, cursor-agent, or whatever a natively-detecting backend
-	// reports.
+	// Agent is the agent's canonical name: one of the command heuristic's
+	// vocabulary (claude, codex, gemini, aider, opencode, goose, amp, cursor,
+	// pi, omp, copilot, devin, agy, cline, droid, kimi, kiro, kilo, hermes,
+	// qodercli, qwen, mastracode, maki, muse, grok), or whatever a
+	// natively-detecting backend reports.
 	Agent string `json:"agent"`
 	// Status is working, idle or unknown. It is unknown wherever only the
 	// command name was seen: the heuristic MUST NOT invent one.
@@ -21,8 +23,9 @@ type Agent struct {
 	// CWD is the directory the agent is working in.
 	CWD string `json:"cwd"`
 	// DetectedBy is how the row was found: the backend's own detection
-	// (herdr), which carries status, title and usage; or a foreground command
-	// whose base name is a known agent, which carries none of them.
+	// (herdr), which carries status, title and usage; or a known agent's
+	// name in the pane's process tree — its foreground command where the
+	// pane has no PID — which carries none of them.
 	DetectedBy string `json:"detected_by"`
 	// Usage is the agent's quota readout where the backend reports one, in
 	// the order the backend lists it.
@@ -48,8 +51,10 @@ const (
 	// DetectedByNative is the backend's own agent detection: it saw the
 	// agent as an agent, and the row carries its status and title.
 	DetectedByNative = "herdr"
-	// DetectedByCommand is the foreground-command heuristic the ergonomic
-	// layer applies where the backend has no detection of its own.
+	// DetectedByCommand is the process-tree heuristic the ergonomic layer
+	// applies where the backend has no detection of its own: a known
+	// agent's name under the pane's PID, or in its foreground command where
+	// there is no PID.
 	DetectedByCommand = "command"
 )
 

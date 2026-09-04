@@ -399,14 +399,18 @@ show their own session it is absent (§3.4).
   "current_command": "zsh",
   "liveness": "present",
   "window_name": "editor",
-  "title": "build log"
+  "title": "build log",
+  "pid": 90720
 }
 ```
 
 `window_name` and `title` are the two names `rename` can set below the
 session — the window (tmux) or tab (herdr) the pane sits in, and the pane's own
 title (tmux) or label (herdr) — and are omitted where the backend has no such
-name or none has been given.
+name or none has been given. `pid` is the pane's own process id where the
+backend reports one — tmux and zmx — and is omitted where it does not (meja,
+herdr; behavior §3.4). It is the root `agents` walks to find an agent running
+under the pane's shell.
 
 **On herdr a session is a workspace, a window is a tab, and a pane is a pane**
 (behavior spec §3.6). A session's `name` is the workspace's label where it has
@@ -601,12 +605,17 @@ session, zmx's one directory — and is specified in behavior §13.2.
 The listing answers on every backend and is never `UNSUPPORTED`; with no
 agent it is `[]`, never null (behavior §3.7). `pane_id`, `session_name` and
 `session_id` are the pane's, as a pane row spells them. `agent` is the agent's
-name (`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`,
-`cursor-agent`). `status` is `working`, `idle` or `unknown`. `detected_by` is
-how the row was found: `herdr`, the backend's own detection, whose rows carry
-`status` and `title`; or `command`, the pane's foreground command matched on
-its name, whose rows are `unknown` with no `title` and no `usage`. `title` and
-`usage` are omitted where absent. `usage[].percent` is an integer 0–100 and
+canonical name (`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`, `cursor`, `pi`, `omp`, `copilot`, `devin`, `agy`, `cline`, `droid`, `kimi`, `kiro`, `kilo`, `hermes`, `qodercli`, `qwen`, `mastracode`, `maki`, `muse`, `grok`, or whatever a
+natively-detecting backend reports; an alias such as `cursor-agent` or
+`claude-code` is reported under its canonical name). `status` is `working`,
+`idle` or `unknown`. `detected_by` is how the row was found: `herdr`, the
+backend's own detection, whose rows carry `status` and `title`; or `command`,
+a known agent's name found in the pane's processes, whose rows are `unknown`
+with no `title` and no `usage`. A `command` row is found by walking the
+pane's process subtree from its `pid` — so an agent running under the pane's
+shell, or as a `node` script, is listed under the vocabulary's name — and by
+the foreground command where the pane has no `pid` (behavior §3.7).
+`title` and `usage` are omitted where absent. `usage[].percent` is an integer 0–100 and
 `usage[].label` the short label the agent shows (`5h`, `7d`, a model name).
 `capabilities` reports `agent_status` where rows can carry a status.
 

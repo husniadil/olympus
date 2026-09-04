@@ -105,6 +105,11 @@ type Pane struct {
 	// where the backend has no such name, or none has been given.
 	WindowName string `json:"window_name,omitempty"`
 	Title      string `json:"title,omitempty"`
+	// PID is the pane's process id where the backend reports one: the process
+	// the pane was spawned on (tmux `#{pane_pid}`, zmx's `pid=` field). Zero
+	// where the backend does not report one (meja, herdr) — see behavior
+	// §3.4. It is the root the agent listing walks (§3.7).
+	PID int `json:"pid,omitempty"`
 }
 
 // A ScreenMeta carries what a capture could not put in the text itself
