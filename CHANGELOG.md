@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`agents` lists the coding agents running in panes** — `olympus agents`,
+  the `list_agents` MCP tool, `Olympus.Agents` in Go — on every backend
+  (§3.7). Each row names its pane and session, the agent (`claude`, `codex`,
+  `gemini`, `aider`, `opencode`, `goose`, `amp`, `cursor-agent`), its `cwd`,
+  and how it was found: `detected_by: "herdr"` rows come from herdr's own
+  detection and carry `status` (`working`, `idle`), `title` and the agent's
+  `usage` bars; `detected_by: "command"` rows, on tmux, zmx and meja, are
+  panes whose foreground command is a known agent, and their status is
+  `unknown` rather than guessed. The listing is never unsupported and never
+  null.
+- **`agent_status` capability**: whether agent rows can carry a status and a
+  title. True on herdr, false elsewhere. Reported by `capabilities`, `doctor`
+  and `info` alongside the others.
+
 ## [0.9.3]
 
 ### Added

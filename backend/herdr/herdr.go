@@ -241,6 +241,8 @@ func (h *Herdr) Capabilities() backend.Capabilities {
 		Focus: true,
 		// workspace, tab and pane each carry a label the server renames.
 		Rename: true,
+		// `herdr agent list` reports each agent's own status and title (§3.7).
+		AgentStatus: true,
 	}
 }
 

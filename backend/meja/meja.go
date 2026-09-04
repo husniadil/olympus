@@ -248,5 +248,7 @@ func (m *Meja) Capabilities() backend.Capabilities {
 		// One pane per session: nothing to bring to the front.
 		Focus:  false,
 		Rename: false,
+		// No agent detection (§3.7).
+		AgentStatus: false,
 	}
 }

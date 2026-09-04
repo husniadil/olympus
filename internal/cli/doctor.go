@@ -206,5 +206,6 @@ func capabilityRows() []capabilityRow {
 		{"bare attach", func(c backend.Capabilities) bool { return c.Bare }},
 		{"focus", func(c backend.Capabilities) bool { return c.Focus }},
 		{"rename", func(c backend.Capabilities) bool { return c.Rename }},
+		{"agent status", func(c backend.Capabilities) bool { return c.AgentStatus }},
 	}
 }

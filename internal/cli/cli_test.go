@@ -20,6 +20,23 @@ import (
 
 var counter atomic.Int64
 
+// impersonatedAgent is the name the test binary answers to as a stand-in
+// agent: copied under this name and started in a pane, it sleeps, so the
+// pane's foreground command is a binary called claude without any real agent
+// being started under a test. Keyed on argv rather than an environment
+// variable because the spawn environment is scrubbed (§1.1).
+const impersonatedAgent = "claude"
+
+// TestMain lets the test binary re-exec itself as the stand-in agent, the way
+// the engine's tests re-exec it as a slot holder.
+func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == impersonatedAgent {
+		time.Sleep(10 * time.Minute)
+		return
+	}
+	os.Exit(m.Run())
+}
+
 type result struct {
 	code   int
 	stdout string
@@ -1355,5 +1372,94 @@ func TestServersStopKillsARunningServer(t *testing.T) {
 	again := run(t, "--backend", "tmux", "servers", "stop", "live")
 	if again.code != 0 || !strings.Contains(again.stdout, "gone live") {
 		t.Errorf("a second stop exits %d with %q, want gone", again.code, again.stdout)
+	}
+}
+
+// §3.7 `agents` answers on a backend with no agent detection of its own: a
+// pane whose foreground command is a known agent is listed, found by command
+// and with an unknown status; a pane running a shell is not; and with none
+// the answer is an empty array, never null, never unsupported. The "agent"
+// is this test binary copied under the name claude (TestMain) — a real binary
+// whose name tmux reports as the pane's command, where a copied system sleep
+// is killed by macOS and a symlink or script reports the program underneath.
+func TestAgentsListsPanesRunningAKnownAgentCommand(t *testing.T) {
+	flags := isolation(t)
+	dir, err := os.MkdirTemp(os.TempDir(), "olya")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	none := run(t, append(flags, "agents", "--json")...)
+	if none.code != 0 {
+		t.Fatalf("exit %d: %s%s", none.code, none.stdout, none.stderr)
+	}
+	if rows, ok := none.envelope(t).Data.([]any); !ok || len(rows) != 0 {
+		t.Errorf("data is %v, want an empty array — never null", none.envelope(t).Data)
+	}
+	human := run(t, append(flags, "agents")...)
+	if human.code != 0 || !strings.Contains(human.stdout, "no agents on the tmux backend") {
+		t.Errorf("human output %q (exit %d) does not name the backend", human.stdout, human.code)
+	}
+
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := filepath.Join(dir, impersonatedAgent)
+	if err := os.WriteFile(fake, binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shell, agent := name(), name()
+	for _, n := range []string{shell, agent} {
+		t.Cleanup(func() { run(t, append(flags, "stop", n, "--force")...) })
+	}
+	if got := run(t, append(flags, "start", shell)...); got.code != 0 {
+		t.Fatalf("starting a shell session: exit %d: %s%s", got.code, got.stdout, got.stderr)
+	}
+	if got := run(t, append(flags, "start", agent, "--dir", dir, fake)...); got.code != 0 {
+		t.Fatalf("starting the agent session: exit %d: %s%s", got.code, got.stdout, got.stderr)
+	}
+
+	// tmux hands the argv to `sh -c`, which reads as the pane's command until
+	// the shell has exec'd the program — a few milliseconds, but a real
+	// window, so the listing is polled rather than read once.
+	var listed result
+	var rows []any
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		listed = run(t, append(flags, "agents", "--json")...)
+		if listed.code != 0 {
+			t.Fatalf("exit %d: %s%s", listed.code, listed.stdout, listed.stderr)
+		}
+		rows, _ = listed.envelope(t).Data.([]any)
+		if len(rows) == 1 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("listed %d agents, want the one impersonated: %s", len(rows), listed.stdout)
+	}
+	row, _ := rows[0].(map[string]any)
+	for field, want := range map[string]any{
+		"agent": "claude", "status": "unknown", "detected_by": "command", "session_name": agent,
+	} {
+		if row[field] != want {
+			t.Errorf("%s is %v, want %v (row %v)", field, row[field], want, row)
+		}
+	}
+	for _, absent := range []string{"title", "usage"} {
+		if _, present := row[absent]; present {
+			t.Errorf("%s is present on a command-detected row: %v", absent, row)
+		}
+	}
+
+	table := run(t, append(flags, "agents")...)
+	if !strings.HasPrefix(table.stdout, "PANE") || !strings.Contains(table.stdout, "claude") {
+		t.Errorf("human table %q does not lead with the columns and name the agent", table.stdout)
 	}
 }

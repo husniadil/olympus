@@ -52,6 +52,7 @@ same operation.
 | read a server env key | `server-env` | `server_env` | `ServerEnv` |
 | list servers | `servers` | `list_servers` | `Servers` |
 | stop a server | `servers stop` | `stop_server` | `StopServer` |
+| list agents in panes | `agents` | `list_agents` | `Agents` |
 | what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
 | environment diagnosis | `doctor` | `doctor` | `Diagnose` |
 | version | `version` | `version` | `Version` (a package variable) |
@@ -588,6 +589,27 @@ session, zmx's one directory — and is specified in behavior §13.2.
 
 `outcome` is `gone` (it was not running) or `killed`; both are successes.
 
+**Agent row** (`agents`):
+
+```json
+{ "pane_id": "w5F:p1", "session_name": "gamelan", "session_id": "w5F",
+  "agent": "claude", "status": "working", "title": "Stop music on Chrome",
+  "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "herdr",
+  "usage": [{ "label": "5h", "percent": 33 }, { "label": "7d", "percent": 48 }] }
+```
+
+The listing answers on every backend and is never `UNSUPPORTED`; with no
+agent it is `[]`, never null (behavior §3.7). `pane_id`, `session_name` and
+`session_id` are the pane's, as a pane row spells them. `agent` is the agent's
+name (`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`,
+`cursor-agent`). `status` is `working`, `idle` or `unknown`. `detected_by` is
+how the row was found: `herdr`, the backend's own detection, whose rows carry
+`status` and `title`; or `command`, the pane's foreground command matched on
+its name, whose rows are `unknown` with no `title` and no `usage`. `title` and
+`usage` are omitted where absent. `usage[].percent` is an integer 0–100 and
+`usage[].label` the short label the agent shows (`5h`, `7d`, a model name).
+`capabilities` reports `agent_status` where rows can carry a status.
+
 **Doctor** (`doctor`):
 
 ```json
@@ -602,7 +624,8 @@ session, zmx's one directory — and is specified in behavior §13.2.
                         "server_env": false, "control_keys": false,
                         "spawn_sizing": false, "spawn_command": true,
                         "session_status": false, "tracks_alt_screen": false, "servers": true,
-                        "session_client": false, "bare": false, "focus": false, "rename": false } },
+                        "session_client": false, "bare": false, "focus": false, "rename": false,
+                        "agent_status": false } },
     { "name": "herdr", "installed": true, "version": "0.8.2", "floor": "0.8.2",
       "below_floor": false,
       "isolation": "socket at /tmp/olympus-herdr/herdr.sock; its configuration and saved layout live beside it, invisible to your own herdr",
@@ -610,7 +633,8 @@ session, zmx's one directory — and is specified in behavior §13.2.
                         "server_env": false, "control_keys": true,
                         "spawn_sizing": false, "spawn_command": false,
                         "session_status": true, "tracks_alt_screen": false, "servers": true,
-                        "session_client": true, "bare": true, "focus": true, "rename": true },
+                        "session_client": true, "bare": true, "focus": true, "rename": true,
+                        "agent_status": true },
       "managed_options": { "update.manifest_check": "false", "update.version_check": "false" } },
     { "name": "tmux", "installed": true, "version": "3.7b", "floor": "3.3",
       "below_floor": false,
@@ -619,7 +643,8 @@ session, zmx's one directory — and is specified in behavior §13.2.
                         "server_env": true, "control_keys": true,
                         "spawn_sizing": true, "spawn_command": true,
                         "session_status": true, "tracks_alt_screen": true, "servers": true,
-                        "session_client": false, "bare": true, "focus": true, "rename": true },
+                        "session_client": false, "bare": true, "focus": true, "rename": true,
+                        "agent_status": false },
       "managed_options": { "default-command": "", "history-limit": "50000" } }
   ],
   "install_hints": []

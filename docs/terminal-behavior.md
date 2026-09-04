@@ -917,6 +917,51 @@ accepted and ignored (§2.1), and a command is refused (§2.3.1).
 **A pane target is pane-precise here**, which is the one deliberate exception to
 §10.1 and is recorded there.
 
+### 3.7 Agents in panes
+
+The agent listing answers which panes a coding agent is running in — claude,
+codex, gemini, aider, opencode, goose, amp, cursor-agent — and, where the
+backend can tell, what it is doing. It is a listing over panes, not a new
+level of the hierarchy: every row names its pane and its session the way a
+pane row does (§3.4, §3.6).
+
+The verb MUST answer on every backend, and MUST NOT be `UNSUPPORTED`: a
+backend with no way to see an agent still has panes, and a pane whose
+foreground command is one of the agents above IS an agent, whatever else the
+backend cannot say about it. The answer is an array, empty when there is no
+agent, never null.
+
+How a row was found MUST be disclosed on the row, in `detected_by`, because
+the two ways differ in what the row can carry:
+
+- **Native detection** — `detected_by: "herdr"`. The backend watches its
+  panes for agents itself and reports each one's state. A backend with native
+  detection MUST report `status` (`working` or `idle`) and `title` on every
+  row, and MUST set the `agent_status` capability so a caller can learn before
+  asking that the rows will carry them. A state the backend spells that is
+  outside the vocabulary is reported as `unknown`, not passed through: the
+  vocabulary is semver-bound (api §7).
+- **The command heuristic** — `detected_by: "command"`. The backend has no
+  detection, so the ergonomic layer derives rows from the whole-server pane
+  listing: a pane is an agent when the base name of its command's first
+  token, compared case-sensitively, is one of the names above. The heuristic
+  knows the command's name and nothing else, so it MUST NOT invent a status —
+  every such row is `unknown` — and carries no title and no usage. The
+  `agent_status` capability is false.
+
+The heuristic inherits `current_command`'s divergences (§3.4): live on tmux,
+the spawn argv on zmx — so a session spawned onto an agent stays listed
+there until it ends — and empty on a whole-server listing on herdr, which is
+why herdr answers natively rather than through it. A caller wanting to know
+whether a command-detected agent is idle reads its screen.
+
+`usage`, where a natively detecting backend reports it, is the agent's own
+quota readout: an ordered list of `{label, percent}` bars, the label as the
+agent spells it (`5h`, `7d`, a model name) and the percent an integer 0–100.
+A bar the backend renders in a shape Olympus cannot read is skipped, not an
+error: the bars are display text the backend owns, and a row is an agent with
+or without them.
+
 ---
 
 ## 4. Input injection
@@ -2354,7 +2399,8 @@ section's rule, and invisible until a caller hits a verb nobody tested cold.
 Static, subprocess-free backend facts a consumer feature-probes **before** hitting
 an unsupported error: backend name, native scrollback, views, remain-on-exit,
 server environment, control keys, spawn sizing, spawn command, session status,
-alt-screen tracking, servers, session client, bare attach, focus, rename.
+alt-screen tracking, servers, session client, bare attach, focus, rename, agent
+status.
 
 **Session client and bare attach are capabilities because they decide which
 attach a caller can offer.** A consumer presenting a "clean" or a "mirror"
@@ -2365,6 +2411,12 @@ where the backend has a client distinct from its raw per-pane stream (§8.10);
 chrome (§8.9); `focus` where the server's focus can be steered onto a target
 without attaching (§8.10); `rename` where a target can be given a new name in
 place (§2.11). All four are refused as `UNSUPPORTED` where false.
+
+**Agent status is a capability because the agent listing answers everywhere,
+with different rows.** The verb is never refused (§3.7), so a consumer cannot
+probe it by trying: `agent_status` says whether the rows will carry a status
+and a title — the backend detects agents itself — or only the pane and the
+agent's name, matched on its command.
 
 **Spawn command is a capability because a session's process is not always the
 caller's to choose.** A backend whose panes run the program its own

@@ -214,6 +214,7 @@ func describeCapabilities(caps backend.Capabilities) string {
 		{"bare", caps.Bare},
 		{"focus", caps.Focus},
 		{"rename", caps.Rename},
+		{"agent-status", caps.AgentStatus},
 	} {
 		if c.set {
 			on = append(on, c.name)

@@ -146,7 +146,7 @@ explicit and complete; that is where the spec's rules live.
 able to prove itself against the same suite the shipped ones run.
 
 The MCP door's surface is pinned the same way: `ToolNames` in
-`internal/mcp/tools.go` lists the 30 tools, exported and asserted against both
+`internal/mcp/tools.go` lists the 31 tools, exported and asserted against both
 the registered set and the spec's own table, so a tool cannot silently appear or
 vanish. Adding or renaming one means the list, the registration, and the api §1
 table move together.

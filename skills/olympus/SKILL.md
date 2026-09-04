@@ -29,6 +29,7 @@ Otherwise run the command directly.
 - Starting a session ON a command (`--command`) is refused on herdr: its panes run the shell its own configuration names. Check `olympus capabilities` for `spawn_command`; without it, start a plain session and run the program inside it.
 - On herdr a session is a workspace (named by its label, or by its id `w25` when the label is empty), a window is a tab and a pane is a pane. A verb aimed at a workspace acts on the pane it is showing; `w25:p8` reaches exactly that pane. `olympus stop` closes the level you named with everything in it. To drive a herdr you already run, point `--socket-path` at its socket (`~/.config/herdr/herdr.sock` by default) or `--server <name>` at a named session; `olympus ls` then shows its workspaces and `olympus panes <workspace>` their panes. Olympus will not stop a server it did not start — close the sessions you own instead.
 - Servers are the level above sessions. `olympus servers` lists them (tmux socket names, herdr named sessions, zmx's one directory) and `--server <name>` points any verb at one by name; on meja neither exists. `olympus servers stop <name>` takes every session on it down, so use it only when the user means the whole server.
+- `olympus agents` lists the coding agents running in panes, on every backend. `detected_by` says how each was found: `herdr` rows carry `status` (working, idle), `title` and `usage`; `command` rows were matched on the foreground command's name and their status is `unknown`, so read the pane's `screen` to learn more. `olympus capabilities` reports `agent_status` where rows can carry one.
 - Stop what you started. `olympus stop <name>` is graceful first, `--force` skips that. Leave a session only when the user wants it to persist.
 
 Exit codes worth recognizing: 3 session does not exist, 4 backend unreachable, 5 timed out, 6 someone else holds the session, 7 backend has no such concept. `run` without `--json` exits with the command's own status so it composes in a pipeline.
@@ -87,7 +88,7 @@ From inside: `olympus self` says which session this process is in, and `olympus 
 
 ## MCP
 
-If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 30 of them:
+If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 31 of them:
 
 - Sessions: `start_session`, `new_session`, `list_sessions`, `session_info`, `session_status`, `focus_session`, `rename_session`, `stop_session`, `self`, `list_panes`
 - Input: `type_text`, `send_text`, `press_keys`, `paste_text`
@@ -95,6 +96,7 @@ If `olympus mcp` is configured as an MCP server, the tools are the same operatio
 - Running: `run_command`, `start_run`, `poll_run`, `exit_status`
 - Views: `create_view`, `scroll_view`, `focus_view`, `list_views`
 - Servers: `list_servers`, `stop_server` (select one by name with `OLYMPUS_SERVER`)
+- Agents: `list_agents`
 - Diagnostics: `server_env`, `capabilities`, `doctor`, `version`
 
 Two operations are CLI-only by nature: `watch` (a stream) and `attach` (interactive). Everything in this skill applies unchanged; only the spelling differs.

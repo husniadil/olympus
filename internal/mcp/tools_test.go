@@ -337,6 +337,7 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 	}{
 		{"list_sessions", map[string]any{}},
 		{"list_panes", map[string]any{}},
+		{"list_agents", map[string]any{}},
 		{"session_info", map[string]any{"target": name}},
 		{"capabilities", map[string]any{}},
 		{"doctor", map[string]any{}},

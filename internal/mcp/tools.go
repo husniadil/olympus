@@ -43,6 +43,7 @@ var ToolNames = []string{
 	"server_env",
 	"list_servers",
 	"stop_server",
+	"list_agents",
 	"capabilities",
 	"doctor",
 	"version",
@@ -621,6 +622,15 @@ func register(s *sdk.Server) {
 		func(ctx context.Context, ol *olympus.Olympus, in serverParams) (olympus.StoppedServer, []olympus.Warning, error) {
 			stopped, err := ol.StopServer(ctx, in.Name)
 			return stopped, nil, err
+		})
+
+	addTool(s, "list_agents", "List the coding agents running in panes: which pane, which agent, and its status and title where the backend detects agents itself. Every backend answers; where only the foreground command is known the status is unknown.",
+		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) ([]backend.Agent, []olympus.Warning, error) {
+			agents, err := ol.Agents(ctx)
+			if agents == nil {
+				agents = []backend.Agent{}
+			}
+			return agents, nil, err
 		})
 
 	addFreestandingTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.",

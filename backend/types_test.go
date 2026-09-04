@@ -77,7 +77,7 @@ func TestCapabilitiesMarshalToTheSpecShape(t *testing.T) {
 		ServerEnv:        false,
 		ControlKeys:      false,
 		TracksAltScreen:  false,
-	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false,"focus":false,"rename":false}`)
+	}, `{"native_scrollback":true,"views":false,"remain_on_exit":false,"server_env":false,"control_keys":false,"spawn_sizing":false,"spawn_command":false,"session_status":false,"tracks_alt_screen":false,"servers":false,"session_client":false,"bare":false,"focus":false,"rename":false,"agent_status":false}`)
 }
 
 // The tri-states are the reason several of these types exist at all. Their wire

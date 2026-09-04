@@ -74,6 +74,7 @@ olympus status --set ready            # from inside: tell whoever is driving
 olympus status build --wait ready     # from outside: block until it says so
 olympus capabilities                  # what this backend can do
 olympus servers                       # the servers behind the sessions
+olympus agents                        # which panes a coding agent is running in
 olympus --server work ls              # address one of them by name
 olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
@@ -201,6 +202,15 @@ directory — with whether each is running, and `--server <name>` points any ver
 at one of them by name instead of by socket. `olympus servers stop <name>` takes
 one down with every session on it. What a server *is* differs by backend and
 the listing says so; meja cannot enumerate its profiles, so it has neither.
+
+**Agents are found in panes, on every backend.** `olympus agents` lists the
+coding agents running — which pane, which agent, its directory — and each row
+says how it was found. On herdr, which watches its panes for agents itself,
+rows carry the agent's status, what it is working on and its usage bars; on
+the other backends a row is a pane whose foreground command is a known agent
+(`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`,
+`cursor-agent`), with its status `unknown` rather than guessed. `olympus
+capabilities` reports `agent_status` where the rows can carry one.
 
 Two more backends are supported and come last in that order, each answering only
 when nothing before it is installed, since sessions never migrate between
