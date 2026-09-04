@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.3]
+
 ### Added
 
 - **Session rows on herdr carry `focused`**: true on the one workspace the
@@ -607,7 +609,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/husniadil/olympus/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/husniadil/olympus/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/husniadil/olympus/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/husniadil/olympus/compare/v0.8.0...v0.9.0
