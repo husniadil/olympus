@@ -368,9 +368,16 @@ func TestAttachArgvCarriesTheFlagsTheStreamDependsOn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("preparing a viewer attach: %v", err)
 	}
-	// §8.7: a viewer drops input, and must drop resize with it.
-	if !strings.Contains(strings.Join(viewer.Cmd.Args, " "), " -r") {
-		t.Errorf("a viewer attach is not read-only: %s", strings.Join(viewer.Cmd.Args, " "))
+	// §8.7: a viewer drops input, and must drop resize with it — by the
+	// engine's hand, with tmux asked only to ignore the client's size. A
+	// read-only tmux client is the one tmux 3.7 picks as the session's target
+	// client when it is alone, after which every send-keys is refused.
+	argv := strings.Join(viewer.Cmd.Args, " ")
+	if !strings.Contains(argv, " -f ignore-size") {
+		t.Errorf("a viewer's client should ignore its own size: %s", argv)
+	}
+	if strings.Contains(argv, " -r") {
+		t.Errorf("a viewer's client must not be read-only, or send-keys is refused: %s", argv)
 	}
 }
 

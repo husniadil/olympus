@@ -165,8 +165,8 @@ func TestABareAttachOnTmuxOpensAViewPinnedToTheWindow(t *testing.T) {
 	if !strings.Contains(args, "attach-session -t ="+view) {
 		t.Errorf("the attach argv does not target the view:\n  %s", args)
 	}
-	if !strings.Contains(args, " -r") {
-		t.Errorf("a viewer bare attach is not read-only: %s", args)
+	if !strings.Contains(args, " -f ignore-size") || strings.Contains(args, " -r") {
+		t.Errorf("a viewer bare attach ignores its size and is not read-only: %s", args)
 	}
 
 	if got := tmux("display-message", "-p", "-t", "="+view+":", "#{window_index} #{window_name}"); got != "1 second" {

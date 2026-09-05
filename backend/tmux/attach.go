@@ -47,8 +47,14 @@ func (t *Tmux) Attach(ctx context.Context, target string, spec backend.AttachSpe
 	args := append(t.addressing(), "-u", "-T", "hyperlinks", "attach-session", "-t", sessionTarget(target))
 	if spec.Role == backend.RoleViewer {
 		// A viewer drops resize as well as input, or a passive watcher
-		// reshapes everyone else's terminal (§8.7).
-		args = append(args, "-r")
+		// reshapes everyone else's terminal (§8.7). The engine drops both
+		// itself before a byte reaches this client, so tmux is asked only to
+		// ignore the client's size — not to mark it read-only. A read-only
+		// client is the one tmux picks as the session's target client when no
+		// other is attached, and tmux 3.7 then refuses every `send-keys` to
+		// the session with "client is read-only": one passive watcher would
+		// stop every `send` (§8.7).
+		args = append(args, "-f", "ignore-size")
 	}
 	if spec.Supersede {
 		args = append(args, "-d")

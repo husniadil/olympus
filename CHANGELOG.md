@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.1]
+
+### Fixed
+
+- **A tmux viewer no longer stops `send`.** A viewer attach asked tmux for a
+  read-only client. tmux 3.7 picks that client as the session's target client
+  when it is the only one attached, and then refuses every `send-keys` to the
+  session with "client is read-only" — so one passive watcher stopped every
+  `send`, and the text sat in the input line unsubmitted. The engine already
+  drops a viewer's input and resize itself, so tmux is now asked only to ignore
+  the client's size (`-f ignore-size`), which is the half that protects other
+  clients.
+
 ## [0.14.0]
 
 ### Added
@@ -710,7 +723,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/husniadil/olympus/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/husniadil/olympus/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/husniadil/olympus/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/husniadil/olympus/compare/v0.11.0...v0.12.0
