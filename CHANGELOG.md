@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`pid` on an agent row**: the agent's own process, where one is known —
+  the process that named it on a `command` row, the pane's foreground
+  process group leader on a herdr row (one `pane process-info` per agent
+  row), omitted where none is (§3.7). A consumer that wants to know how an
+  agent was started reads that process itself; the row claims nothing.
+
 ## [0.12.0]
 
 ### Added

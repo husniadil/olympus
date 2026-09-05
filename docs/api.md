@@ -600,6 +600,7 @@ session, zmx's one directory — and is specified in behavior §13.2.
   "agent": "claude", "status": "working", "status_source": "native",
   "title": "Stop music on Chrome",
   "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "herdr",
+  "pid": 34398,
   "usage": [{ "label": "5h", "percent": 33 }, { "label": "7d", "percent": 48 }] }
 ```
 
@@ -608,7 +609,8 @@ and on a backend without detection of its own:
 ```json
 { "pane_id": "%3", "session_name": "fix", "session_id": "$3",
   "agent": "codex", "status": "blocked", "status_source": "screen",
-  "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "command" }
+  "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "command",
+  "pid": 77564 }
 ```
 
 The listing answers on every backend and is never `UNSUPPORTED`; with no
@@ -629,7 +631,12 @@ row is found by walking the pane's process subtree from its `pid` — so an
 agent running under the pane's shell, or as a `node` script, is listed under
 the vocabulary's name — and by the foreground command where the pane has no
 `pid`; its status costs one capture of the pane per row per call, for agents
-that have a manifest (behavior §3.7). `title` and `usage` are omitted where
+that have a manifest (behavior §3.7). `pid` is the agent's own process
+where one is known — the process that named it on a `command` row, the
+pane's foreground process group leader on a `herdr` row, read per row — and
+is omitted where none is (a foreground-command match, a pane herdr could not
+describe); it is a handle for the caller, and the row claims nothing about
+what that process was started with. `title` and `usage` are omitted where
 absent. `usage[].percent` is an integer 0–100 and `usage[].label` the short
 label the agent shows (`5h`, `7d`, a model name). `capabilities` reports
 `agent_status` where rows can carry a status: true on every backend, native

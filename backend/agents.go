@@ -33,6 +33,15 @@ type Agent struct {
 	// pane has no PID — which carries a status only where the pane's screen
 	// could be read, and never a title or usage.
 	DetectedBy string `json:"detected_by"`
+	// PID is the agent's own process, where one is known: on a
+	// command-detected row the process whose command named the agent; on a
+	// natively-detecting backend the pane's foreground process, which is
+	// the agent while it holds the terminal. Zero, and omitted, where no
+	// process is known — a pane with no pid, a match on the foreground
+	// command alone. A caller that wants to know how the agent was started
+	// or what it was given can go from here; the row itself says nothing
+	// about that.
+	PID int `json:"pid,omitempty"`
 	// Usage is the agent's quota readout where the backend reports one, in
 	// the order the backend lists it.
 	Usage []AgentUsage `json:"usage,omitempty"`

@@ -56,7 +56,47 @@ func (h *Herdr) Agents(ctx context.Context) ([]backend.Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseAgents(out, snap)
+	agents, err := parseAgents(out, snap)
+	if err != nil {
+		return nil, err
+	}
+	// The agent's process is a second request per row — the listing names
+	// the pane, and only process-info names what holds its terminal. Paid
+	// here rather than on the pane listing because an agent row is what a
+	// caller goes on to ask about, and there are few of them. Best-effort:
+	// a row whose pane vanished, or whose info cannot be read, keeps its pid
+	// at zero rather than failing the listing.
+	for i := range agents {
+		agents[i].PID = h.agentPID(ctx, agents[i].PaneID)
+	}
+	return agents, nil
+}
+
+// agentPID reports the process holding a pane's terminal right now: the
+// leader of the foreground process group, which is the agent while the
+// agent has the pane. Zero where herdr cannot say.
+func (h *Herdr) agentPID(ctx context.Context, paneID string) int {
+	out, err := h.run(ctx, "pane", "process-info", "--pane", paneID)
+	if err != nil {
+		return 0
+	}
+	return parseAgentPID(out)
+}
+
+// parseAgentPID reads the foreground process group leader out of a
+// `pane process-info` reply; zero where the reply does not carry one.
+func parseAgentPID(out string) int {
+	var info struct {
+		Result struct {
+			ProcessInfo struct {
+				ForegroundProcessGroupID int `json:"foreground_process_group_id"`
+			} `json:"process_info"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &info); err != nil {
+		return 0
+	}
+	return info.Result.ProcessInfo.ForegroundProcessGroupID
 }
 
 // parseAgents reads the rows out of `herdr agent list`, naming each

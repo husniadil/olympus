@@ -158,28 +158,29 @@ func newProcessTree(table []process) *processTree {
 // from an interpreter's argv over a plain binary, so `node …/bin/codex`
 // outranks the `codex` helper it forks, and the first found among equals.
 // One answer per pane, whatever else below it carries the agent's name.
-func (t *processTree) agentUnder(pid int) (string, bool) {
+// The pid returned is the process that named it.
+func (t *processTree) agentUnder(pid int) (name string, agentPID int, ok bool) {
 	if name, _, ok := agentInArgv(t.argv[pid]); ok {
-		return name, true
+		return name, pid, true
 	}
 	for _, child := range t.children[pid] {
 		if name, _, ok := agentInArgv(t.argv[child]); ok {
-			return name, true
+			return name, child, true
 		}
 	}
-	best, bestName := 0, ""
-	t.walk(pid, func(argv []string) {
+	best, bestName, bestPID := 0, "", 0
+	t.walk(pid, func(pid int, argv []string) {
 		if name, score, ok := agentInArgv(argv); ok && score > best {
-			best, bestName = score, name
+			best, bestName, bestPID = score, name, pid
 		}
 	})
-	return bestName, best > 0
+	return bestName, bestPID, best > 0
 }
 
 // walk visits every process in the subtree rooted at pid, depth-first, the
 // root first.
-func (t *processTree) walk(pid int, visit func(argv []string)) {
-	visit(t.argv[pid])
+func (t *processTree) walk(pid int, visit func(pid int, argv []string)) {
+	visit(pid, t.argv[pid])
 	for _, child := range t.children[pid] {
 		t.walk(child, visit)
 	}
@@ -246,9 +247,10 @@ func (o *Olympus) Agents(ctx context.Context) ([]backend.Agent, error) {
 	agents := []backend.Agent{}
 	for _, pane := range panes {
 		var name string
+		var pid int
 		var ok bool
 		if pane.PID != 0 && tree != nil {
-			name, ok = tree.agentUnder(pane.PID)
+			name, pid, ok = tree.agentUnder(pane.PID)
 		} else {
 			name, _, ok = agentInArgv(strings.Fields(pane.CurrentCommand))
 		}
@@ -268,6 +270,7 @@ func (o *Olympus) Agents(ctx context.Context) ([]backend.Agent, error) {
 			StatusSource: source,
 			CWD:          pane.CurrentPath,
 			DetectedBy:   backend.DetectedByCommand,
+			PID:          pid,
 		})
 	}
 	return agents, nil

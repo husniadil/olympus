@@ -57,6 +57,25 @@ func TestAgentListingParsesHerdrRows(t *testing.T) {
 	}
 }
 
+// §3.7 A herdr row's pid is the pane's foreground process group leader, read
+// from `pane process-info` as the binary prints it; a reply without one, or
+// no reply at all, leaves the pid at zero rather than inventing one.
+func TestAgentPIDIsTheForegroundProcessGroupLeader(t *testing.T) {
+	t.Parallel()
+	const fixture = `{"id":"cli:pane:process_info","result":{"process_info":{"foreground_process_group_id":34398,` +
+		`"foreground_processes":[{"argv":["caffeinate","-i"],"argv0":"caffeinate","cmdline":"caffeinate -i","cwd":"/home/op","name":"caffeinate","pid":66913}],` +
+		`"pane_id":"w5S:p1","shell_pid":34397}}}`
+	if got := parseAgentPID(fixture); got != 34398 {
+		t.Errorf("pid %d, want 34398", got)
+	}
+	if got := parseAgentPID(`{"id":"x","result":{"process_info":{"pane_id":"w1:p1"}}}`); got != 0 {
+		t.Errorf("a reply without a group leader gave %d, want 0", got)
+	}
+	if got := parseAgentPID("not json"); got != 0 {
+		t.Errorf("an unparseable reply gave %d, want 0", got)
+	}
+}
+
 // §3.7 The verb answers on a real server, and the shape the fixture above was
 // transcribed from is the shape the binary prints: one envelope whose result
 // carries an `agents` array. No agent is started here — that would put a real

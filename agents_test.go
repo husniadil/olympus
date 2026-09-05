@@ -213,12 +213,15 @@ func TestAgentsWalkThePanesProcessSubtree(t *testing.T) {
 		t.Errorf("the process table was read %d times, want once per call", reads)
 	}
 	want := []backend.Agent{
-		{PaneID: "%1", SessionName: "test", SessionID: "$1", Agent: "pi", Status: "unknown", CWD: "/repo", DetectedBy: "command"},
-		{PaneID: "%2", SessionName: "test-2", SessionID: "$2", Agent: "codex", Status: "unknown", CWD: "/repo/2", DetectedBy: "command"},
-		{PaneID: "test", SessionName: "test", SessionID: "test", Agent: "claude", Status: "unknown", CWD: "/z", DetectedBy: "command"},
+		// Each row carries the pid of the process that named the agent: the
+		// shell's child, the interpreter running the script, the pane's own
+		// process — and none where only the foreground command answered.
+		{PaneID: "%1", SessionName: "test", SessionID: "$1", Agent: "pi", Status: "unknown", CWD: "/repo", DetectedBy: "command", PID: 75269},
+		{PaneID: "%2", SessionName: "test-2", SessionID: "$2", Agent: "codex", Status: "unknown", CWD: "/repo/2", DetectedBy: "command", PID: 77564},
+		{PaneID: "test", SessionName: "test", SessionID: "test", Agent: "claude", Status: "unknown", CWD: "/z", DetectedBy: "command", PID: 78031},
 		{PaneID: "%6", SessionName: "meja", SessionID: "$6", Agent: "gemini", Status: "unknown", CWD: "/m", DetectedBy: "command"},
-		{PaneID: "%7", SessionName: "shim", SessionID: "$7", Agent: "qwen", Status: "unknown", CWD: "/q", DetectedBy: "command"},
-		{PaneID: "%8", SessionName: "direct", SessionID: "$8", Agent: "claude", Status: "unknown", CWD: "/d", DetectedBy: "command"},
+		{PaneID: "%7", SessionName: "shim", SessionID: "$7", Agent: "qwen", Status: "unknown", CWD: "/q", DetectedBy: "command", PID: 82001},
+		{PaneID: "%8", SessionName: "direct", SessionID: "$8", Agent: "claude", Status: "unknown", CWD: "/d", DetectedBy: "command", PID: 83000},
 	}
 	if !reflect.DeepEqual(agents, want) {
 		t.Errorf("listed\n\t%+v\nwant\n\t%+v", agents, want)

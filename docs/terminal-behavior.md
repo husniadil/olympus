@@ -970,6 +970,15 @@ the two ways differ in what the row can carry:
   the status is read off the pane's screen, below, and the row carries no
   title and no usage.
 
+A row MUST name the agent's own process in `pid` where one is known, and
+MUST omit it where none is: on a command-detected row that is the process
+whose argv named the agent, so a match on the foreground command alone
+carries none; on native detection it is the pane's foreground process group
+leader, which is the agent while it holds the terminal, read per row from
+the backend where the listing itself does not say. The pid is a handle, not
+a claim: what the process was started with, and by whom, is the caller's to
+read, and the row says nothing about it.
+
 The name reported is the vocabulary's canonical one, not the token matched:
 the vocabulary is a table of every alias a running agent's binary may carry
 (`claude-code` and `claude` are claude; `cursor-agent` and `cursor` are
