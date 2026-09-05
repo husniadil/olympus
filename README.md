@@ -74,7 +74,8 @@ olympus status --set ready            # from inside: tell whoever is driving
 olympus status build --wait ready     # from outside: block until it says so
 olympus capabilities                  # what this backend can do
 olympus servers                       # the servers behind the sessions
-olympus agents                        # which panes a coding agent is running in
+olympus agents                        # which panes a coding agent is running in, and its pid
+olympus kinds                         # the agents it knows, and what each is matched on
 olympus --server work ls              # address one of them by name
 olympus run 'go build ./...'          # no target: a throwaway session
 olympus attach build                  # hand this terminal over
