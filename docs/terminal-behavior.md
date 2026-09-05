@@ -925,17 +925,19 @@ accepted and ignored (§2.1), and a command is refused (§2.3.1).
 
 ### 3.7 Agents in panes
 
-The agent listing answers which panes a coding agent is running in — claude,
-codex, gemini, aider, opencode, goose, amp, cursor, pi, omp, copilot, devin,
-agy, cline, droid, kimi, kiro, kilo, hermes, qodercli, qwen, mastracode,
-maki, muse, grok — and, where the backend can tell, what it is doing. It is
-a listing over panes, not a new level of the hierarchy: every row names its
-pane and its session the way a pane row does (§3.4, §3.6).
+The agent listing answers which panes a coding agent is running in — one of
+the canonical names in the vocabulary below — and, where the backend can
+tell, what it is doing. It is a listing over panes, not a new level of the
+hierarchy: every row names its pane and its session the way a pane row does
+(§3.4, §3.6). Which names those are is not restated here in prose that would
+go stale as agents appear: the vocabulary is a table, and the `kinds` verb
+(api §1) reads it back, so the answer and what detection matches on are the
+same thing.
 
 The verb MUST answer on every backend, and MUST NOT be `UNSUPPORTED`: a
 backend with no way to see an agent still has panes, and a pane whose
-processes include one of the agents above IS an agent, whatever else the
-backend cannot say about it. The answer is an array, empty when there is no
+processes include one of the vocabulary's agents IS an agent, whatever else
+the backend cannot say about it. The answer is an array, empty when there is no
 agent, never null.
 
 How a row was found MUST be disclosed on the row, in `detected_by`, because
@@ -979,15 +981,18 @@ the backend where the listing itself does not say. The pid is a handle, not
 a claim: what the process was started with, and by whom, is the caller's to
 read, and the row says nothing about it.
 
-The name reported is the vocabulary's canonical one, not the token matched:
-the vocabulary is a table of every alias a running agent's binary may carry
-(`claude-code` and `claude` are claude; `cursor-agent` and `cursor` are
-cursor; `agy`, `antigravity` and `antigravity-cli` are agy; muse's launcher
-execs `muse-bin-<version>`) mapped to one name each. An agent installed
-through npm runs as `node …/@anthropic-ai/claude-code/cli.js`, where no token
-is called claude, so the vocabulary also names the package directories that
-identify one (`claude-code` → claude, `@openai/codex` → codex,
-`@google/gemini-cli` → gemini), and a token whose path holds one counts.
+The name reported is the vocabulary's canonical one, not the token matched.
+The vocabulary is exposed as itself — the `kinds` verb reports every
+canonical name with the executables and package directories that identify it,
+derived from these tables so the two cannot disagree (api §5). It is a table
+of every alias a running agent's binary may carry (`claude-code` and `claude`
+are claude; `cursor-agent` and `cursor` are cursor; `agy`, `antigravity` and
+`antigravity-cli` are agy; muse's launcher execs `muse-bin-<version>`) mapped
+to one name each. An agent installed through npm runs as
+`node …/@anthropic-ai/claude-code/cli.js`, where no token is called claude, so
+the vocabulary also names the package directories that identify one
+(`claude-code` → claude, `@openai/codex` → codex, `@google/gemini-cli` →
+gemini), and a token whose path holds one counts.
 
 The subtree is why the walk exists: the foreground command a backend reports
 is the pane's process-group leader by its executable name, so an interactive

@@ -44,6 +44,7 @@ var ToolNames = []string{
 	"list_servers",
 	"stop_server",
 	"list_agents",
+	"list_kinds",
 	"capabilities",
 	"doctor",
 	"version",
@@ -631,6 +632,14 @@ func register(s *sdk.Server) {
 				agents = []backend.Agent{}
 			}
 			return agents, nil, err
+		})
+
+	// The vocabulary is Olympus's own table, not a backend's, so this tool
+	// resolves none: an agent asking what Olympus knows must get an answer on
+	// a machine with no multiplexer installed.
+	addFreestandingTool(s, "list_kinds", "List the agent vocabulary list_agents reports names in: one row per canonical agent name, with every executable token that names it and the package directories that identify it. Derived from the detection tables themselves, so it cannot disagree with what list_agents matches on.",
+		func(ctx context.Context, _ emptyParams) ([]backend.AgentKind, []olympus.Warning, error) {
+			return olympus.Kinds(), nil, nil
 		})
 
 	addFreestandingTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.",

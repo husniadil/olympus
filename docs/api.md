@@ -53,6 +53,7 @@ same operation.
 | list servers | `servers` | `list_servers` | `Servers` |
 | stop a server | `servers stop` | `stop_server` | `StopServer` |
 | list agents in panes | `agents` | `list_agents` | `Agents` |
+| list the agent vocabulary | `kinds` | `list_kinds` | `Kinds` (a package-level function) |
 | what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
 | environment diagnosis | `doctor` | `doctor` | `Diagnose` |
 | version | `version` | `version` | `Version` (a package variable) |
@@ -114,7 +115,7 @@ act on views and on servers rather than on sessions, and each shares a noun.
 
 Every operation addressing a session takes it as the first positional argument.
 No operation takes the target as a flag. Operations addressing nothing (`ls`,
-`doctor`, `version`, `mcp`) take no positional.
+`kinds`, `doctor`, `version`, `mcp`) take no positional.
 
 Session names are ordinary positionals, so no verb name is reserved as a session
 name — see §1.1.
@@ -641,6 +642,39 @@ absent. `usage[].percent` is an integer 0–100 and `usage[].label` the short
 label the agent shows (`5h`, `7d`, a model name). `capabilities` reports
 `agent_status` where rows can carry a status: true on every backend, native
 on herdr and screen-derived elsewhere.
+
+**Agent kind row** (`kinds`):
+
+```json
+{ "name": "claude", "executables": ["claude", "claude-code"], "packages": ["claude-code"] }
+```
+
+`kinds` answers which agents Olympus knows and by what executables: the
+canonical vocabulary the `agents` listing reports `agent` in (behavior §3.7),
+one row per canonical name, ordered by `name`. It addresses nothing and
+resolves no backend — the vocabulary is Olympus's own table, identical
+everywhere and readable with no multiplexer installed at all — which is why
+`Kinds` is a package-level function rather than a method, for the same reason
+`Self` is one. `executables` is every argv0 token the detection table maps to
+that name, the canonical spelling first and the remaining aliases sorted; it
+is what a token's base name is matched against, lowercased and with a wrapper
+suffix (`.js`, `.cmd`) removed. `packages` is the package directories that
+identify the agent where no token is named after it — an npm install runs as
+`node …/@anthropic-ai/claude-code/cli.js`, whose path holds `claude-code` —
+and is omitted for an agent that has none. Both lists are derived from the
+detection tables themselves rather than restated, so the verb cannot disagree
+with what `agents` matches on. Two things are deliberately absent: muse's
+versioned launcher (`muse-bin-<version>`) is matched by shape rather than by a
+token, so no row can list it; and a name a natively-detecting backend reports
+that is outside this table is still possible on an agent row, since the
+backend's own detection is not this table.
+
+The row shape is semver-bound like every other payload (§7) — a field is only
+ever added. The vocabulary the rows CARRY is not a fixed set: names,
+executables and packages are added as agents appear, which is an additive
+change to the data and not to the contract. A consumer must therefore treat an
+unknown `name` as an agent it has not heard of, never as an error, and must
+not hardcode the set — asking `kinds` is what makes that unnecessary.
 
 **Doctor** (`doctor`):
 

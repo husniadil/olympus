@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -338,6 +339,7 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 		{"list_sessions", map[string]any{}},
 		{"list_panes", map[string]any{}},
 		{"list_agents", map[string]any{}},
+		{"list_kinds", map[string]any{}},
 		{"session_info", map[string]any{"target": name}},
 		{"capabilities", map[string]any{}},
 		{"doctor", map[string]any{}},
@@ -586,4 +588,40 @@ func disclosesTruncation(structured map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// The agent vocabulary must reach the MCP door too: an agent driving Olympus
+// through it otherwise has no way to learn which names `list_agents` can
+// report, or which executables they are matched by. Like `self`, `doctor` and
+// `version`, it resolves no backend — so it answers on a machine with no
+// multiplexer installed, and this test needs none either.
+func TestListKindsTool(t *testing.T) {
+	w := newWire(t)
+
+	got := w.callTool(t, "list_kinds", map[string]any{})
+	rows, _ := got["data"].([]any)
+	if len(rows) == 0 {
+		t.Fatalf("list_kinds returned no vocabulary at all: %v", got)
+	}
+
+	var claude map[string]any
+	for _, row := range rows {
+		kind, _ := row.(map[string]any)
+		if kind["name"] == "claude" {
+			claude = kind
+		}
+	}
+	if claude == nil {
+		t.Fatalf("list_kinds does not report claude: %v", rows)
+	}
+	executables, _ := claude["executables"].([]any)
+	if len(executables) == 0 || executables[0] != "claude" {
+		t.Errorf("claude's executables do not lead with its canonical spelling: %v", executables)
+	}
+	if !slices.Contains(executables, any("claude-code")) {
+		t.Errorf("claude's executables omit claude-code: %v", executables)
+	}
+	if packages, _ := claude["packages"].([]any); !slices.Contains(packages, any("claude-code")) {
+		t.Errorf("claude's packages omit claude-code: %v", claude["packages"])
+	}
 }

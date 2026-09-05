@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`kinds`**: the agent vocabulary as a verb — which agents Olympus knows,
+  and by what executables (`olympus kinds`, `list_kinds`, `Kinds`). One row
+  per canonical name, ordered by name, carrying every argv0 token that names
+  it (`executables`, canonical spelling first) and the package directories
+  that identify it (`packages`, omitted where there are none). Both lists are
+  derived from the detection tables themselves, so the verb cannot disagree
+  with what `agents` matches on, and it resolves no backend: it answers with
+  no multiplexer installed at all.
+
 ## [0.13.0]
 
 ### Added

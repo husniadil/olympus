@@ -91,3 +91,22 @@ const (
 type AgentLister interface {
 	Agents(ctx context.Context) ([]Agent, error)
 }
+
+// An AgentKind is one canonical name in the agent vocabulary the listing
+// reports names in, with the tokens that identify it (behavior §3.7). It is
+// a description of the detection table itself, not of anything running: it
+// answers which agents Olympus knows, and by what executables.
+type AgentKind struct {
+	// Name is the canonical name an agent row carries.
+	Name string `json:"name"`
+	// Executables is every argv0 token that names this agent: the canonical
+	// spelling first, then the remaining aliases sorted. Matched against a
+	// lowercased base name with a wrapper suffix removed, so a path or a
+	// `.js` wrapper still matches.
+	Executables []string `json:"executables"`
+	// Packages is the package directories that identify this agent where no
+	// token is named after it — an npm install runs as
+	// `node …/@anthropic-ai/claude-code/cli.js` — and is omitted for an
+	// agent that has none.
+	Packages []string `json:"packages,omitempty"`
+}

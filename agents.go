@@ -80,6 +80,48 @@ var agentPackages = []struct{ dir, agent string }{
 	{"@google/gemini-cli", "gemini"},
 }
 
+// Kinds is the agent vocabulary: every canonical name the agent listing can
+// report, with the tokens that identify it, in alphabetical order by name
+// (behavior §3.7).
+//
+// It is a package-level function rather than a method for the same reason
+// Self is one: the answer does not depend on how a caller configured a
+// handle. The vocabulary is Olympus's own table, identical on every backend
+// and readable with no multiplexer installed at all, so requiring a resolved
+// backend would invent a dependency the answer does not have — and would make
+// the verb fail on exactly the machine where a caller is trying to find out
+// what Olympus knows.
+//
+// Both lists are derived from the detection tables themselves, so the verb
+// cannot disagree with detection: there is no second list to keep in step.
+// Executables carry the canonical spelling first and the remaining aliases
+// sorted, since a map has no order to preserve. Muse's versioned launcher
+// (`muse-bin-<version>`) is a shape rather than a token, so it is not
+// enumerable here.
+func Kinds() []backend.AgentKind {
+	executables := map[string][]string{}
+	for alias, name := range agentAliases {
+		executables[name] = append(executables[name], alias)
+	}
+	packages := map[string][]string{}
+	for _, entry := range agentPackages {
+		packages[entry.agent] = append(packages[entry.agent], entry.dir)
+	}
+
+	kinds := make([]backend.AgentKind, 0, len(executables))
+	for name, aliases := range executables {
+		sort.Slice(aliases, func(i, j int) bool {
+			if (aliases[i] == name) != (aliases[j] == name) {
+				return aliases[i] == name
+			}
+			return aliases[i] < aliases[j]
+		})
+		kinds = append(kinds, backend.AgentKind{Name: name, Executables: aliases, Packages: packages[name]})
+	}
+	sort.Slice(kinds, func(i, j int) bool { return kinds[i].Name < kinds[j].Name })
+	return kinds
+}
+
 // runtimes are the interpreters and shells that run an agent without being
 // one: a process whose argv0 is one of these is named by its script argument,
 // not by itself. Python is matched separately, by its versioned spellings.

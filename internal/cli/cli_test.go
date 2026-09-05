@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1587,5 +1588,46 @@ func TestAgentsReadStatusOffTheScreen(t *testing.T) {
 	table := run(t, append(flags, "agents")...)
 	if !strings.Contains(table.stdout, "working") {
 		t.Errorf("human table %q does not show the status", table.stdout)
+	}
+}
+
+// §3.7 `kinds` is the agent vocabulary read back off the detection tables.
+// The CLI door translates and does not decide, so its `--json` payload must
+// be exactly what the Go door returns — and it must answer without resolving
+// a backend, so an operator with no multiplexer installed can still ask what
+// Olympus knows.
+func TestKindsMatchesTheGoDoorAndNeedsNoBackend(t *testing.T) {
+	// A backend that cannot exist: if the verb resolved one, this would fail.
+	t.Setenv("OLYMPUS_BACKEND", "nonesuch")
+
+	structured := run(t, "kinds", "--json")
+	if structured.code != 0 {
+		t.Fatalf("kinds --json exits %d: %s%s", structured.code, structured.stdout, structured.stderr)
+	}
+	encoded, err := json.Marshal(structured.envelope(t).Data)
+	if err != nil {
+		t.Fatalf("re-encoding the payload: %v", err)
+	}
+	var got []backend.AgentKind
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatalf("the payload is not an array of agent kinds: %v\n%s", err, structured.stdout)
+	}
+	if want := olympus.Kinds(); !reflect.DeepEqual(got, want) {
+		t.Errorf("the CLI reports\n\t%v\nthe Go door\n\t%v", got, want)
+	}
+	if len(got) == 0 {
+		t.Fatal("the vocabulary is empty")
+	}
+
+	human := run(t, "kinds")
+	if human.code != 0 {
+		t.Fatalf("kinds exits %d: %s%s", human.code, human.stdout, human.stderr)
+	}
+	if !strings.Contains(human.stdout, "NAME") || !strings.Contains(human.stdout, "EXECUTABLES") ||
+		!strings.Contains(human.stdout, "PACKAGES") {
+		t.Errorf("the table has no header:\n%s", human.stdout)
+	}
+	if !strings.Contains(human.stdout, "claude-code") {
+		t.Errorf("the table does not name claude's npm spelling:\n%s", human.stdout)
 	}
 }

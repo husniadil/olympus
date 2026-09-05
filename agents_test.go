@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -500,4 +501,85 @@ func TestAgentsReadOnlyTheTailOfAScrollbackCapture(t *testing.T) {
 	if got := tailLines("a\nb", 5); got != "a\nb" {
 		t.Errorf("tailLines of a short text is %q", got)
 	}
+}
+
+// §3.7 The vocabulary the listing reports names in is a table, and `kinds`
+// is that table read back — so the two can never disagree. The assertion is
+// coverage in both directions: every canonical name appears exactly once as
+// a row, and every alias in the table appears exactly once, under its own
+// canonical name. A name added to detection with no row, or a row naming a
+// token detection does not match, fails here.
+func TestKindsCoverTheAliasTableExactly(t *testing.T) {
+	kinds := Kinds()
+
+	seenName := map[string]int{}
+	seenAlias := map[string]string{}
+	for _, kind := range kinds {
+		seenName[kind.Name]++
+		if len(kind.Executables) == 0 || kind.Executables[0] != kind.Name {
+			t.Errorf("%s does not lead with its canonical spelling: %v", kind.Name, kind.Executables)
+		}
+		for _, executable := range kind.Executables {
+			if other, dup := seenAlias[executable]; dup {
+				t.Errorf("%q is listed twice, under %s and %s", executable, other, kind.Name)
+			}
+			seenAlias[executable] = kind.Name
+		}
+	}
+
+	for alias, name := range agentAliases {
+		if seenAlias[alias] != name {
+			t.Errorf("the alias %q maps to %s in detection but to %q in kinds", alias, name, seenAlias[alias])
+		}
+		if seenName[name] != 1 {
+			t.Errorf("the canonical name %s has %d rows, want exactly 1", name, seenName[name])
+		}
+	}
+	for executable, name := range seenAlias {
+		if _, ok := agentAliases[executable]; !ok {
+			t.Errorf("kinds lists %q under %s, but detection matches no such token", executable, name)
+		}
+	}
+
+	// The packages come from the same table for the same reason.
+	listed := map[string][]string{}
+	for _, kind := range kinds {
+		if len(kind.Packages) > 0 {
+			listed[kind.Name] = kind.Packages
+		}
+	}
+	fromTable := map[string][]string{}
+	for _, entry := range agentPackages {
+		fromTable[entry.agent] = append(fromTable[entry.agent], entry.dir)
+	}
+	if !reflect.DeepEqual(listed, fromTable) {
+		t.Errorf("kinds reports packages %v, the table has %v", listed, fromTable)
+	}
+
+	// Rows are ordered by name, so a consumer can rely on the order.
+	for i := 1; i < len(kinds); i++ {
+		if kinds[i-1].Name >= kinds[i].Name {
+			t.Fatalf("rows are not in ascending name order: %s before %s", kinds[i-1].Name, kinds[i].Name)
+		}
+	}
+}
+
+// §3.7 The npm-installed spelling is the case the vocabulary exists for:
+// claude answers to `claude-code` as an executable AND as a package
+// directory, and both must be readable from the verb rather than only from
+// the detection code.
+func TestKindsReportClaudeUnderClaudeCode(t *testing.T) {
+	for _, kind := range Kinds() {
+		if kind.Name != "claude" {
+			continue
+		}
+		if !slices.Contains(kind.Executables, "claude-code") {
+			t.Errorf("claude does not list claude-code as an executable: %v", kind.Executables)
+		}
+		if !slices.Contains(kind.Packages, "claude-code") {
+			t.Errorf("claude does not list claude-code as a package: %v", kind.Packages)
+		}
+		return
+	}
+	t.Fatal("kinds does not report claude at all")
 }
