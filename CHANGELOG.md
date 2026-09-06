@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0]
+
 ### Added
 
 - **An agent row carries the agent's own conversation.** `agent_session` on
