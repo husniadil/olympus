@@ -45,6 +45,21 @@ type Agent struct {
 	// Usage is the agent's quota readout where the backend reports one, in
 	// the order the backend lists it.
 	Usage []AgentUsage `json:"usage,omitempty"`
+	// AgentSession is the agent's own conversation, where the backend holds
+	// a reference to it: what the agent itself would take to pick the
+	// conversation up again. Nil, and omitted, where the backend has none —
+	// the row claims nothing, and a caller must not infer one.
+	AgentSession *AgentSession `json:"agent_session,omitempty"`
+}
+
+// An AgentSession is a reference to an agent's own conversation, as the
+// backend stores it and exactly as it spells it: Source names who reported
+// it, Agent the agent it belongs to, Kind whether Value is an id or a path.
+type AgentSession struct {
+	Source string `json:"source"`
+	Agent  string `json:"agent"`
+	Kind   string `json:"kind"`
+	Value  string `json:"value"`
 }
 
 // An AgentUsage is one quota bar: a short label (5h, 7d, a model name) and

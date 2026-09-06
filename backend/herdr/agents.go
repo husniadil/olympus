@@ -27,6 +27,9 @@ type agentRow struct {
 	// Tokens is the agent's display metadata, where the usage bars live as
 	// `usage_<n>` entries.
 	Tokens map[string]string `json:"tokens"`
+	// Session is the agent's own conversation as herdr stores it, reported
+	// to herdr by the agent's integration hook; absent where none was.
+	Session *backend.AgentSession `json:"agent_session"`
 }
 
 // usageToken is one usage bar as herdr renders it: `-    5h: ▰▰▰▱▱▱▱▱▱▱  33%`.
@@ -126,6 +129,9 @@ func parseAgents(out string, snap snapshot) ([]backend.Agent, error) {
 			CWD:         row.CWD,
 			DetectedBy:  backend.DetectedByNative,
 			Usage:       parseUsage(row.Tokens),
+			// Verbatim: an id or a path is herdr's to spell, and a row with
+			// none carries none.
+			AgentSession: row.Session,
 		})
 	}
 	return agents, nil

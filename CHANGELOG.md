@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **An agent row carries the agent's own conversation.** `agent_session` on
+  `agents` is the reference the backend holds to the agent's conversation —
+  what the agent itself takes to resume it — copied exactly as the backend
+  spells it (`source`, `agent`, `kind` of `id` or `path`, `value`). herdr
+  stores one when the agent's integration hook reports it; every other
+  backend, and a pane whose agent never reported, leaves the field off.
+  Olympus neither stores nor infers a conversation.
+
 ## [0.14.1]
 
 ### Fixed

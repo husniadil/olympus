@@ -602,7 +602,9 @@ session, zmx's one directory — and is specified in behavior §13.2.
   "title": "Stop music on Chrome",
   "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "herdr",
   "pid": 34398,
-  "usage": [{ "label": "5h", "percent": 33 }, { "label": "7d", "percent": 48 }] }
+  "usage": [{ "label": "5h", "percent": 33 }, { "label": "7d", "percent": 48 }],
+  "agent_session": { "source": "herdr:claude", "agent": "claude",
+                     "kind": "id", "value": "6d3b1bee-76d2-42e3-9c99-f8a96df213d3" } }
 ```
 
 and on a backend without detection of its own:
@@ -641,7 +643,15 @@ what that process was started with. `title` and `usage` are omitted where
 absent. `usage[].percent` is an integer 0–100 and `usage[].label` the short
 label the agent shows (`5h`, `7d`, a model name). `capabilities` reports
 `agent_status` where rows can carry a status: true on every backend, native
-on herdr and screen-derived elsewhere.
+on herdr and screen-derived elsewhere. `agent_session` is the agent's own
+conversation where the backend holds a reference to it — what the agent
+itself takes to pick that conversation up again (`claude --resume <value>`
+for a `kind` of `id`) — copied exactly as the backend spells it: `source`
+names who reported it (herdr's integration hooks, as `herdr:claude`),
+`agent` the agent it belongs to, `kind` whether `value` is an `id` or a
+`path`. It is omitted where the backend has none — every backend but herdr
+today, and a herdr pane whose agent never reported — and its absence claims
+nothing: Olympus neither stores nor infers a conversation.
 
 **Agent kind row** (`kinds`):
 

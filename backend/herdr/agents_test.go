@@ -18,7 +18,8 @@ func TestAgentListingParsesHerdrRows(t *testing.T) {
 	t.Parallel()
 	const fixture = `{"id":"cli:agent:list","result":{"agents":[` +
 		`{"agent":"claude","agent_status":"idle","cwd":"/home/op/gamelan","focused":false,"foreground_cwd":"/home/op/gamelan","pane_id":"w5F:p1","revision":618,"tab_id":"w5F:t1","terminal_title":"✳ Stop music on Chrome","terminal_title_stripped":"Stop music on Chrome",` +
-		`"tokens":{"usage_1":"-    5h: ▰▰▰▱▱▱▱▱▱▱  33%","usage_2":"-    7d: ▰▰▰▰▱▱▱▱▱▱  48%","usage_3":"- fable: ▰▰▰▰▰▰▱▱▱▱  69%","usage_hdr":"usage:"},"workspace_id":"w5F"},` +
+		`"tokens":{"usage_1":"-    5h: ▰▰▰▱▱▱▱▱▱▱  33%","usage_2":"-    7d: ▰▰▰▰▱▱▱▱▱▱  48%","usage_3":"- fable: ▰▰▰▰▰▰▱▱▱▱  69%","usage_hdr":"usage:"},"workspace_id":"w5F",` +
+		`"agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"6d3b1bee-76d2-42e3-9c99-f8a96df213d3"}},` +
 		`{"agent":"codex","agent_status":"thinking","cwd":"/home/op/other","pane_id":"w6:p2","tab_id":"w6:t1","terminal_title_stripped":"","tokens":{"usage_1":"not a bar","usage_x":"- 5h: 10%"},"workspace_id":"w6"},` +
 		`{"agent":"codex","agent_status":"blocked","cwd":"/home/op/ask","pane_id":"w7:p1","tab_id":"w7:t1","terminal_title_stripped":"Allow command?","tokens":{},"workspace_id":"w7"}` +
 		`],"type":"agent_list"}}`
@@ -33,10 +34,16 @@ func TestAgentListingParsesHerdrRows(t *testing.T) {
 			PaneID: "w5F:p1", SessionName: "gamelan", SessionID: "w5F", Agent: "claude",
 			Status: "idle", Title: "Stop music on Chrome", CWD: "/home/op/gamelan", DetectedBy: "herdr",
 			Usage: []backend.AgentUsage{{Label: "5h", Percent: 33}, {Label: "7d", Percent: 48}, {Label: "fable", Percent: 69}},
+			// The agent's own conversation, exactly as herdr spells it.
+			AgentSession: &backend.AgentSession{
+				Source: "herdr:claude", Agent: "claude", Kind: "id",
+				Value: "6d3b1bee-76d2-42e3-9c99-f8a96df213d3",
+			},
 		},
 		// A workspace the snapshot does not know is named by its id; a status
 		// outside the vocabulary is unknown; a bar that does not parse is
-		// skipped, and a key that is not usage_<n> is not a bar.
+		// skipped, and a key that is not usage_<n> is not a bar. No
+		// agent_session on the row, none on the agent.
 		{
 			PaneID: "w6:p2", SessionName: "w6", SessionID: "w6", Agent: "codex",
 			Status: "unknown", CWD: "/home/op/other", DetectedBy: "herdr",
