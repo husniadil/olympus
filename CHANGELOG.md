@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.0]
+
 ### Changed
 
 - **A create starts a herdr server selected by name, and starting it is not
