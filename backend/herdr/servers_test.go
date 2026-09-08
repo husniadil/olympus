@@ -71,16 +71,21 @@ func TestServerSocketDoesNotRedirectConfigurationOrState(t *testing.T) {
 }
 
 // §13.2 The same rule, measured against the real binary: driving a named
-// server's socket creates nothing under the configuration tree it lives in,
-// and a server that is not answering is NOT started by Olympus (§2.9.1) —
-// starting one would boot it against the operator's configuration.
-func TestServerSocketLeavesTheConfigurationTreeAlone(t *testing.T) {
+// server's socket creates nothing OLYMPUS would put under the configuration
+// tree it lives in — no state home, no managed configuration — while a create
+// on a server that is not answering starts it, against the operator's own
+// configuration, and does not claim it (§2.9.1).
+func TestServerSocketStartsTheServerAndLeavesTheTreeToHerdr(t *testing.T) {
 	requireHerdrRunnable(t)
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
+	}
 	configHome := shortDir(t)
 	t.Setenv("XDG_CONFIG_HOME", configHome)
 	socket := filepath.Join(configHome, "herdr", "sessions", "w", "herdr.sock")
 	b := New(WithServerSocket("w", socket))
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
 	sessions, err := b.Sessions(ctx)
 	if err != nil {
@@ -90,21 +95,28 @@ func TestServerSocketLeavesTheConfigurationTreeAlone(t *testing.T) {
 		t.Errorf("a socket with no server listed %d sessions", len(sessions))
 	}
 
-	_, err = b.Create(ctx, backend.CreateSpec{Name: "s", Cols: 80, Rows: 24, Dir: t.TempDir()})
-	if backend.CodeOf(err) != backend.CodeBackendUnavailable {
-		t.Errorf("creating on a named server that is not running is %q (%v), want %q — Olympus must not start it",
-			backend.CodeOf(err), err, backend.CodeBackendUnavailable)
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "s", Cols: 80, Rows: 24, Dir: t.TempDir()}); err != nil {
+		t.Fatalf("creating on a named server that is not running: %v — Olympus must start it", err)
+	}
+	// Started, never owned: the operator's server stays theirs to stop, and
+	// the ownership-scoped Stop still refuses it.
+	t.Cleanup(func() {
+		if err := b.StopServer(context.Background(), "w"); err != nil {
+			t.Errorf("stopping the server this test started: %v", err)
+		}
+	})
+	if err := b.Stop(ctx); backend.CodeOf(err) != backend.CodeConflict {
+		t.Errorf("stopping a server Olympus started but does not own is %q (%v), want %q",
+			backend.CodeOf(err), err, backend.CodeConflict)
 	}
 
+	// What herdr itself writes there is the operator's server doing its own
+	// business. What must never appear is Olympus's.
 	if _, err := os.Stat(b.StateHome()); !os.IsNotExist(err) {
 		t.Errorf("a state home was created at %s inside the configuration tree", b.StateHome())
 	}
-	if entries, _ := os.ReadDir(configHome); len(entries) != 0 {
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Errorf("the configuration tree gained %v", names)
+	if _, err := os.Stat(b.managedConfigPath()); !os.IsNotExist(err) {
+		t.Errorf("a managed configuration was written at %s", b.managedConfigPath())
 	}
 }
 

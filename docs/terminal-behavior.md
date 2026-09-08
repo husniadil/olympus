@@ -630,7 +630,9 @@ rules are all about restraint.
   about tmux: nothing observable distinguishes a server Olympus booted from one
   it found, and a server started by an earlier Olympus process is not this
   handle's either. The fact is written down when the server is started and read
-  back from there.
+  back from there — and deliberately not written for a server selected by NAME,
+  which Olympus may start but never owns (§13.2), so the refusal above applies
+  to it as it does to one Olympus never touched.
 - **The configuration directory follows ownership for the ATTACH client, and
   only for it.** Every other verb this backend runs is a JSON request over the
   socket and reads no configuration; the attach client loads it and takes its
@@ -2669,12 +2671,25 @@ server they did not mean. An unknown name is not-found.
 A named session's socket lives inside the operator's configuration tree, and
 the state-home derivation §2.9 requires of a socket PATH would put Olympus's
 own configuration and state directories inside that tree. So the socket-only
-environment applies to every invocation, the server is never started by
-Olympus — a server that is not answering is unavailable, not something to boot
-against the operator's configuration (§2.9.1) — and nothing is written under
-the directory the socket sits in. The derived client socket still has to fit
-the platform budget, and an over-long one is refused by name before any
-invocation.
+environment applies to every invocation, and **nothing Olympus would write goes
+under the directory the socket sits in**: no state home, no managed
+configuration. The derived client socket still has to fit the platform budget,
+and an over-long one is refused by name before any invocation.
+
+**A create MAY start such a server, and starting it is not owning it.** It
+boots on the operator's own configuration — the socket-only environment carries
+no redirect, so it reads exactly what their own `herdr server` would — no pins
+are laid down, no ownership is recorded, and the ownership-scoped stop of
+§2.9.1 still refuses it. What the tree gains is what herdr itself puts there,
+which is the operator's server doing its own business.
+
+This rule used to read the other way: a named server that was not answering was
+unavailable, never something to boot. The hazard it named was real but
+misplaced — it is the *writing* that must not happen, not the boot — and the
+refusal made the one server a caller cannot start the very one they named. On a
+box whose herdr comes up with the operator rather than with the machine, that
+is every session on it after a reboot, and the caller is told only that a
+socket has nothing behind it.
 
 **Stopping a server takes every session on it**, so it is its own operation
 and never a side effect of stopping a session. The layer above the backend

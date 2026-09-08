@@ -24,6 +24,13 @@ import (
 // reconfigured, and not marked as ours. That is the existing-server mode this
 // backend exists for — a box's own headless herdr, or an operator's, driven by
 // a caller who pointed a socket path at it (§2.9).
+//
+// A server selected by NAME is started too, and starting it is not owning it:
+// it comes up on the operator's own configuration, with none of Olympus's pins
+// written into their tree and no ownership recorded, so Stop still refuses it
+// (§13.2). The hazard the earlier refusal guarded was the writing, not the
+// boot — and refusing left the one server a caller cannot start the very one
+// they named.
 func (h *Herdr) ensureServer(ctx context.Context) error {
 	if err := h.validateSocketPath(); err != nil {
 		return err
@@ -34,14 +41,6 @@ func (h *Herdr) ensureServer(ctx context.Context) error {
 		// with — writing pins into a directory it never read would be a claim
 		// rather than a change (§17.5).
 		return nil
-	}
-	if h.socketOnly {
-		// A server selected by name is the operator's named session, and
-		// starting one here would boot it against their configuration
-		// directory with Olympus's pins written into it. Driving, never
-		// starting, is the rule for a server Olympus does not own (§2.9.1).
-		return backend.Errorf(backend.CodeBackendUnavailable,
-			"no herdr server is answering at %s; the server was selected by name, so Olympus will not start it — start it with herdr and retry", h.socketPath)
 	}
 	return h.startServer(ctx)
 }
@@ -59,8 +58,14 @@ func (h *Herdr) ensureServer(ctx context.Context) error {
 // issued before the loser has exited still reaches the winner, and the window
 // is the child's own startup.
 func (h *Herdr) startServer(ctx context.Context) error {
-	if err := h.writeManagedConfig(); err != nil {
-		return err
+	// Neither pins nor a claim on a server addressed by name: its socket sits
+	// in the operator's configuration tree, where the state home would be
+	// derived, and the server it boots is theirs (§13.2).
+	own := !h.socketOnly
+	if own {
+		if err := h.writeManagedConfig(); err != nil {
+			return err
+		}
 	}
 
 	cmd := exec.Command("herdr", "server")
@@ -70,7 +75,9 @@ func (h *Herdr) startServer(ctx context.Context) error {
 	// server that died when the caller pressed Ctrl-C would take every session
 	// on it down too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	h.noteSpawning()
+	if own {
+		h.noteSpawning()
+	}
 	if err := cmd.Start(); err != nil {
 		return backend.Wrapf(backend.CodeBackendUnavailable, err, "starting a herdr server at %s", h.socketPath)
 	}
@@ -78,7 +85,7 @@ func (h *Herdr) startServer(ctx context.Context) error {
 	// process, and leaving it unwaited would leave a zombie behind for as long
 	// as the caller runs.
 	go func() {
-		if err := cmd.Wait(); err != nil {
+		if err := cmd.Wait(); err != nil && own {
 			h.noteServerExited()
 		}
 	}()
@@ -86,7 +93,9 @@ func (h *Herdr) startServer(ctx context.Context) error {
 	deadline := time.Now().Add(serverStartBudget())
 	for {
 		if h.serverAnswers(ctx) {
-			h.noteStarted()
+			if own {
+				h.noteStarted()
+			}
 			return nil
 		}
 		if time.Now().After(deadline) {

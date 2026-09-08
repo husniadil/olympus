@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **A create starts a herdr server selected by name, and starting it is not
+  owning it.** A server chosen with `--server` was never started: its socket
+  lives in the operator's configuration tree, where the state-home derivation
+  would put Olympus's own directories, so a server that was not answering was
+  reported unavailable. The hazard was the writing, not the boot — and the
+  refusal made the one server a caller cannot start the very one they named,
+  which after a reboot is every session on a box whose herdr comes up with its
+  operator. Such a server is now started on the operator's own configuration,
+  with no pins written under their tree and no ownership recorded, so the
+  ownership-scoped `Stop` still refuses it and `stop_server` by name remains
+  the way to take it down. Spec §13.2 and §2.9.1 amended with the code.
+
 ## [0.15.0]
 
 ### Added
