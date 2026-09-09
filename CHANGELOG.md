@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.0]
+
 ### Added
 
 - **An agent row can carry the line the agent said.** `status` says somebody
