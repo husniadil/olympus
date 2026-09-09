@@ -247,6 +247,10 @@ type envParams struct {
 
 type emptyParams struct{}
 
+type agentsParams struct {
+	Last bool `json:"last,omitempty" jsonschema:"also read the one line each agent last said (or the question a blocked one waits on); costs one capture per row"`
+}
+
 type acknowledged struct {
 	Target string `json:"target"`
 }
@@ -625,9 +629,13 @@ func register(s *sdk.Server) {
 			return stopped, nil, err
 		})
 
-	addTool(s, "list_agents", "List the coding agents running in panes: which pane, which agent, its status (working, idle, blocked) and its title where the backend detects agents itself. Every backend answers; a row found by command has its status read off the pane's screen (status_source: screen), and a screen no rule recognises is unknown.",
-		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) ([]backend.Agent, []olympus.Warning, error) {
-			agents, err := ol.Agents(ctx)
+	addTool(s, "list_agents", "List the coding agents running in panes: which pane, which agent, its status (working, idle, blocked) and its title where the backend detects agents itself. Every backend answers; a row found by command has its status read off the pane's screen (status_source: screen), and a screen no rule recognises is unknown. Ask for last to also get the line each agent said, which is what tells you WHAT a blocked one is waiting on.",
+		func(ctx context.Context, ol *olympus.Olympus, in agentsParams) ([]backend.Agent, []olympus.Warning, error) {
+			var opts []olympus.AgentOption
+			if in.Last {
+				opts = append(opts, olympus.WithLast())
+			}
+			agents, err := ol.Agents(ctx, opts...)
 			if agents == nil {
 				agents = []backend.Agent{}
 			}

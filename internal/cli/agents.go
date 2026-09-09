@@ -7,13 +7,15 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
 )
 
 // agents lists the coding agents running in panes. A bare verb rather than a
 // group: it has one read and no write.
 func (a *App) agentsCmd() *cobra.Command {
-	return &cobra.Command{
+	var last bool
+	cmd := &cobra.Command{
 		Use:   "agents",
 		Short: "List the agents running in panes, with status where the backend knows it",
 		Long: "List the coding agents running in panes on the resolved backend: which pane, which agent, what it is working on, and its status — working, idle, blocked — where it can be told." +
@@ -27,7 +29,11 @@ func (a *App) agentsCmd() *cobra.Command {
 			}
 			defer ol.Close()
 
-			agents, err := ol.Agents(cmd.Context())
+			var opts []olympus.AgentOption
+			if last {
+				opts = append(opts, olympus.WithLast())
+			}
+			agents, err := ol.Agents(cmd.Context(), opts...)
 			if err != nil {
 				return err
 			}
@@ -42,6 +48,17 @@ func (a *App) agentsCmd() *cobra.Command {
 					return
 				}
 				table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+				if last {
+					// The line replaces the cwd rather than joining it: both
+					// are long, and what the agent said is why --last was asked
+					// for.
+					fmt.Fprintln(table, "PANE\tAGENT\tSTATUS\tTITLE\tLAST")
+					for _, ag := range agents {
+						fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", ag.PaneID, ag.Agent, ag.Status, ag.Title, ag.Last)
+					}
+					_ = table.Flush()
+					return
+				}
 				fmt.Fprintln(table, "PANE\tAGENT\tSTATUS\tTITLE\tCWD")
 				for _, ag := range agents {
 					fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n", ag.PaneID, ag.Agent, ag.Status, ag.Title, ag.CWD)
@@ -50,4 +67,7 @@ func (a *App) agentsCmd() *cobra.Command {
 			})
 		},
 	}
+	cmd.Flags().BoolVar(&last, "last", false,
+		"Also read the one line each agent last said, or the question a blocked one is waiting on; costs one capture per row")
+	return cmd
 }

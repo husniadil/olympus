@@ -240,7 +240,63 @@ func (t *processTree) walk(pid int, visit func(pid int, argv []string)) {
 // no rule recognises, an agent with no manifest, a capture that fails: all
 // unknown, with no source — the listing MUST NOT invent a state it cannot
 // see (behavior §3.7).
-func (o *Olympus) Agents(ctx context.Context) ([]backend.Agent, error) {
+//
+// WithLast asks for one more thing per row and costs one capture per row to
+// answer; see its own documentation.
+func (o *Olympus) Agents(ctx context.Context, opts ...AgentOption) ([]backend.Agent, error) {
+	var options agentOpts
+	for _, opt := range opts {
+		opt(&options)
+	}
+	agents, err := o.listAgents(ctx)
+	if options.last && len(agents) > 0 {
+		o.fillLast(ctx, agents)
+	}
+	return agents, err
+}
+
+// An AgentOption asks the listing for something beyond the row itself.
+type AgentOption func(*agentOpts)
+
+type agentOpts struct{ last bool }
+
+// WithLast fills each row's Last: the one line of its own output the agent
+// row stands for. Opt-in, because it is not free — a row whose status came
+// from the backend was never captured, and this captures it, one call per
+// row. A caller that only wants to know what is running should not pay for
+// a caller that wants to know what it said.
+func WithLast() AgentOption { return func(o *agentOpts) { o.last = true } }
+
+// fillLast reads each row's pane and cuts its line (agentstate.Line). Best
+// effort throughout: a capture that fails, an agent with no manifest and a
+// screen with nothing to say all leave Last empty, which is the same answer
+// and the honest one. The rows are still the listing.
+func (o *Olympus) fillLast(ctx context.Context, agents []backend.Agent) {
+	targets := make([]string, 0, len(agents))
+	for _, ag := range agents {
+		targets = append(targets, ag.PaneID)
+	}
+	screens, err := o.Screens(ctx, targets)
+	if err != nil {
+		return
+	}
+	for i := range agents {
+		screen, ok := screens.Screens[agents[i].PaneID]
+		if !ok {
+			continue
+		}
+		screen = trimLineEnds(screen)
+		if o.backend.Capabilities().NativeScrollback {
+			screen = tailLines(screen, detectionRows)
+		}
+		agents[i].Last = agentstate.Line(
+			agentstate.Input{Screen: screen, OSCTitle: agents[i].Title},
+			agentstate.State(agents[i].Status),
+		)
+	}
+}
+
+func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 	if lister, ok := o.backend.(backend.AgentLister); ok {
 		agents, err := lister.Agents(ctx)
 		if agents == nil && err == nil {

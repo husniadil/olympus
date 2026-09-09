@@ -583,3 +583,50 @@ func TestKindsReportClaudeUnderClaudeCode(t *testing.T) {
 	}
 	t.Fatal("kinds does not report claude at all")
 }
+
+// §3.7 What the agent said is asked for, never assumed. Without the option a
+// row carries no line and nothing is captured; with it the line is read off
+// the pane, and a blocked row answers with the question rather than with the
+// options under it, which is the thing a caller has to act on.
+func TestAgentsCarryTheAgentsOwnLineOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+	screen := "  Ran the migration.\n\n────────────\n❯\n────────────\n  status line\n"
+	newOlympus := func() (*Olympus, *listingBackend) {
+		l := &listingBackend{
+			fakeBackend: &fakeBackend{
+				caps:    backend.Capabilities{Backend: backend.Herdr, AgentStatus: true},
+				panes:   []backend.Pane{{ID: "w1:p1", SessionName: "build", SessionID: "w1"}},
+				screens: map[string]string{"w1:p1": screen},
+			},
+			agents: []backend.Agent{{
+				PaneID: "w1:p1", SessionName: "build", SessionID: "w1", Agent: "claude",
+				Status: "idle", CWD: "/repo", DetectedBy: "herdr",
+			}},
+		}
+		return &Olympus{backend: l, resolution: Resolution{Backend: backend.Herdr, Reason: ReasonFlag}}, l
+	}
+
+	o, l := newOlympus()
+	quiet, err := o.Agents(context.Background())
+	if err != nil {
+		t.Fatalf("Agents: %v", err)
+	}
+	if quiet[0].Last != "" {
+		t.Errorf("unasked-for line: %q", quiet[0].Last)
+	}
+	if len(l.screenOpts) != 0 {
+		t.Errorf("captured %d panes for a caller that asked for no line", len(l.screenOpts))
+	}
+
+	o, l = newOlympus()
+	asked, err := o.Agents(context.Background(), WithLast())
+	if err != nil {
+		t.Fatalf("Agents(WithLast): %v", err)
+	}
+	if asked[0].Last != "Ran the migration." {
+		t.Errorf("line: %q", asked[0].Last)
+	}
+	if len(l.screenOpts) != 1 {
+		t.Errorf("captured %d panes, want one per row", len(l.screenOpts))
+	}
+}

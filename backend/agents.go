@@ -25,6 +25,13 @@ type Agent struct {
 	StatusSource string `json:"status_source,omitempty"`
 	// Title is what the agent is working on, where the backend reports it.
 	Title string `json:"title,omitempty"`
+	// Last is the one line of its own output the row stands for: what the
+	// agent last said, or, where the row is blocked, the question it is
+	// waiting on. Read off the pane by the agent's manifest regions, and
+	// only when the caller asked for it — it costs a capture per row.
+	// Omitted where it was not asked for, and where the screen had nothing
+	// to say.
+	Last string `json:"last,omitempty"`
 	// CWD is the directory the agent is working in.
 	CWD string `json:"cwd"`
 	// DetectedBy is how the row was found: the backend's own detection

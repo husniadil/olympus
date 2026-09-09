@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **An agent row can carry the line the agent said.** `status` says somebody
+  is needed; it never said what for, so a caller acting on a blocked row had
+  to capture the pane itself and cut the question out of it — which one did,
+  re-porting herdr's region rules into another language to do it. `agents
+  --last`, `Agents(ctx, WithLast())` and `list_agents {"last": true}` now
+  answer with `last`: the agent's last line, or the question a blocked row is
+  waiting on, read with the manifests' own regions. Opt-in, because it costs
+  one capture per row and a row whose status the backend reported was never
+  captured otherwise. (behavior §3.7, api §5.)
+
 ## [0.16.0]
 
 ### Changed

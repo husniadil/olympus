@@ -612,6 +612,7 @@ and on a backend without detection of its own:
 ```json
 { "pane_id": "%3", "session_name": "fix", "session_id": "$3",
   "agent": "codex", "status": "blocked", "status_source": "screen",
+  "last": "Allow codex to run `rm -rf build`?",
   "cwd": "/Users/husni/github.com/husniadil/gamelan", "detected_by": "command",
   "pid": 77564 }
 ```
@@ -639,7 +640,15 @@ where one is known — the process that named it on a `command` row, the
 pane's foreground process group leader on a `herdr` row, read per row — and
 is omitted where none is (a foreground-command match, a pane herdr could not
 describe); it is a handle for the caller, and the row claims nothing about
-what that process was started with. `title` and `usage` are omitted where
+what that process was started with. `last` is one line of the agent's own
+output — what it last said, or, where the row is `blocked`, the question it
+is waiting on — and is present only where the caller asked for it (`agents
+--last`, `Agents(ctx, WithLast())`, `list_agents {"last": true}`). It costs
+one capture per row, which is why it is asked for rather than always sent: a
+row whose status the backend reported itself was never captured otherwise.
+Empty is the honest answer for a screen with nothing to say, an agent with
+no manifest, or a capture that failed, and it is omitted then. `title` and
+`usage` are omitted where
 absent. `usage[].percent` is an integer 0–100 and `usage[].label` the short
 label the agent shows (`5h`, `7d`, a model name). `capabilities` reports
 `agent_status` where rows can carry a status: true on every backend, native

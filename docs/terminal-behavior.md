@@ -1053,6 +1053,26 @@ listing reads one snapshot, so here nothing matching is `unknown`. Agents
 with no manifest upstream (aider, goose, omp, mastracode) are listed with
 `unknown` and their screens are not captured.
 
+**What the agent said is asked for, never assumed.** `status` says somebody
+is needed; it does not say what for, and a caller that has to act on a
+blocked row needs the question. `last` carries one line of the agent's own
+output: what it last said, or, where the row is `blocked`, the question it
+is waiting on. It MUST be filled only where the caller asked for it, and
+MUST be omitted otherwise — a row whose status came from the backend was
+never captured, and filling this captures it, one call per row, so a caller
+that only wants to know what is running MUST NOT pay for one that wants to
+know what it said. Empty is the honest answer and MUST NOT be replaced by a
+guess: a screen with nothing to say, an agent with no manifest, a capture
+that failed all leave it empty, and the row is still an agent.
+
+The line is read with the manifests' own regions rather than rules invented
+for it: the last non-blank line above the composer box for an agent that is
+not blocked, which is also what drops the status area the box sits on; for a
+blocked one the last line ending in a question mark within the bottom 30,
+else the last line after the final horizontal rule, since a dialog states
+its case where it does not ask. Box borders, a TUI's own key hints and the
+client's unread-message overlay are not the agent's words and are dropped.
+
 `usage`, where a natively detecting backend reports it, is the agent's own
 quota readout: an ordered list of `{label, percent}` bars, the label as the
 agent spells it (`5h`, `7d`, a model name) and the percent an integer 0–100.
