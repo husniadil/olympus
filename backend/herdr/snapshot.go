@@ -19,6 +19,9 @@ import (
 // the `layouts` rows — which is what turns a workspace target into the pane a
 // verb acts on.
 type snapshot struct {
+	// Version is the herdr build answering, carried by the snapshot itself so
+	// reading it costs no second invocation.
+	Version            string         `json:"version"`
 	FocusedWorkspaceID string         `json:"focused_workspace_id"`
 	FocusedTabID       string         `json:"focused_tab_id"`
 	FocusedPaneID      string         `json:"focused_pane_id"`

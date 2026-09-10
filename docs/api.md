@@ -386,9 +386,12 @@ delivers that reply to somebody else's terminal, silently.
 
 `liveness` is the backend-owned tri-state (behavior spec §3.2). `outcome` appears
 only on `start`, and is `created` | `reused` | `reaped`. `focused` appears only
-on herdr and marks the workspace the server is showing — the one every session
-client on that server displays (behavior §8.10); on backends whose clients each
-show their own session it is absent (§3.4).
+on herdr below 0.9.0 and marks the workspace EVERY session client on that server
+displays (behavior §8.10). It is absent from herdr 0.9.0, where each client keeps
+its own view and the server's focus says where the next client will land rather
+than what the running ones show, and absent on backends whose clients each show
+their own session (§3.4). A listing where no row carries the flag means the
+backend cannot say, never that the focus is elsewhere.
 
 **Pane row** (`info`):
 

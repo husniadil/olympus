@@ -246,6 +246,72 @@ func (h *Herdr) Capabilities() backend.Capabilities {
 	}
 }
 
+// sharedClientFocusFloor is the first herdr whose session clients each keep
+// their own view of the server.
+//
+// Below it every session client on a server shows the server's one focused
+// workspace, which is what makes that focus worth reporting to a caller
+// steering clients (§8.10). From it a client keeps whatever it was last
+// steered onto, and the focus the API reports says only where the NEXT client
+// will land.
+//
+// Measured 2026-09-10 rather than read out of a changelog, with two clients on
+// one server and `ui.window_title = "{workspace}"` naming what each was
+// showing: on 0.8.2 focusing a third workspace moved BOTH clients onto it; on
+// 0.9.0 it moved the foreground client alone and left the other where it was.
+//
+// A version comparison here, where the rest of this backend asks instead,
+// because herdr publishes nothing to ask: the API reports one focus on both
+// builds and the per-client view lives behind the client protocol, so there is
+// no request whose refusal would answer the question.
+const sharedClientFocusFloor = "0.9.0"
+
+// sharedClientFocus reports whether every session client on this server shows
+// the server's one focused workspace.
+//
+// An unreadable version reads as shared, which is the answer for every herdr
+// that existed when the split was introduced and keeps a listing from dropping
+// a field because a build reported its version oddly.
+func sharedClientFocus(version string) bool {
+	got, ok := parseHerdrVersion(version)
+	if !ok {
+		return true
+	}
+	want, _ := parseHerdrVersion(sharedClientFocusFloor)
+	for i := range want {
+		if got[i] != want[i] {
+			return got[i] < want[i]
+		}
+	}
+	return false
+}
+
+// parseHerdrVersion reads "0.9.0" into its three numbers, ignoring any suffix
+// after the patch. Its own rather than the diagnostic's because that one lives
+// in the package this one is imported BY.
+func parseHerdrVersion(v string) ([3]int, bool) {
+	var out [3]int
+	fields := strings.SplitN(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".", 3)
+	if len(fields) != 3 {
+		return out, false
+	}
+	for i, field := range fields {
+		digits := field
+		for j, r := range field {
+			if r < '0' || r > '9' {
+				digits = field[:j]
+				break
+			}
+		}
+		n, err := strconv.Atoi(digits)
+		if err != nil {
+			return out, false
+		}
+		out[i] = n
+	}
+	return out, true
+}
+
 func (h *Herdr) Version(ctx context.Context) (string, error) {
 	out, err := h.run(ctx, "--version")
 	if err != nil {
@@ -344,7 +410,7 @@ func (h *Herdr) Create(ctx context.Context, spec backend.CreateSpec) (backend.Se
 	// session and is still addressable, but Olympus made a shape it did not
 	// mean to, so it is reaped rather than left half-made (§3.6).
 	if _, err := h.run(ctx, "pane", "rename", pane.PaneID, spec.Name); err != nil {
-		_, _ = h.run(ctx, "workspace", "close", workspace.WorkspaceID)
+		_ = h.closeWorkspace(ctx, workspace.WorkspaceID)
 		return backend.Session{}, err
 	}
 
@@ -393,6 +459,7 @@ func (h *Herdr) Sessions(ctx context.Context) ([]backend.Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	shared := sharedClientFocus(snap.Version)
 	sessions := make([]backend.Session, 0, len(snap.Workspaces))
 	for _, ws := range snap.Workspaces {
 		sessions = append(sessions, backend.Session{
@@ -414,10 +481,13 @@ func (h *Herdr) Sessions(ctx context.Context) ([]backend.Session, error) {
 			// has one, and that is the pane every verb on the workspace acts
 			// on (§3.6).
 			CWD: snap.focusedPaneOf(ws.ActiveTabID).CWD,
-			// The server has one focus, and every session client on it shows
-			// this workspace; a consumer steering clients (§8.10) reads it to
-			// tell a client whose target is not what it is showing.
-			Focused: ws.WorkspaceID == snap.FocusedWorkspaceID,
+			// Where every session client on the server shows one workspace,
+			// this marks it: a consumer steering clients (§8.10) reads it to
+			// tell a client whose target is not what it is showing. Left unset
+			// on a server whose clients each keep their own view, because the
+			// server's focus answers a different question there than the one
+			// the flag is read for (sharedClientFocus).
+			Focused: shared && ws.WorkspaceID == snap.FocusedWorkspaceID,
 		})
 	}
 	return sessions, nil
@@ -601,6 +671,31 @@ func (h *Herdr) resolvePane(ctx context.Context, target string) (paneRow, error)
 	return r.pane, nil
 }
 
+// closeWorkspace closes one workspace, and the worktree group around it where
+// herdr will not separate the two.
+//
+// herdr refuses a plain close on a workspace that has linked worktree
+// workspaces beside it and names the flag that closes the group, so this asks
+// for the narrow close first and widens only on that refusal. Establishing it
+// by asking rather than by the server's version is the same rule the rest of
+// this backend follows: the flag has been there since 0.8.2 and the refusal
+// since at least as long, and a version comparison would still be a guess
+// about a build that carries one and not the other.
+//
+// Widening rather than reporting the refusal is what makes a stop a stop
+// (§3.6): a workspace whose group stays open is a session told to stop that
+// did not, and herdr offers no close that takes the parent alone. The other
+// workspaces in the group are Olympus sessions of their own, so this ends more
+// than the target names — recorded in §3.6 because it is the one place a verb
+// reaches past its own target.
+func (h *Herdr) closeWorkspace(ctx context.Context, workspaceID string) error {
+	_, err := h.run(ctx, "workspace", "close", workspaceID)
+	if errors.Is(err, errGroupCloseRequired) {
+		_, err = h.run(ctx, "workspace", "close", workspaceID, "--group")
+	}
+	return err
+}
+
 // Kill ends whatever the target names: a workspace with every tab and pane in
 // it, a tab with every pane in it, or one pane (§3.6).
 //
@@ -610,6 +705,10 @@ func (h *Herdr) resolvePane(ctx context.Context, target string) (paneRow, error)
 // to stop and did not. Closing the only pane of a workspace closes the tab and
 // the workspace with it, so a pane-addressed stop of a single-pane session
 // still leaves nothing behind. Measured.
+//
+// A workspace that has linked worktree workspaces beside it takes the group
+// with it, because herdr offers no close that takes the parent alone
+// (closeWorkspace).
 func (h *Herdr) Kill(ctx context.Context, target string) error {
 	r, err := h.resolve(ctx, target)
 	if err != nil {
@@ -625,7 +724,7 @@ func (h *Herdr) Kill(ctx context.Context, target string) error {
 	case kindTab:
 		_, err = h.run(ctx, "tab", "close", r.tab.TabID)
 	default:
-		_, err = h.run(ctx, "workspace", "close", r.workspace.WorkspaceID)
+		err = h.closeWorkspace(ctx, r.workspace.WorkspaceID)
 	}
 	if err != nil && backend.CodeOf(err) == backend.CodeSessionNotFound {
 		return nil
@@ -723,6 +822,14 @@ func runCommand(cmd *exec.Cmd, args []string) (string, error) {
 // it travels as a distinguishable sentinel rather than as one fixed code.
 var errNoServer = errors.New("no herdr server is running")
 
+// errGroupCloseRequired marks a workspace close herdr refused because the
+// workspace has linked worktree workspaces beside it.
+//
+// A sentinel rather than a code the caller re-reads, for the same reason
+// errNoServer is one: the answer changes what the caller DOES, and only the
+// caller knows whether closing the group is what its verb meant.
+var errGroupCloseRequired = errors.New("herdr refused a workspace close without group intent")
+
 // classify maps herdr's own error vocabulary onto the shared one (§12).
 //
 // The CLI answers with a JSON envelope carrying a stable code, so this reads
@@ -752,6 +859,8 @@ func classify(err error, stdout, stderr string, args []string) error {
 		// "session <name> is not running or cannot be reached at <socket>":
 		// the named server is not there to stop (§13.2).
 		return backend.Errorf(backend.CodeSessionNotFound, "%s", message)
+	case "workspace_group_close_required":
+		return fmt.Errorf("%w: %s", errGroupCloseRequired, message)
 	case "invalid_key", "invalid_request", "invalid_metadata_source",
 		"invalid_metadata_token", "invalid_metadata_ttl":
 		return backend.Errorf(backend.CodeUsage, "%s", message)

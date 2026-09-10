@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Stopping a workspace that has a worktree beside it now stops it.** herdr
+  refuses a plain `workspace close` on a workspace with linked worktree
+  workspaces and names the `--group` flag that closes the group, offering no
+  close that takes the parent alone. That refusal reached the caller as an
+  unexpected error and the session stayed up: a stop that did not stop. `stop`
+  and `kill` now ask for the narrow close first and widen only on the refusal,
+  which is the same on every herdr that has the flag, so no version is read.
+  The other workspaces in the group are sessions of their own, so this ends
+  more than the target names — recorded in behavior §3.6, the one place a verb
+  reaches past its own target.
+
+### Changed
+
+- **A session listing off herdr 0.9.0 or newer no longer carries `focused`.**
+  Below 0.9.0 every session client on a server shows the server's focused
+  workspace, which is what makes the flag worth reporting to a consumer
+  steering clients. From 0.9.0 each client keeps whatever it was last steered
+  onto, so the server's focus says where the NEXT client will land rather than
+  what the running ones display — a different question from the one the flag is
+  read for. Measured with two clients on one server: on 0.8.2 focusing a third
+  workspace moved both, on 0.9.0 it moved the foreground client alone. The flag
+  is now set on no row there rather than on one that would answer wrongly, and
+  a listing carrying it nowhere means the backend cannot say. Steering itself
+  is unchanged and still decides what a client coming up will show, so
+  `Capabilities.Focus` stays true.
+
 ## [0.18.0]
 
 ### Added

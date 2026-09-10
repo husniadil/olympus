@@ -67,10 +67,18 @@ type Session struct {
 	Dead     bool     `json:"dead"`
 	Liveness Liveness `json:"liveness"`
 	CWD      string   `json:"cwd"`
-	// Focused marks the one session the server itself is showing, on a
-	// backend that has a server-wide focus (herdr: the focused workspace,
-	// which every session client on that server displays). Absent on
-	// backends whose clients each show their own session (§3.4).
+	// Focused marks the one session EVERY client attached to the server is
+	// showing, on a backend where clients share one view (herdr below 0.9.0:
+	// the focused workspace, which every session client displays). A consumer
+	// steering clients (§8.10) reads it to tell a client whose target is not
+	// what it is showing.
+	//
+	// Absent on backends whose clients each show their own session, and absent
+	// on herdr from 0.9.0, where a client keeps whatever it was last steered
+	// onto (§3.4). The server still HAS a focus there and steering still
+	// works; it just says where the next client will land rather than what the
+	// running ones display, which is not the question the flag is read for. No
+	// row carrying it means "cannot say", never "the focus is elsewhere".
 	Focused bool `json:"focused,omitempty"`
 	// Outcome is set by start and left empty everywhere else, so a listing row
 	// never implies an action was taken.
@@ -214,11 +222,16 @@ type Capabilities struct {
 	// view on tmux (behavior §8.9). A caller offering a "clean" attach branches
 	// on this rather than on the backend's name.
 	Bare bool `json:"bare"`
-	// Focus reports whether the server's focus — what every client attached
-	// to a session shows — can be steered onto a target without attaching
-	// (behavior §8.10). True where clients share a server-side focus (herdr's
-	// session client, tmux's plain session); false where a session is one
-	// pane and there is nothing to steer.
+	// Focus reports whether the server's focus can be steered onto a target
+	// without attaching (behavior §8.10). True where a server-side focus is
+	// what a client reads when it comes up (herdr's session client, tmux's
+	// plain session); false where a session is one pane and there is nothing
+	// to steer.
+	//
+	// It says the steering works, not that every client follows it. On herdr
+	// from 0.9.0 a client already attached keeps its own view, so steering
+	// decides what the NEXT client shows; Session.Focused is where that
+	// difference is reported.
 	Focus bool `json:"focus"`
 	// Rename reports whether a target can be given a new name in place
 	// (behavior §2.11): a session, and a window, tab or pane where the

@@ -869,13 +869,36 @@ func TestSessionsMarkTheFocusedWorkspace(t *testing.T) {
 		}
 		return m
 	}
-	if got := focusedOf(); !got[first] || got[second] {
-		t.Fatalf("after focusing %s: focused flags %v", first, got)
+	// What the flag must say depends on whether every client on this server
+	// shows one workspace (§3.4). Below 0.9.0 it follows the steering; from
+	// 0.9.0 no row carries it, because the server's focus then says where the
+	// next client will land rather than what the running ones display.
+	snap, err := b.snapshot(ctx)
+	if err != nil {
+		t.Fatalf("reading the server version: %v", err)
+	}
+	shared := sharedClientFocus(snap.Version)
+	t.Logf("herdr %s: shared client focus = %v", snap.Version, shared)
+
+	if got := focusedOf(); shared != (got[first] && !got[second]) {
+		t.Fatalf("herdr %s after focusing %s: focused flags %v, shared=%v",
+			snap.Version, first, got, shared)
 	}
 	if err := b.Focus(ctx, second); err != nil {
 		t.Fatalf("Focus(%s): %v", second, err)
 	}
-	if got := focusedOf(); got[first] || !got[second] {
-		t.Fatalf("after focusing %s: focused flags %v", second, got)
+	if got := focusedOf(); shared != (!got[first] && got[second]) {
+		t.Fatalf("herdr %s after focusing %s: focused flags %v, shared=%v",
+			snap.Version, second, got, shared)
+	}
+	if !shared {
+		// Not merely "not the one steered onto": no row at all, so a consumer
+		// reads the listing as cannot-say rather than as focus-is-elsewhere.
+		for id, focused := range focusedOf() {
+			if focused {
+				t.Errorf("herdr %s carries focused on %s, where clients keep their own view",
+					snap.Version, id)
+			}
+		}
 	}
 }

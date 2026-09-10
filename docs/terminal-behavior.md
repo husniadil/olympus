@@ -187,7 +187,7 @@ cases, and the backends they belong to:
 | detached run poll | herdr | a window over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.7) |
 | pane listing | herdr | `current_command` is reported for a targeted listing only (§3.4) |
 | pane listing | herdr | `attached` is always false: no per-terminal client count exists (§3.4) |
-| session listing | herdr | `focused` marks the workspace the server is showing; absent on every other backend, whose clients each show their own session (§3.4) |
+| session listing | herdr below 0.9.0 | `focused` marks the workspace EVERY client on the server is showing; absent from 0.9.0, where clients keep their own view, and absent on every other backend, whose clients each show their own session (§3.4) |
 | detached run poll | zmx | the requested window size is ignored (§6.7) |
 | graceful kill | zmx | exec-spawned sessions cannot be interrupted (§2.8.1) |
 
@@ -804,6 +804,28 @@ root the agent listing walks (§3.7). meja's format has no such variable and
 herdr's snapshot carries no process id, so their rows omit it; a caller on
 those backends gets the foreground-command match and nothing deeper.
 
+**The session listing's `focused` flag says what every client is showing, and
+only where that is one thing.** herdr's server has one focused workspace and
+reports it on every version. Below 0.9.0 every session client on that server
+displays it, which is what makes it worth reporting to a consumer steering
+clients (§8.10): a client whose target is not the focused workspace is showing
+something the caller did not ask for, and the flag is how that is told. From
+0.9.0 each client keeps whatever it was last steered onto, so the server's
+focus says where the NEXT client will land rather than what the running ones
+display. Measured 2026-09-10 with two clients on one server and
+`ui.window_title = "{workspace}"` naming what each showed: on 0.8.2 focusing a
+third workspace moved both clients onto it, on 0.9.0 it moved the foreground
+client alone and left the other where it was.
+
+So the flag is set on NO row from 0.9.0, rather than on a row that would answer
+a different question. A consumer reads the absence of the flag across a listing
+as "this backend cannot say", never as "the focus is elsewhere" — the wire
+shape is the same one every backend without a shared focus produces. This is
+the one place a herdr version decides behavior instead of a request being made
+and its refusal read (§12), because herdr publishes nothing to ask: both builds
+report one focus through the same field, and the per-client view lives behind
+the client protocol where no API request reaches it.
+
 A consequence: **pane id is not unique across rows** once a grouped view exists,
 because a base session and its views share the same underlying window and pane,
 so a full pane listing reports the same pane id for every group member. Consumers
@@ -917,6 +939,19 @@ closing the focused pane of a workspace that has two would leave the workspace
 standing with the other — a session told to stop that did not. Closing the only
 pane of a workspace closes the tab and the workspace with it (measured), so a
 pane-addressed stop of a single-pane session still leaves nothing behind.
+
+**A workspace with linked worktree workspaces beside it takes the group with
+it.** herdr refuses a plain `workspace close` on such a workspace with
+`workspace_group_close_required`, naming the `--group` flag that closes the
+group, and offers no close that takes the parent alone (measured on 0.8.2 and
+0.9.0 alike). Olympus asks for the narrow close first and widens only on that
+refusal, rather than passing the flag always or reading the server's version:
+the refusal IS the answer, and it is the same on every build that has the flag.
+Widening is what keeps a stop a stop by the paragraph above — a workspace whose
+group stays open is a session told to stop that did not. It is also the one
+place a verb ends more than the target names, since the other workspaces in the
+group are Olympus sessions of their own, and it is recorded here for that
+reason.
 
 **Creation** makes a workspace with one root pane, labels both with the name,
 and returns the WORKSPACE: `id` is `w5`, `name` is the label. The size is
