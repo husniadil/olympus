@@ -42,6 +42,7 @@ var ToolNames = []string{
 	"list_views",
 	"server_env",
 	"list_servers",
+	"start_server",
 	"stop_server",
 	"list_agents",
 	"list_kinds",
@@ -56,6 +57,10 @@ var ToolNames = []string{
 
 type serverParams struct {
 	Name string `json:"name" jsonschema:"the server to stop, as listed by list_servers"`
+}
+
+type startServerParams struct {
+	Name string `json:"name,omitempty" jsonschema:"the server to start, as listed by list_servers; omit for the backend's default one"`
 }
 
 type targetParams struct {
@@ -621,6 +626,12 @@ func register(s *sdk.Server) {
 				servers = []backend.Server{}
 			}
 			return servers, nil, err
+		})
+
+	addTool(s, "start_server", "Bring a server up without creating a session on it, and wait for it to answer. Omit the name for the backend's default server. A backend that restores what it was running brings those panes back with it, which is what this is for after a machine reboots. Reports running (it was already up) or started.",
+		func(ctx context.Context, ol *olympus.Olympus, in startServerParams) (olympus.StartedServer, []olympus.Warning, error) {
+			started, err := ol.StartServer(ctx, in.Name)
+			return started, nil, err
 		})
 
 	addTool(s, "stop_server", "Stop a server by name, with every session on it. Reports gone (it was not running) or killed.",

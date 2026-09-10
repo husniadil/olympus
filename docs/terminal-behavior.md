@@ -2722,6 +2722,34 @@ thing they mean to take down.
 
 ---
 
+### 13.4 A server can be told to come up, and told only that
+
+Every other operation here refuses to boot a server. Creation is what starts
+one, the way tmux's first `new-session` does, and a listing or a probe that
+started what it was asked about would answer with a thing it had just made
+(§13.2). That rule leaves a machine that has just rebooted with no way to say
+"come up" — and it is the moment when saying so matters most, because a backend
+that RESTORES what it was running does that when its server boots. herdr does:
+its named session comes back with the panes it was running when it stopped.
+Without a verb for it, the only way to reach that restore was to create a
+session nobody asked for.
+
+So starting a server is its own capability, and it MUST NOT create anything on
+the server it starts: no session, no window, no pane. What comes up with the
+server is whatever the backend restores of its own accord, and a caller reads
+that from a listing afterwards like any other state.
+
+A server that is already answering MUST be left alone — not restarted, not
+reconfigured, not claimed — and reported as running rather than refused, the
+same idempotence `stop` gives a session (§2.8). Starting one is not owning it
+either: a server addressed by name comes up on the operator's own
+configuration, with none of Olympus's pins written into their tree, and Stop
+still refuses it (§2.9.1, §13.2).
+
+A backend whose server has no independent existence answers unsupported: tmux
+and zmx come up with their first session and have nothing to start on their
+own.
+
 ## 14. Exit-marker inspection
 
 Parsing a caller-supplied completion echo out of a session that outlives its

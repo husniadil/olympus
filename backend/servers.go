@@ -73,3 +73,21 @@ type Renamer interface {
 type ServerStopper interface {
 	StopServer(ctx context.Context, name string) error
 }
+
+// A ServerStarter brings one server up, without creating a session on it. It
+// is optional, and independent of the other two: a backend can enumerate and
+// stop servers it has no way to start.
+//
+// It is the one operation that boots a server without being asked to make
+// something on it, and it exists because a backend that RESTORES what it was
+// running does that when it boots (§13.4). Without it the only way to get
+// those panes back was to create a session nobody asked for, which is a
+// listing's worst answer: the thing the caller was asking about, made by the
+// asking.
+//
+// It takes the row rather than a name because starting one needs more than a
+// name does: which socket to wait on, and whether it is the backend's default
+// server, which several backends address differently from a named one.
+type ServerStarter interface {
+	StartServer(ctx context.Context, server Server) error
+}

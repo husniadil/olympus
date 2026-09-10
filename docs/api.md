@@ -51,6 +51,7 @@ same operation.
 | list views | `view ls` | `list_views` | `Views` |
 | read a server env key | `server-env` | `server_env` | `ServerEnv` |
 | list servers | `servers` | `list_servers` | `Servers` |
+| start a server | `servers start` | `start_server` | `StartServer` |
 | stop a server | `servers stop` | `stop_server` | `StopServer` |
 | list agents in panes | `agents` | `list_agents` | `Agents` |
 | list the agent vocabulary | `kinds` | `list_kinds` | `Kinds` (a package-level function) |
@@ -109,7 +110,10 @@ resolution wins. Keeping `poll` top-level costs nothing and removes the trap.
 `view` and `servers` are the two legitimate subcommand groups: their operations
 act on views and on servers rather than on sessions, and each shares a noun.
 `servers` lists when bare, since listing is what a caller reaches for first;
-`servers stop <name>` is the noun's one write.
+`servers start [name]` and `servers stop <name>` are the noun's two writes.
+Start takes its name optionally, because the row it means without one is the
+backend's own default and every caller after a reboot means that one; stop
+requires it, because the server it would take down without one is a guess.
 
 ### 1.2 Targets are positional, everywhere
 
@@ -585,6 +589,17 @@ selects one, which on tmux and herdr is not the server Olympus itself defaults
 to (behavior spec §17.2). `dir` is omitted where the backend has none to
 report. What a row is differs by backend — a tmux socket name, a herdr named
 session, zmx's one directory — and is specified in behavior §13.2.
+
+**Started server** (`servers start`):
+
+```json
+{ "name": "default", "outcome": "started" }
+```
+
+`outcome` is `running` (it was already up and was left alone) or `started`;
+both are successes. Nothing is created on the server: what comes up with it is
+whatever the backend restores of its own accord, which on herdr is the panes
+that session was running (behavior §13.4).
 
 **Stopped server** (`servers stop`):
 

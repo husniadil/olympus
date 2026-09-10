@@ -236,3 +236,66 @@ func requireHerdrRunnable(t *testing.T) {
 		t.Skip("herdr is not installed or not runnable")
 	}
 }
+
+// §13.4 Starting a server creates nothing on it, and what comes up with it is
+// what herdr restores: the panes that named session was running when it
+// stopped. That restore is the whole reason the verb exists, so it is measured
+// against the real binary rather than argued about.
+func TestStartServerBringsBackWhatTheServerWasRunning(t *testing.T) {
+	requireHerdrRunnable(t)
+	if testing.Short() {
+		t.Skip("driving a real multiplexer; run `make test-full` for this")
+	}
+	configHome := shortDir(t)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	socket := filepath.Join(configHome, "herdr", "sessions", "w", "herdr.sock")
+	b := New(WithServerSocket("w", socket))
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	row := backend.Server{Name: "w", SocketPath: socket}
+	if err := b.StartServer(ctx, row); err != nil {
+		t.Fatalf("starting a named server that has never run: %v", err)
+	}
+	t.Cleanup(func() { _ = b.StopServer(context.Background(), "w") })
+	// Nothing was created by starting it. The session below is the caller's,
+	// and it is what has to come back.
+	if sessions, err := b.Sessions(ctx); err != nil {
+		t.Fatalf("listing a server that was just started: %v", err)
+	} else if len(sessions) != 0 {
+		t.Fatalf("starting a server made %d sessions on it: %+v", len(sessions), sessions)
+	}
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "restored", Cols: 80, Rows: 24, Dir: t.TempDir()}); err != nil {
+		t.Fatalf("creating on the server: %v", err)
+	}
+	if err := b.StopServer(ctx, "w"); err != nil {
+		t.Fatalf("stopping the server: %v", err)
+	}
+
+	if err := b.StartServer(ctx, row); err != nil {
+		t.Fatalf("starting the server again: %v", err)
+	}
+	var err error
+	// The verb waits for the server to ANSWER, which is what it promises;
+	// herdr's restore lands shortly after, so the listing is polled rather
+	// than read once. A restore that never lands fails here on the deadline.
+	var sessions []backend.Session
+	var found bool
+	for deadline := time.Now().Add(20 * time.Second); !found && time.Now().Before(deadline); {
+		sessions, err = b.Sessions(ctx)
+		if err != nil {
+			t.Fatalf("listing after the restart: %v", err)
+		}
+		for _, s := range sessions {
+			if s.Name == "restored" {
+				found = true
+			}
+		}
+		if !found {
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+	if !found {
+		t.Errorf("the session the server was running did not come back: %+v", sessions)
+	}
+}

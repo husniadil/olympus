@@ -53,6 +53,7 @@ func (a *App) serversCmd() *cobra.Command {
 			})
 		},
 	}
+	group.AddCommand(a.serversStartCmd())
 	group.AddCommand(a.serversStopCmd())
 	return group
 }
@@ -78,6 +79,37 @@ func (a *App) serversStopCmd() *cobra.Command {
 			}
 			return a.emit(stopped, nil, func(w io.Writer) {
 				fmt.Fprintf(w, "%s %s\n", stopped.Outcome, stopped.Name)
+			})
+		},
+	}
+}
+
+func (a *App) serversStartCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "start [name]",
+		Short: "Bring a server up, without creating a session on it",
+		Long: "Bring a server up, without creating a session on it. With no name, the backend's default server." +
+			"\n\nFor the machine that has just come back: a backend that restores what it was running does that when its server boots, and every other verb here refuses to boot one, since a listing that started what it was asked to list would answer with a thing it had made. This says come up and says only that — no session, no window, no pane." +
+			"\n\nReports which happened: running (it was already up and was left alone) or started. Both are successes. An unknown name is not found; a backend that cannot start a server on its own — tmux and zmx come up with their first session — answers unsupported." +
+			scriptsNote,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ol, err := a.open()
+			if err != nil {
+				return err
+			}
+			defer ol.Close()
+
+			name := ""
+			if len(args) == 1 {
+				name = args[0]
+			}
+			started, err := ol.StartServer(cmd.Context(), name)
+			if err != nil {
+				return err
+			}
+			return a.emit(started, nil, func(w io.Writer) {
+				fmt.Fprintf(w, "%s %s\n", started.Outcome, started.Name)
 			})
 		},
 	}

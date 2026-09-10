@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A server can be told to come up.** Creation was the only thing that
+  started one, so a machine that had just rebooted had no way to say "come
+  up" — and that is the moment it matters most, because a backend that
+  RESTORES what it was running does that when its server boots. herdr does:
+  its named session comes back with the panes it was running. The only way to
+  reach that restore was to create a session nobody asked for. `servers start
+  [name]`, `start_server` and `StartServer` say come up and say only that: no
+  session, no window, no pane. With no name it is the backend's default
+  server, which is the one a caller after a reboot means. A server already
+  answering is reported `running` and left entirely alone; one that comes up
+  is `started`. Starting is not owning: the server runs on the operator's own
+  configuration and Stop still refuses it. tmux and zmx answer unsupported —
+  theirs come up with their first session. (`terminal-behavior.md` §13.4.)
+
 ## [0.17.0]
 
 ### Added

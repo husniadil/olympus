@@ -85,3 +85,57 @@ func (o *Olympus) StopServer(ctx context.Context, name string) (StoppedServer, e
 	}
 	return StoppedServer{Name: name, Outcome: "killed"}, nil
 }
+
+// A StartedServer reports what starting a server actually did.
+type StartedServer struct {
+	Name string `json:"name"`
+	// Outcome is running (it was already up and was left alone) or started.
+	// Both are successes, mirroring StopServer's vocabulary.
+	Outcome string `json:"outcome"`
+}
+
+// StartServer brings one server up, without creating a session on it. An empty
+// name means the backend's default row.
+//
+// It exists for the machine that has just come back: a backend that restores
+// what it was running does that when its server boots, and every other verb
+// here refuses to boot one on purpose — a listing that started what it was
+// asked to list would answer with a thing it had made (§13.4). This is the one
+// verb that says come up, and it says only that.
+//
+// A server that already answers is reported running and is left entirely
+// alone: not restarted, not reconfigured, not claimed.
+func (o *Olympus) StartServer(ctx context.Context, name string) (StartedServer, error) {
+	starter, ok := o.backend.(backend.ServerStarter)
+	if !ok {
+		return StartedServer{}, backend.Errorf(backend.CodeUnsupported,
+			"%s cannot start a server; create a session on it instead", o.resolution.Backend)
+	}
+	servers, err := o.Servers(ctx)
+	if err != nil {
+		return StartedServer{}, err
+	}
+	var found *backend.Server
+	for i := range servers {
+		if (name == "" && servers[i].Default) || (name != "" && servers[i].Name == name) {
+			found = &servers[i]
+			break
+		}
+	}
+	if found == nil {
+		if name == "" {
+			return StartedServer{}, backend.Errorf(backend.CodeSessionNotFound,
+				"%s reports no default server to start; name one, as `olympus servers` lists them",
+				o.resolution.Backend)
+		}
+		return StartedServer{}, backend.Errorf(backend.CodeSessionNotFound,
+			"no %s server named %s; `olympus servers` lists the ones there are", o.resolution.Backend, name)
+	}
+	if found.Running {
+		return StartedServer{Name: found.Name, Outcome: "running"}, nil
+	}
+	if err := starter.StartServer(ctx, *found); err != nil {
+		return StartedServer{}, err
+	}
+	return StartedServer{Name: found.Name, Outcome: "started"}, nil
+}

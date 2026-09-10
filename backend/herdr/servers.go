@@ -3,7 +3,10 @@ package herdr
 import (
 	"context"
 	"encoding/json"
+	"os/exec"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -109,6 +112,69 @@ func LookupServer(ctx context.Context, name string) (backend.Server, error) {
 	}
 	return backend.Server{}, backend.Errorf(backend.CodeSessionNotFound,
 		"no herdr server named %s; `olympus servers` lists the ones there are", name)
+}
+
+// StartServer brings a named session's server up without creating anything on
+// it, and waits for it to answer.
+//
+// What comes back with it is the reason this exists: herdr restores the panes
+// that session was running when it last stopped, so bringing the server up is
+// how a caller gets a machine's work back after a reboot (§13.4). Nothing here
+// makes a session, a workspace or a pane.
+//
+// Ambient, like the listing and StopServer: a named session's socket lives in
+// the operator's configuration tree, so the server that comes up is theirs, on
+// their own configuration, with none of Olympus's pins written into it
+// (§13.2). Starting it is not owning it — Stop still refuses it (§2.9.1).
+//
+// The default row is herdr's unnamed session and comes up with `herdr server`.
+// Every other row is `herdr --session <name> server`, because `--session` on
+// the default row's name would make a SECOND server under `sessions/default`
+// rather than address the one meant.
+func (h *Herdr) StartServer(ctx context.Context, server backend.Server) error {
+	if !server.Default && strings.TrimSpace(server.Name) == "" {
+		return backend.Errorf(backend.CodeUsage, "a server needs a name")
+	}
+	probe := &Herdr{socketPath: server.SocketPath, socketOnly: true}
+	if err := probe.validateSocketPath(); err != nil {
+		return err
+	}
+	args := []string{"server"}
+	if !server.Default {
+		args = []string{"--session", server.Name, "server"}
+	}
+	// Not bound to the caller's context: the server is meant to outlive the
+	// process that asked for it, and a command tied to a cancelled context
+	// would take every pane on it down with the caller. Its own session for
+	// the same reason a started server gets one (startServer).
+	cmd := exec.Command("herdr", args...)
+	cmd.Env = invocationEnv()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return backend.Wrapf(backend.CodeBackendUnavailable, err,
+			"starting a herdr server at %s", server.SocketPath)
+	}
+	// Reaped rather than waited on, so nothing is left a zombie for as long
+	// as the caller runs.
+	go func() { _ = cmd.Wait() }()
+
+	deadline := time.Now().Add(serverStartBudget())
+	for {
+		if probe.serverAnswers(ctx) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return backend.Errorf(backend.CodeBackendUnavailable,
+				"the herdr server at %s did not start answering within %s",
+				server.SocketPath, serverStartBudget())
+		}
+		select {
+		case <-ctx.Done():
+			return backend.Wrapf(backend.CodeTimeout, ctx.Err(),
+				"waiting for a herdr server at %s", server.SocketPath)
+		case <-time.After(serverStartPoll):
+		}
+	}
 }
 
 // StopServer stops a named session's server, with every pane on it.
