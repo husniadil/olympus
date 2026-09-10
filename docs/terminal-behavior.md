@@ -987,7 +987,13 @@ the two ways differ in what the row can carry:
   `agent_status` capability so a caller can learn before asking that the
   rows will carry them. A state the backend spells that is outside the
   vocabulary is reported as `unknown`, not passed through: the vocabulary is
-  semver-bound (api §7).
+  semver-bound (api §7). A backend MAY spell one of the vocabulary's states
+  more than one way, and every spelling of it MUST be folded onto that state:
+  herdr says `done` for an idle agent nobody has looked at since it stopped
+  and `idle` for one somebody has, and both are `idle` here. That difference
+  is a fact about the OPERATOR rather than about the agent, and only a backend
+  drawing the panes can know it — a status read off a capture never can — so
+  it MUST NOT enter a vocabulary every backend shares.
 - **The command heuristic** — `detected_by: "command"`. The backend has no
   detection, so the ergonomic layer derives rows from the whole-server pane
   listing. Where the pane's `pid` is known (§3.4) detection MUST inspect the

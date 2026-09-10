@@ -138,18 +138,37 @@ func parseAgents(out string, snap snapshot) ([]backend.Agent, error) {
 }
 
 // agentStatus maps herdr's status onto the shared vocabulary. Anything herdr
-// spells that is not one of the three known states is unknown rather than
-// passed through: the vocabulary is semver-bound and a new spelling upstream
-// must not appear on the wire unannounced. blocked — the agent waiting on a
-// person — was folded into unknown until 0.12.0, which hid the one state a
-// caller most needs to act on.
+// spells that is not one of the known states is unknown rather than passed
+// through: the vocabulary is semver-bound and a new spelling upstream must not
+// appear on the wire unannounced. blocked — the agent waiting on a person —
+// was folded into unknown until 0.12.0, which hid the one state a caller most
+// needs to act on.
+//
+// herdr spells an idle agent two ways and both are idle here. `done` is one
+// nobody has looked at since it stopped, `idle` one somebody has (herdr's own
+// pane_agent_status, since 0.4.5). The difference is a fact about the
+// OPERATOR's attention rather than about the agent, and only a backend that
+// draws the panes can know it — a status read off a capture never can — so it
+// has no place in a vocabulary four backends share. A caller that wants it
+// wants a field of its own, honest about being herdr's alone.
+//
+// Folding it in was five months late: `done` shipped in herdr 0.4.5 and every
+// finished agent read as unknown here until now, which is the state a caller
+// takes as "cannot say" for the one that says the turn is over.
 func agentStatus(s string) string {
 	switch s {
 	case backend.AgentWorking, backend.AgentIdle, backend.AgentBlocked:
 		return s
+	case herdrDone:
+		return backend.AgentIdle
 	}
 	return backend.AgentUnknown
 }
+
+// herdrDone is herdr's spelling for an idle agent nobody has looked at since
+// it stopped. Named here rather than inline because it is herdr's word, not
+// one of ours.
+const herdrDone = "done"
 
 // parseUsage reads the usage bars out of an agent's tokens: every `usage_<n>`
 // key in numeric order, each rendered as a label, a bar and a percent. A value

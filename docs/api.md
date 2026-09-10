@@ -642,7 +642,10 @@ canonical name (`claude`, `codex`, `gemini`, `aider`, `opencode`, `goose`, `amp`
 natively-detecting backend reports; an alias such as `cursor-agent` or
 `claude-code` is reported under its canonical name). `status` is `working`,
 `idle`, `blocked` (waiting on a person: a permission prompt, a question) or
-`unknown`. `status_source` says where a known status came from — `native`,
+`unknown`. A backend that spells one of these more than one way has every
+spelling folded onto it: herdr says `done` for an idle agent nobody has looked
+at since it stopped, and it is reported here as `idle`, since whether somebody
+has looked is a fact about the operator rather than about the agent. `status_source` says where a known status came from — `native`,
 the backend's own detection; `screen`, read off a capture of the pane by the
 agent's manifest — and is omitted when the status is `unknown`, which means
 no evidence, never a guess. `detected_by` is how the row was found: `herdr`,

@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A finished agent on herdr reads as `idle` rather than `unknown`.** herdr
+  spells an idle agent two ways: `done` for one nobody has looked at since it
+  stopped, `idle` for one somebody has (`pane_agent_status`, since herdr
+  0.4.5). Only the second was in the vocabulary, so every agent that had just
+  ended a turn was reported as `unknown` — the state a caller reads as "no
+  evidence" for the one thing it most wants to know is over. Both are `idle`
+  now. Whether a person has looked is a fact about the OPERATOR rather than
+  about the agent, and only a backend that draws the panes can know it, so it
+  stays out of a vocabulary four backends share; a caller that wants it wants a
+  field of its own. Recorded in behavior §3.7 and api §6.
+
 ## [0.19.0]
 
 ### Fixed

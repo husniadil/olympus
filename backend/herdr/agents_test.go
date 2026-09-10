@@ -21,7 +21,8 @@ func TestAgentListingParsesHerdrRows(t *testing.T) {
 		`"tokens":{"usage_1":"-    5h: ▰▰▰▱▱▱▱▱▱▱  33%","usage_2":"-    7d: ▰▰▰▰▱▱▱▱▱▱  48%","usage_3":"- fable: ▰▰▰▰▰▰▱▱▱▱  69%","usage_hdr":"usage:"},"workspace_id":"w5F",` +
 		`"agent_session":{"source":"herdr:claude","agent":"claude","kind":"id","value":"6d3b1bee-76d2-42e3-9c99-f8a96df213d3"}},` +
 		`{"agent":"codex","agent_status":"thinking","cwd":"/home/op/other","pane_id":"w6:p2","tab_id":"w6:t1","terminal_title_stripped":"","tokens":{"usage_1":"not a bar","usage_x":"- 5h: 10%"},"workspace_id":"w6"},` +
-		`{"agent":"codex","agent_status":"blocked","cwd":"/home/op/ask","pane_id":"w7:p1","tab_id":"w7:t1","terminal_title_stripped":"Allow command?","tokens":{},"workspace_id":"w7"}` +
+		`{"agent":"codex","agent_status":"blocked","cwd":"/home/op/ask","pane_id":"w7:p1","tab_id":"w7:t1","terminal_title_stripped":"Allow command?","tokens":{},"workspace_id":"w7"},` +
+		`{"agent":"claude","agent_status":"done","cwd":"/home/op/done","pane_id":"w8:p1","tab_id":"w8:t1","terminal_title_stripped":"Ship it","tokens":{},"workspace_id":"w8"}` +
 		`],"type":"agent_list"}}`
 	snap := snapshot{Workspaces: []workspaceRow{{WorkspaceID: "w5F", Label: "gamelan"}}}
 
@@ -53,6 +54,16 @@ func TestAgentListingParsesHerdrRows(t *testing.T) {
 		{
 			PaneID: "w7:p1", SessionName: "w7", SessionID: "w7", Agent: "codex",
 			Status: "blocked", Title: "Allow command?", CWD: "/home/op/ask", DetectedBy: "herdr",
+		},
+		// herdr spells an idle agent two ways, and both are idle here: `done`
+		// is one nobody has looked at since it stopped, `idle` one somebody
+		// has. The difference is a fact about the OPERATOR's attention, which
+		// only a backend drawing the panes can know — a status read off a
+		// capture never can — so it has no place in a vocabulary four
+		// backends share.
+		{
+			PaneID: "w8:p1", SessionName: "w8", SessionID: "w8", Agent: "claude",
+			Status: "idle", Title: "Ship it", CWD: "/home/op/done", DetectedBy: "herdr",
 		},
 	}
 	if !reflect.DeepEqual(agents, want) {
