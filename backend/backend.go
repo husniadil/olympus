@@ -169,6 +169,17 @@ type Attachment struct {
 	// ends the client by itself. Nil means the client already ends with its
 	// target.
 	Probe func(ctx context.Context) State
+	// Settle, when set, is run by the engine once the client is up — it has
+	// painted and gone quiet — with the client's own input as `keys`. It is
+	// how a bare session client reaches its target on a herdr whose clients
+	// each keep their own view (0.9.0 and up): every client there follows
+	// the server's focus until it moves on its own, and a `workspace focus`
+	// on the server moves every client, so the target is reached the way a
+	// person reaches it, with the client's own workspace keys (measured,
+	// §8.10). An error ends the attach: a client left showing the wrong
+	// workspace is worse than none. Nil means there is nothing to do once
+	// the client is up.
+	Settle func(ctx context.Context, keys io.Writer) error
 }
 
 // Close runs the cleanup, if there is one. It is safe on the zero Attachment so

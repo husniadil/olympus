@@ -2013,16 +2013,45 @@ herdr has two clients, and they are different programs. The default attach is
 the raw per-pane stream, `herdr terminal attach`, onto the pane the target
 resolves to (§3.6) — a plain terminal with no chrome and no selection. The
 session client — `--client`, and `--bare`, which implies it — is herdr's own
-application: sidebar, tabs, mouse selection, scrollback and copy. It shows
-whatever the SERVER has focused and takes no target of its own, so Olympus MUST
-steer the server before spawning it, level by level in the order the client
-will read them:
+application: sidebar, tabs, mouse selection, scrollback and copy. It takes no
+target of its own, so Olympus MUST steer the server onto the target, level by
+level in the order the client will read them:
 
 | target | steering |
 |---|---|
 | workspace | `workspace focus <ws>`; then, if its active tab is zoomed, `pane zoom --pane <focused> --off` |
 | tab | `workspace focus <ws>`, then `tab focus <tab>`; then the same zoom-out if the tab is zoomed |
 | pane | `workspace focus <ws>`, `tab focus <tab>`, then `pane zoom --pane <pane> --on` |
+
+HOW the client reaches its workspace depends on the herdr, and this was
+measured rather than read (2026-09-13, two clients on one server, a marker
+typed into each and read back from each workspace's pane — the clients'
+window titles were tried first and lied, since a title repaints for the
+focused client alone). Below 0.9.0 every client shows the server's one focus:
+the steering above runs BEFORE the spawn, and the client comes up showing
+it. From 0.9.0 a client that has moved between workspaces on its own keeps a
+view of its own, but `workspace focus` on the server still moves EVERY
+client, those included; so on the server there is no way to put two clients
+on two workspaces, and steering it for a second tab moved the first. A bare
+client is therefore WALKED: it comes up on the server's focus (measured),
+and once it has painted and gone quiet — the engine waits for the first
+quiet stretch after its first byte, since the first byte comes before the
+connection — the backend reads the workspaces in the order of their numbers
+and writes the client's own next- or previous-workspace key, the shorter
+way round the ring those keys walk, once per step with a beat between
+(two at once were read as one). The bare configuration binds them to F17
+and F18, keys a terminal almost never sends, and the client reads them in
+the kitty spelling it asked for (`CSI > 7 u`); the legacy `CSI 31 ~` went
+unread. A tab or pane target is then steered on the server for its tab and
+zoom, which are the workspace's own state and move no client on another
+workspace. A client with the operator's configuration (`--client` without
+`--bare`) has no keys the backend can count on, so it is steered on the
+server as before, and moves every other client with it. The backend hands
+the walk to the engine as the attachment's `Settle`, run with the client's
+own input; a `Settle` that fails ends the attach with its error, since a
+client left on the wrong workspace is worse than none. The `focus` verb
+(§13) is unchanged and still steers the server directly, which on 0.9.0
+moves every client.
 
 The pane step is a zoom rather than a focus because herdr has no pane-focus
 request, and a zoom both focuses the pane and shows it alone — which is what a

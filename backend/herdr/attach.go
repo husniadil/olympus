@@ -2,8 +2,11 @@ package herdr
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
+	"sort"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -12,6 +15,10 @@ import (
 // keybinding that mutates layout is unbound, every piece of chrome (sidebar,
 // tab bar, pane borders and scrollbars, agent labels, window title, mobile
 // header) is hidden, and copy-on-select is left on so a selection still copies.
+// Two keys are BOUND, to F17 and F18 (keys a terminal almost never sends):
+// the previous- and next-workspace steps, which is how the attach walks the
+// client onto its workspace on a herdr whose clients keep their own view
+// (attachSessionClient says why).
 //
 // Two values are load-bearing and NOT free choices: prefix cannot be the empty
 // string — herdr rejects an empty keybinding and falls back to the default — so
@@ -34,6 +41,8 @@ resize_mode = ""
 zoom = ""
 toggle_sidebar = ""
 workspace_picker = ""
+next_workspace = "f18"
+previous_workspace = "f17"
 [ui]
 sidebar_start_collapsed = true
 sidebar_collapsed_mode = "hidden"
@@ -112,16 +121,28 @@ func (h *Herdr) Attach(ctx context.Context, target string, spec backend.AttachSp
 
 // attachSessionClient runs herdr's own session client — which unlike the raw
 // terminal stream carries the sidebar, the tabs, selection, scrollback and copy
-// — steered onto the target first (§8.10).
+// — steered onto the target (§8.10).
 //
-// The steering is a sequence of server requests, run here before the client is
-// spawned, because the client shows whatever the server has focused and takes
-// no target of its own. A workspace is focused; a tab is focused within its
-// focused workspace; a pane is zoomed within its focused tab, which also moves
-// focus onto it (measured: zooming a pane that was not focused answers
+// The steering is a sequence of server requests: the client takes no target
+// of its own. A workspace is focused; a tab is focused within its focused
+// workspace; a pane is zoomed within its focused tab, which also moves focus
+// onto it (measured: zooming a pane that was not focused answers
 // `focus_changed: true`, and zooming into a tab already zoomed on another pane
 // still moves focus). The steering is not undone when the client exits — the
 // server keeps the focus and the zoom a human would have left the same way.
+//
+// HOW the client reaches a workspace depends on the herdr. Below 0.9.0 every
+// client shows the server's one focus, so the steering runs here, before the
+// spawn, and the client comes up showing it. From 0.9.0 each client keeps a
+// view of its own once it has moved on its own, and a `workspace focus` on
+// the server still moves EVERY client (measured 2026-09-13 with two clients
+// and a marker typed into each: after `focus three` both typed into
+// `three`); so a bare client, whose configuration is this backend's, is
+// walked to its workspace with the client's own next- and previous-workspace
+// keys once it is up, as the attachment's Settle (§8.10). A client with the
+// operator's configuration (`--client` without `--bare`) has no keys this
+// backend can count on, so it is steered on the server as before, and moves
+// every other client with it.
 //
 // Which client is spawned depends on how the server was selected. A server
 // selected BY NAME is one of herdr's named sessions, and its client is
@@ -141,8 +162,15 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	if err != nil {
 		return backend.Attachment{}, err
 	}
-	if err := h.steer(ctx, r); err != nil {
+	version, err := h.Version(ctx)
+	if err != nil {
 		return backend.Attachment{}, err
+	}
+	walk := spec.Bare && !sharedClientFocus(version)
+	if !walk {
+		if err := h.steer(ctx, r); err != nil {
+			return backend.Attachment{}, err
+		}
 	}
 
 	var cmd *exec.Cmd
@@ -165,6 +193,9 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	// a label reused by a later workspace does not read as the same one.
 	id := r.id()
 	att := backend.Attachment{Cmd: cmd, Probe: func(ctx context.Context) backend.State { return h.Probe(ctx, id) }}
+	if walk {
+		att.Settle = func(ctx context.Context, keys io.Writer) error { return h.walk(ctx, r, keys) }
+	}
 	if spec.Bare {
 		// A stripped config that hides the client's chrome. HERDR_CONFIG_PATH
 		// overrides the config FILE without changing the config directory the
@@ -187,10 +218,12 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 }
 
 // Focus steers the server onto a target without attaching anything: the
-// same steering a session-client attach performs first (§8.10), for a caller
-// whose client is already attached. Every session client on the server shows
-// the server's one focus, so a caller holding two clients onto two targets
-// re-steers whenever it brings one of them to the front.
+// same steering a session-client attach performs below herdr 0.9.0 (§8.10),
+// for a caller whose client is already attached. Every session client on
+// the server shows the server's one focus below 0.9.0, so a caller holding
+// two clients onto two targets re-steers whenever it brings one of them to
+// the front; from 0.9.0 it moves every client too, those that had moved on
+// their own included (measured).
 func (h *Herdr) Focus(ctx context.Context, target string) error {
 	r, err := h.resolve(ctx, target)
 	if err != nil {
@@ -207,6 +240,85 @@ func (h *Herdr) steer(ctx context.Context, r resolved) error {
 	}
 	return nil
 }
+
+// walk brings a bare client onto its target with the client's own keys: the
+// workspace by stepping from the one it came up on (the server's focus, which
+// a client shows on connecting — measured) to the target, the shorter way
+// round the ring the client's next- and previous-workspace keys walk; then
+// the tab and the pane, where the target names one, on the server, since the
+// active tab and the zoom are the workspace's own state and a client on
+// another workspace is not moved by them.
+//
+// The keys are F17 and F18 in the kitty spelling, which is what herdr's
+// client reads once it has asked for that protocol (`CSI > 7 u`); the
+// legacy `CSI 31 ~` went unread (measured). A beat between presses: two
+// written at once were read as one.
+func (h *Herdr) walk(ctx context.Context, r resolved, keys io.Writer) error {
+	snap, err := h.snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	steps := workspaceSteps(snap.Workspaces, snap.FocusedWorkspaceID, r.workspace.WorkspaceID)
+	key := nextWorkspaceKey
+	if steps < 0 {
+		key, steps = previousWorkspaceKey, -steps
+	}
+	for i := 0; i < steps; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(keyGap):
+			}
+		}
+		if _, err := io.WriteString(keys, key); err != nil {
+			return backend.Wrapf(backend.CodeUnexpected, err, "walking the client to %s", r.workspace.WorkspaceID)
+		}
+	}
+	if r.kind == kindWorkspace {
+		return nil
+	}
+	for _, args := range steeringArgs(r)[1:] {
+		if _, err := h.run(ctx, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// workspaceSteps is how many next-workspace presses (positive) or
+// previous-workspace presses (negative) take a client from one workspace to
+// another, the shorter way round: the keys walk the workspaces in the order
+// of their numbers and wrap at either end (measured). Zero where the target
+// is where the client already is, or where either is not in the list.
+func workspaceSteps(rows []workspaceRow, from, to string) int {
+	ordered := append([]workspaceRow(nil), rows...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Number < ordered[j].Number })
+	at := func(id string) int {
+		for i, w := range ordered {
+			if w.WorkspaceID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	a, b := at(from), at(to)
+	if a < 0 || b < 0 || a == b {
+		return 0
+	}
+	n := len(ordered)
+	forward := (b - a + n) % n
+	if forward <= n-forward {
+		return forward
+	}
+	return forward - n
+}
+
+const (
+	nextWorkspaceKey     = "\x1b[57381u" // F18, kitty spelling
+	previousWorkspaceKey = "\x1b[57380u" // F17, kitty spelling
+	keyGap               = 40 * time.Millisecond
+)
 
 // steeringArgs is the sequence of herdr invocations that puts the server's
 // focus onto a resolved target, in the order the client will read it: the

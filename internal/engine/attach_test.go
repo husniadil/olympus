@@ -5,6 +5,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -422,5 +423,76 @@ func TestAttachEndsWhenTheTargetIsGone(t *testing.T) {
 	}
 	if err := attachment.Cmd.Process.Signal(syscall.Signal(0)); err == nil {
 		t.Error("the client process is still alive after the attach ended")
+	}
+}
+
+// §8.10 A settle step runs once the client has painted and gone quiet, and
+// not before, with the client's own input to write keys into: the client is
+// connected and reading them by then.
+func TestSettleRunsOnceTheClientIsUpAndCanTypeIntoIt(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "seen")
+	var mu sync.Mutex
+	painted := ""
+	out, err := os.CreateTemp(t.TempDir(), "out")
+	if err != nil {
+		t.Fatalf("temp file: %v", err)
+	}
+	defer out.Close()
+	attachment := backend.Attachment{
+		// Raw, or the PTY's line discipline holds the keys for a newline
+		// that never comes.
+		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf painted; dd bs=1 count=4 of="+seen+" 2>/dev/null; sleep 0.3"),
+		Settle: func(_ context.Context, keys io.Writer) error {
+			mu.Lock()
+			defer mu.Unlock()
+			b, _ := os.ReadFile(out.Name())
+			painted = string(b)
+			_, err := keys.Write([]byte("keys"))
+			return err
+		},
+	}
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{Out: out}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(painted, "painted") {
+		t.Errorf("the settle step ran before the client's first byte reached the terminal (saw %q)", painted)
+	}
+	got, err := os.ReadFile(seen)
+	if err != nil || string(got) != "keys" {
+		t.Errorf("the client read %q, %v; want the keys the settle step wrote", got, err)
+	}
+}
+
+// §8.10 A settle step that fails ends the attach with its error: a client
+// left showing the wrong workspace is worse than none.
+func TestASettleFailureEndsTheAttach(t *testing.T) {
+	attachment := backend.Attachment{
+		Cmd:    exec.Command("sh", "-c", "printf painted; exec sleep 60"),
+		Settle: func(context.Context, io.Writer) error { return errors.New("no such workspace") },
+	}
+	errOut := &strings.Builder{}
+	type result struct {
+		code int
+		err  error
+	}
+	results := make(chan result, 1)
+	go func() {
+		code, err := engine.Attach(context.Background(), attachment,
+			engine.AttachIO{Out: discard(t), Err: errOut}, backend.AttachSpec{Role: backend.RoleController}, nil)
+		results <- result{code, err}
+	}()
+	select {
+	case r := <-results:
+		if r.err == nil || !strings.Contains(r.err.Error(), "no such workspace") {
+			t.Errorf("Attach returned %d, %v; want the settle step's error", r.code, r.err)
+		}
+		if !strings.Contains(errOut.String(), "could not be brought") {
+			t.Errorf("stderr %q says nothing about the failed step", errOut.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the attach kept running after its settle step failed")
 	}
 }

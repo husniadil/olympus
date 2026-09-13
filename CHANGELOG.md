@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A bare attach on herdr 0.9.0 no longer moves every other client.** From
+  0.9.0 a herdr client that has moved between workspaces on its own keeps
+  its own view, but a `workspace focus` on the server still moves every
+  client; the steering an `attach --bare` performed on the server before
+  spawning the client moved the tabs already open onto the new one's
+  workspace (measured with two clients and a marker typed into each). A
+  bare client is now walked onto its workspace with the client's own keys
+  once it is up: the bare configuration binds F17 and F18 to the previous
+  and next workspace, and the attach presses them, the shorter way round.
+  The listing's `focused` flag was dropped in 0.19.0 on the reading that
+  each client kept its own view; that reading came off window titles,
+  which repaint for the focused client alone, and the flag stays dropped
+  for the reason that is true: the server's focus says where the next
+  client comes up, not what the walked ones show. Below 0.9.0, and for
+  `--client` without `--bare` (the operator's configuration, whose keys
+  this cannot count on), the server is steered as before. Behavior spec
+  §8.10.
+- **`backend.Attachment` gains `Settle`**: a step the engine runs once the
+  client is up, with the client's own input, ending the attach with its
+  error if it fails. Only herdr sets it.
+
 ## [0.19.1]
 
 ### Fixed

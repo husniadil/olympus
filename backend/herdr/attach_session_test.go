@@ -3,6 +3,7 @@ package herdr
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,19 @@ func envValue(env []string, key string) (string, bool) {
 		}
 	}
 	return val, ok
+}
+
+// settle runs the attachment's deferred steering where there is one: on a
+// herdr whose clients keep their own view the steering waits for the client
+// (§8.10), and these tests have no client to paint, so they run it by hand.
+func settle(t *testing.T, ctx context.Context, att backend.Attachment) {
+	t.Helper()
+	if att.Settle == nil {
+		return
+	}
+	if err := att.Settle(ctx, io.Discard); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
 }
 
 // focus reads where the server's focus is right now.
@@ -87,6 +101,7 @@ func TestSessionClientAttachSteersOntoThePane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session-client Attach(%s): %v", target, err)
 	}
+	settle(t, ctx, att)
 	ws, tab, pane, zoomed := focus(t, b)
 	if ws != created.ID || tab != reply.Result.Pane.TabID || pane != target || !zoomed {
 		t.Errorf("after steering onto %s the server shows workspace %s, tab %s, pane %s (zoomed %v); want %s, %s, %s, zoomed",
@@ -118,9 +133,11 @@ func TestSessionClientAttachSteersOntoThePane(t *testing.T) {
 
 	// A workspace target steers onto the workspace alone: the tab and the
 	// zoom are left where they were.
-	if _, err := b.Attach(ctx, "steer-other", backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true}); err != nil {
+	other, err := b.Attach(ctx, "steer-other", backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true})
+	if err != nil {
 		t.Fatalf("session-client Attach(steer-other): %v", err)
 	}
+	settle(t, ctx, other)
 	if ws, _, _, _ := focus(t, b); ws == created.ID {
 		t.Errorf("attaching the other workspace left the focus on %s", ws)
 	}
@@ -262,5 +279,108 @@ func TestBareSessionConfigValidatesAgainstHerdr(t *testing.T) {
 	out, _ := cmd.CombinedOutput()
 	if !strings.Contains(string(out), "config: ok") {
 		t.Errorf("herdr config check did not accept the stripped config:\n%s", out)
+	}
+}
+
+// §8.10 A bare attach on a herdr whose clients keep their own view (0.9.0
+// and up) moves nothing on the server: the client is walked onto its
+// workspace with its own keys, which the attachment's Settle writes. Below
+// 0.9.0, and for a client with the operator's configuration, the server is
+// steered in Attach and there is nothing to settle.
+func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
+	requireHerdrRunnable(t)
+	b := liveBackend(t)
+	ctx := context.Background()
+	var ids []string
+	for _, name := range []string{"first", "second", "third"} {
+		created, err := b.Create(ctx, backend.CreateSpec{Name: name})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	raw(t, b, "workspace", "focus", ids[1])
+	version, err := b.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
+	att, err := b.Attach(ctx, "third", spec)
+	if err != nil {
+		t.Fatalf("bare Attach(third): %v", err)
+	}
+	if att.Cleanup != nil {
+		defer func() { _ = att.Cleanup() }()
+	}
+	ws, _, _, _ := focus(t, b)
+	if sharedClientFocus(version) {
+		if att.Settle != nil {
+			t.Errorf("herdr %s shares one focus across clients, yet the attachment walks the client", version)
+		}
+		if ws != ids[2] {
+			t.Errorf("herdr %s: Attach left the focus on %s, want %s", version, ws, ids[2])
+		}
+		return
+	}
+	if att.Settle == nil {
+		t.Fatalf("herdr %s keeps a view per client, yet the attachment steers the server", version)
+	}
+	if ws != ids[1] {
+		t.Errorf("herdr %s: Attach moved the server's focus to %s, which moves every client", version, ws)
+	}
+	var keys strings.Builder
+	if err := att.Settle(ctx, &keys); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	// The client came up on `second`, the server's focus; `third` is the
+	// next one along.
+	if got := keys.String(); got != nextWorkspaceKey {
+		t.Errorf("the walk wrote %q, want one next-workspace press", got)
+	}
+	if ws, _, _, _ := focus(t, b); ws != ids[1] {
+		t.Errorf("the walk moved the server's focus to %s; it must move the client alone", ws)
+	}
+	// The operator's own client has no keys this backend can count on: it
+	// is steered on the server as before.
+	plain, err := b.Attach(ctx, "first", backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true})
+	if err != nil {
+		t.Fatalf("Attach(first): %v", err)
+	}
+	if plain.Settle != nil {
+		t.Error("a client with the operator's configuration was given a walk it has no keys for")
+	}
+	if ws, _, _, _ := focus(t, b); ws != ids[0] {
+		t.Errorf("Attach(first) left the focus on %s, want %s", ws, ids[0])
+	}
+}
+
+// §8.10 The walk takes the shorter way round the ring the workspace keys
+// step through, in the order of the workspaces' numbers.
+func TestWorkspaceStepsTakeTheShorterWayRound(t *testing.T) {
+	rows := []workspaceRow{
+		{WorkspaceID: "w3", Number: 3},
+		{WorkspaceID: "w1", Number: 1},
+		{WorkspaceID: "w4", Number: 4},
+		{WorkspaceID: "w2", Number: 2},
+		{WorkspaceID: "w5", Number: 5},
+	}
+	cases := []struct {
+		from, to string
+		want     int
+	}{
+		{"w1", "w1", 0},
+		{"w1", "w2", 1},
+		{"w1", "w3", 2},
+		{"w1", "w4", -2},
+		{"w1", "w5", -1},
+		{"w5", "w1", 1},
+		{"w4", "w2", -2},
+		{"w1", "w9", 0},
+		{"w9", "w1", 0},
+	}
+	for _, c := range cases {
+		if got := workspaceSteps(rows, c.from, c.to); got != c.want {
+			t.Errorf("workspaceSteps(%s → %s) = %d, want %d", c.from, c.to, got, c.want)
+		}
 	}
 }

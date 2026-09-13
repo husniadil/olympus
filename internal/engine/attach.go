@@ -21,6 +21,16 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
+// settleQuiet is the stretch of silence from the client after which it is
+// taken to be up and reading keys; settleLatest bounds the wait for a
+// client that never stops painting (behavior §8.10). Both measured against
+// herdr 0.9.0: its connecting frames arrive within a few hundred
+// milliseconds of the first byte.
+const (
+	settleQuiet  = 250 * time.Millisecond
+	settleLatest = 2 * time.Second
+)
+
 // resetSequence turns off everything an inner application may have switched on
 // through the PTY (behavior §8.2).
 //
@@ -140,6 +150,10 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	// Closed BEFORE the client is signalled, so by the time its exit is
 	// reaped the reason is already on record.
 	endedWithTarget := make(chan struct{})
+	// The settle step's failure, kept for the return: the client was ended
+	// for it, and its own exit status says nothing a caller can act on.
+	settleFailed := make(chan error, 1)
+	var settleErr error
 	// Closed when the signal goroutine is done, so its narration lands
 	// before the attach returns rather than racing the caller's read of it.
 	signalled := make(chan struct{})
@@ -177,17 +191,91 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 			case <-time.After(targetGoneGrace):
 				_ = child.Process.Kill()
 			}
+		case err := <-settleFailed:
+			settleErr = err
+			if io.Err != nil {
+				_, _ = fmt.Fprintln(io.Err, "detached: the client could not be brought onto its target")
+			}
+			restore()
+			_ = child.Process.Signal(syscall.SIGTERM)
+			select {
+			case <-exited:
+			case <-time.After(targetGoneGrace):
+				_ = child.Process.Kill()
+			}
 		case <-ctx.Done():
 			_ = child.Process.Signal(syscall.SIGTERM)
 		case <-exited:
 		}
 	}()
 
-	// Outward: whatever the session paints.
+	// Outward: whatever the session paints. A settle step drives the client
+	// with its own keys, so it may run only once the client is connected and
+	// reading them. herdr never announces that; what the client does is
+	// paint — its terminal setup, then a frame or two as it connects and
+	// picks a workspace — and then go quiet, so the step waits for the first
+	// quiet stretch after the first byte, and at the latest a moment after
+	// the first byte where the client never goes quiet. The first byte alone
+	// was too early: the terminal setup is painted before the client has
+	// connected (measured, behavior §8.10). The step runs beside the copy
+	// rather than in its way, and one that fails ends the attach the way a
+	// vanished target does.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = stdcopy(io.Out, tty)
+		if attachment.Settle == nil {
+			_, _ = stdcopy(io.Out, tty)
+			return
+		}
+		settled := false
+		settle := func() {
+			if settled {
+				return
+			}
+			settled = true
+			go func() {
+				if err := attachment.Settle(ctx, tty); err != nil {
+					settleFailed <- err
+				}
+			}()
+		}
+		chunks := make(chan []byte, 8)
+		go func() {
+			defer close(chunks)
+			buf := make([]byte, 32*1024)
+			for {
+				n, err := tty.Read(buf)
+				if n > 0 {
+					chunks <- append([]byte(nil), buf[:n]...)
+				}
+				if err != nil {
+					return
+				}
+			}
+		}()
+		var quiet <-chan time.Time
+		var latest <-chan time.Time
+		for {
+			select {
+			case chunk, ok := <-chunks:
+				if !ok {
+					return
+				}
+				_, _ = io.Out.Write(chunk)
+				if !settled {
+					quiet = time.After(settleQuiet)
+					if latest == nil {
+						latest = time.After(settleLatest)
+					}
+				}
+			case <-quiet:
+				settle()
+				quiet = nil
+			case <-latest:
+				settle()
+				latest = nil
+			}
+		}
 	}()
 
 	// Inward: the operator's keystrokes, minus any in-band control lines.
@@ -207,6 +295,9 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	<-done
 	<-signalled
 
+	if settleErr != nil {
+		return 0, settleErr
+	}
 	select {
 	case <-endedWithTarget:
 		// Olympus ended the client, not the client itself, so the status is
