@@ -1820,6 +1820,25 @@ consumer owns its own client-side terminal state.
   into the session. Malformed payloads MUST be ignored: a bad control sequence
   must not kill the session.
 
+  The same stream carries one more control, for a client that can be moved
+  (a bare herdr session client, §8.10), and both controls are read on a TTY
+  stdin as well: a consumer driving the attach under a PTY of its own has
+  that stream and no other, and nothing a person types spells one.
+
+  ```
+  \x1b]olympus;go;<target>\x07
+  ```
+
+  It moves the live client onto another target on its server, in the
+  stream's own order: bytes before it reach the session before the move,
+  bytes after it wait until the client is on the new target. Every control
+  in a read is taken, one after another, and a control cut by the end of a
+  read is held for its end (an unterminated run past a target's length is
+  ordinary bytes). Nothing is forwarded before the client has settled on
+  its first target. On an attach that cannot be moved the control is
+  dropped and stderr says so; the bytes around it still reach the session.
+  A go that fails ends the attach with its error (§8.10).
+
 ### 8.4 Attach supersedes prior clients by default
 
 A new attach takes over from prior clients on every backend, mirroring what
@@ -2088,6 +2107,42 @@ several tabs at once pays the walks in a row, each under a second, which is
 what makes every one of them land. The `focus` verb
 (§13) is unchanged and still steers the server directly, which on 0.9.0
 moves every client.
+
+A bare client, once walked, can be MOVED: the attachment's `Go`, asked for
+with the in-band `go` control (§8.3), walks it from the workspace it is ON
+to another target on the same server, the same way — the steps counted
+from where this backend last left it (the attach's target, then each go's;
+where a walk is cut short, the workspace of the last key pressed), under
+the walk lock, the tab and zoom steered on the server after. That is how a
+consumer with one client per server switches between workspaces without a
+spawn: a tab in Agamemnon's strip is a go on its host's one client. The
+probe follows the client, so the attach ends with the target it is on, not
+the one it was made for; a go onto a target that does not exist, or a walk
+that fails, ends the attach with its error, since a caller that believes
+the client moved is worse off than one told it did not.
+
+Every press of a walk, the first one's and a go's alike, is CONFIRMED by
+the client rather than assumed from a beat. The client paints its window
+title (`<host>: <label>`) as it lands on a workspace — on its own
+switches every time, measured — so the engine is asked, before the press,
+to watch the output for the title of the workspace the press lands on
+(`Expect`), and the press is made once more if that title has not come
+within a beat and a half, then given up as the walk's error. Then the
+switch's synchronized frame (DEC 2026) is waited for to its end, and a
+beat after it, before anything else is written: the title comes at the
+START of the switch, and a marker typed between the title and the end of
+the frame never echoed (measured). Both were measured against the app's
+e2e under load: with a fixed beat after the press, one press in three went
+unread and the marker typed after it landed in the workspace the client
+was still on; with the title alone, the marker typed after it was lost
+one run in eight; with the frame, eight of eight landed (2026-09-13).
+What no walk can hold against: a `workspace focus` or `tab focus` on the
+server, from any CLI, moves every client and this backend cannot see it;
+and a workspace created or closed during a walk shifts the ring under it,
+since the lock serialises this backend's own walks alone. A client that
+came up on its target with no walk does not follow the server's focus
+afterwards (a marker typed into one on `w14` landed in `w14` after another
+client walked to `w0`, measured).
 
 The pane step is a zoom rather than a focus because herdr has no pane-focus
 request, and a zoom both focuses the pane and shows it alone — which is what a
@@ -3136,6 +3191,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | lock directory | `<temp>/olympus-locks`, mode 0700 | §11.1 |
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
+| attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 
 The view-session prefix is load-bearing beyond cosmetics: enumerating views (§9.5)

@@ -34,7 +34,7 @@ func settle(t *testing.T, ctx context.Context, att backend.Attachment) {
 	if att.Settle == nil {
 		return
 	}
-	if err := att.Settle(ctx, io.Discard); err != nil {
+	if err := att.Settle(ctx, io.Discard, met); err != nil {
 		t.Fatalf("Settle: %v", err)
 	}
 }
@@ -360,7 +360,7 @@ func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
 	// the client came up, which was read when the attach was built.
 	raw(t, b, "workspace", "focus", ids[0])
 	var keys strings.Builder
-	if err := att.Settle(ctx, &keys); err != nil {
+	if err := att.Settle(ctx, &keys, met); err != nil {
 		t.Fatalf("Settle: %v", err)
 	}
 	// The client came up on `second`, the server's focus at the attach;
@@ -430,7 +430,7 @@ func TestBareAttachesOntoOneServerWalkOneAtATime(t *testing.T) {
 		t.Fatalf("the second bare attach was built (err %v) while the first had not walked", got.err)
 	case <-time.After(400 * time.Millisecond):
 	}
-	if err := first.Settle(ctx, io.Discard); err != nil {
+	if err := first.Settle(ctx, io.Discard, met); err != nil {
 		t.Fatalf("Settle(first): %v", err)
 	}
 	var next backend.Attachment
@@ -457,13 +457,77 @@ func TestBareAttachesOntoOneServerWalkOneAtATime(t *testing.T) {
 		if got.err != nil {
 			t.Fatalf("Attach(first) again: %v", got.err)
 		}
-		if err := got.att.Settle(ctx, io.Discard); err != nil {
+		if err := got.att.Settle(ctx, io.Discard, met); err != nil {
 			t.Fatalf("Settle: %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a bare attach did not go on once the last one was cleaned up unwalked")
 	}
 }
+
+// §8.10 A go walks the bare client from where it IS, not from the server's
+// focus, and the probe follows it: the attach ends with the target the
+// client is on, not the one it was made for.
+func TestAGoWalksTheBareClientFromWhereItIsAndTheProbeFollows(t *testing.T) {
+	requireHerdrRunnable(t)
+	b := liveBackend(t)
+	ctx := context.Background()
+	var ids []string
+	for _, name := range []string{"first", "second", "third"} {
+		created, err := b.Create(ctx, backend.CreateSpec{Name: name})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	raw(t, b, "workspace", "focus", ids[1])
+	version, err := b.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if sharedClientFocus(version) {
+		t.Skipf("herdr %s shares one focus across clients; nothing walks", version)
+	}
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
+	att, err := b.Attach(ctx, "third", spec)
+	if err != nil {
+		t.Fatalf("Attach(third): %v", err)
+	}
+	defer func() { _ = att.Cleanup() }()
+	if att.Go == nil {
+		t.Fatal("a bare client on a per-view herdr cannot be moved")
+	}
+	if err := att.Settle(ctx, io.Discard, met); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	// The server's focus is elsewhere; the client is on `third`, and
+	// `first` is the next one along the ring from there.
+	raw(t, b, "workspace", "focus", ids[1])
+	var keys strings.Builder
+	if err := att.Go(ctx, "first", &keys, met); err != nil {
+		t.Fatalf("Go(first): %v", err)
+	}
+	if got := keys.String(); got != nextWorkspaceKey {
+		t.Errorf("the go wrote %q, want one next-workspace press (third → first round the ring)", got)
+	}
+	if err := att.Go(ctx, "nowhere", io.Discard, met); err == nil {
+		t.Error("a go onto a target that does not exist was not refused")
+	}
+	// The workspace the attach was FOR closes: the client is on `first`
+	// now, so the attach lives.
+	raw(t, b, "workspace", "close", ids[2])
+	if got := att.Probe(ctx); got != backend.StatePresent {
+		t.Errorf("after closing the attach's own target the probe answered %v; the client is on first", got)
+	}
+	raw(t, b, "workspace", "close", ids[0])
+	if got := att.Probe(ctx); got != backend.StateAbsent {
+		t.Errorf("after closing the workspace the client is on the probe answered %v, want absent", got)
+	}
+}
+
+// met stands in for the client's answer where the keys go into a buffer
+// rather than a client: every press is confirmed at once.
+func met([]byte) func(time.Duration) bool { return func(time.Duration) bool { return true } }
 
 // §8.10 The walk takes the shorter way round the ring the workspace keys
 // step through, in the order of the workspaces' numbers.

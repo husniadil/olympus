@@ -56,11 +56,20 @@ const resetSequence = "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l" + // mouse 
 	"\x1b[?2004l" + // bracketed paste off
 	"\x1b[?25h" // cursor shown
 
-// resizeControl is the in-band resize request for a caller whose stdin is not a
-// terminal (behavior §8.3, §17.1).
+// The in-band controls a caller whose stdin is not a terminal can put in the
+// stream (behavior §8.3, §17.1): `resize;<cols>;<rows>` sizes the PTY, and
+// `go;<target>` moves a client that can be moved (Attachment.Go) onto
+// another target on its server. Each is stripped before the stream reaches
+// the session.
 const (
-	resizePrefix = "\x1b]olympus;resize;"
-	resizeSuffix = "\x07"
+	controlPrefix = "\x1b]olympus;"
+	controlSuffix = "\x07"
+	resizePrefix  = controlPrefix + "resize;"
+	resizeSuffix  = controlSuffix
+	goVerb        = "go"
+	// controlMost bounds how long a control may run before an unterminated
+	// one is taken for ordinary bytes and forwarded: a target name is short.
+	controlMost = 512
 )
 
 // The cadence at which an attachment's Probe is asked whether the target still
@@ -166,6 +175,10 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	// for it, and its own exit status says nothing a caller can act on.
 	settleFailed := make(chan error, 1)
 	var settleErr error
+	// Closed once the client is on its target: the settle step has run, or
+	// there was none. Input waits for it, so a key typed, or a move asked
+	// for, before the client is up lands where it was meant to.
+	settled := make(chan struct{})
 	// Closed when the signal goroutine is done, so its narration lands
 	// before the attach returns rather than racing the caller's read of it.
 	signalled := make(chan struct{})
@@ -236,23 +249,32 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	// every attach (measured). The step runs beside the copy rather than
 	// in its way, and one that fails ends the attach the way a vanished
 	// target does.
+	// What the client paints, watched for the sequences a walk expects
+	// back from it (backend.Expect).
+	watch := &outputWatch{}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if attachment.Settle == nil {
+		if attachment.Settle == nil && attachment.Go == nil {
+			close(settled)
 			_, _ = stdcopy(io.Out, tty)
 			return
 		}
-		settled := false
+		ran := attachment.Settle == nil
+		if ran {
+			close(settled)
+		}
 		settle := func() {
-			if settled {
+			if ran {
 				return
 			}
-			settled = true
+			ran = true
 			go func() {
-				if err := attachment.Settle(ctx, tty); err != nil {
+				if err := attachment.Settle(ctx, tty, watch.expect); err != nil {
 					settleFailed <- err
+					return
 				}
+				close(settled)
 			}()
 		}
 		chunks := make(chan []byte, 8)
@@ -282,7 +304,8 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 					return
 				}
 				_, _ = io.Out.Write(chunk)
-				if !settled {
+				watch.feed(chunk)
+				if !ran {
 					quiet = time.After(settleQuiet)
 					if latest == nil {
 						latest = time.After(settleLatest)
@@ -317,7 +340,18 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 			// session (behavior §8.7).
 			return
 		}
-		forwardInput(io.In, tty)
+		move := func(target string) {
+			if attachment.Go == nil {
+				if io.Err != nil {
+					_, _ = fmt.Fprintln(io.Err, "olympus: this attach cannot be moved; go ignored")
+				}
+				return
+			}
+			if err := attachment.Go(ctx, target, tty, watch.expect); err != nil {
+				settleFailed <- err
+			}
+		}
+		forwardInput(io.In, tty, settled, exited, move)
 	}()
 
 	err = child.Wait()
@@ -349,36 +383,69 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 }
 
 // forwardInput streams the caller's input into the PTY, honouring the in-band
-// resize control when there is no SIGWINCH to carry it.
+// controls.
 //
 // A caller whose stdin is a pipe has no window and therefore no resize signal,
 // so the only way to tell the session how big to be is a control line in the
-// stream itself. It is stripped before forwarding and never written into the
-// session (behavior §8.3).
-func forwardInput(in *os.File, tty *os.File) {
+// stream itself; the same stream is how a caller moves a movable client onto
+// another target, and a caller driving this attach under a PTY of its own (a
+// consumer's bridge) has that stream and no other. So the controls are read
+// on a terminal stdin too: the sequences are Olympus's own, and nothing a
+// person types spells one. Each control is stripped before forwarding and
+// never written into the session (behavior §8.3). Nothing is forwarded before
+// the client has settled on its target, and a move runs HERE, in the stream's
+// own order: bytes before it went before, bytes after it wait until the
+// client is on the new target, so nothing typed lands mid-walk (§8.10).
+func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, move func(target string)) {
 	if in == nil {
 		return
 	}
-	if isTerminal(in.Fd()) {
-		// A real terminal carries its size out of band, and its bytes are the
-		// operator's keystrokes — nothing in them is addressed to us.
-		_, _ = io.Copy(tty, in)
+
+	select {
+	case <-settled:
+	case <-stop:
 		return
 	}
-
 	buffer := make([]byte, 4096)
+	// What has been read but not yet forwarded: a control that has begun
+	// and not ended within one read, kept until its end arrives.
+	var held string
 	for {
 		n, err := in.Read(buffer)
 		if n > 0 {
-			cols, rows, rest, found := ParseResizeControl(string(buffer[:n]))
-			if found {
-				// A malformed payload is ignored rather than fatal: a bad
-				// control sequence must not kill the session.
-				_ = pty.Setsize(tty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
-			}
-			if rest != "" {
-				if _, writeErr := tty.WriteString(rest); writeErr != nil {
-					return
+			input := held + string(buffer[:n])
+			held = ""
+			for input != "" {
+				verb, payload, before, after, state := ParseControl(input)
+				switch state {
+				case ControlNone:
+					if _, writeErr := tty.WriteString(input); writeErr != nil {
+						return
+					}
+					input = ""
+				case ControlPartial:
+					if _, writeErr := tty.WriteString(before); writeErr != nil {
+						return
+					}
+					held = after
+					input = ""
+				case ControlFound:
+					if _, writeErr := tty.WriteString(before); writeErr != nil {
+						return
+					}
+					switch verb {
+					case "resize":
+						// A malformed payload is ignored rather than fatal: a
+						// bad control sequence must not kill the session.
+						if cols, rows, ok := parseSize(payload); ok {
+							_ = pty.Setsize(tty, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+						}
+					case goVerb:
+						if payload != "" {
+							move(payload)
+						}
+					}
+					input = after
 				}
 			}
 		}
@@ -388,7 +455,112 @@ func forwardInput(in *os.File, tty *os.File) {
 	}
 }
 
+// A ControlState says what ParseControl found.
+type ControlState int
+
+const (
+	// ControlNone: no control in the input; all of it is the session's.
+	ControlNone ControlState = iota
+	// ControlPartial: a control has begun and not ended; `before` is the
+	// session's and `after` is to be held for the rest of it.
+	ControlPartial
+	// ControlFound: one control, parsed; `before` and `after` are the
+	// session's, `after` possibly holding another.
+	ControlFound
+)
+
+// ParseControl finds the first in-band control in input. An unterminated
+// control longer than controlMost is not one, and is handed back as bytes.
+func ParseControl(input string) (verb, payload, before, after string, state ControlState) {
+	start := strings.Index(input, controlPrefix)
+	if start < 0 {
+		return "", "", input, "", ControlNone
+	}
+	tail := input[start+len(controlPrefix):]
+	end := strings.Index(tail, controlSuffix)
+	if end < 0 {
+		if len(tail) > controlMost {
+			return "", "", input, "", ControlNone
+		}
+		return "", "", input[:start], input[start:], ControlPartial
+	}
+	body := tail[:end]
+	verb, payload, _ = strings.Cut(body, ";")
+	return verb, payload, input[:start], tail[end+len(controlSuffix):], ControlFound
+}
+
+func parseSize(payload string) (cols, rows int, ok bool) {
+	fields := strings.Split(payload, ";")
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	cols, colsErr := strconv.Atoi(fields[0])
+	rows, rowsErr := strconv.Atoi(fields[1])
+	if colsErr != nil || rowsErr != nil || cols <= 0 || rows <= 0 {
+		return 0, 0, false
+	}
+	return cols, rows, true
+}
+
 func stdcopy(dst io.Writer, src io.Reader) (int64, error) { return io.Copy(dst, src) }
+
+// An outputWatch hands out backend.Expect over the client's output: each
+// expectation sees the bytes written after it was registered, and is met
+// once its mark is among them. A waiter's buffer is kept to the tail that
+// could still hold a mark across a chunk boundary.
+type outputWatch struct {
+	mu      sync.Mutex
+	waiters []*outputWaiter
+}
+
+type outputWaiter struct {
+	mark []byte
+	buf  []byte
+	met  chan struct{}
+}
+
+const outputWaiterTail = 8 * 1024
+
+func (w *outputWatch) feed(chunk []byte) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	kept := w.waiters[:0]
+	for _, x := range w.waiters {
+		x.buf = append(x.buf, chunk...)
+		if bytes.Contains(x.buf, x.mark) {
+			close(x.met)
+			continue
+		}
+		if len(x.buf) > outputWaiterTail {
+			x.buf = x.buf[len(x.buf)-outputWaiterTail:]
+		}
+		kept = append(kept, x)
+	}
+	w.waiters = kept
+}
+
+func (w *outputWatch) expect(mark []byte) func(within time.Duration) bool {
+	x := &outputWaiter{mark: mark, met: make(chan struct{})}
+	w.mu.Lock()
+	w.waiters = append(w.waiters, x)
+	w.mu.Unlock()
+	return func(within time.Duration) bool {
+		select {
+		case <-x.met:
+			return true
+		case <-time.After(within):
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			for i, y := range w.waiters {
+				if y == x {
+					w.waiters = append(w.waiters[:i], w.waiters[i+1:]...)
+					break
+				}
+			}
+			return false
+		}
+	}
+}
 
 // enterRawMode puts the outer terminal into raw mode and returns a restore
 // function that runs at most once.
@@ -458,33 +630,18 @@ func startResizing(tty *os.File, streams AttachIO, role backend.Role) func() {
 }
 
 // ParseResizeControl matches the in-band resize request a non-TTY caller uses,
-// returning the requested size and the input with the control stripped.
+// returning the requested size and the input with the control stripped: the
+// first control in the input, over ParseControl, kept for the callers and
+// tests that read a resize alone.
 //
 // The control MUST be stripped before forwarding and never written into the
 // session. A malformed payload is ignored rather than fatal: a bad control
 // sequence must not kill the session (behavior §8.3).
 func ParseResizeControl(input string) (cols, rows int, rest string, found bool) {
-	start := strings.Index(input, resizePrefix)
-	if start < 0 {
+	verb, payload, before, after, state := ParseControl(input)
+	if state != ControlFound || verb != "resize" {
 		return 0, 0, input, false
 	}
-	tail := input[start+len(resizePrefix):]
-	end := strings.Index(tail, resizeSuffix)
-	if end < 0 {
-		return 0, 0, input, false
-	}
-
-	stripped := input[:start] + tail[end+len(resizeSuffix):]
-	fields := strings.Split(tail[:end], ";")
-	if len(fields) != 2 {
-		// Malformed, but still stripped: it was addressed to us, so it must
-		// not reach the session either way.
-		return 0, 0, stripped, false
-	}
-	cols, colsErr := strconv.Atoi(fields[0])
-	rows, rowsErr := strconv.Atoi(fields[1])
-	if colsErr != nil || rowsErr != nil || cols <= 0 || rows <= 0 {
-		return 0, 0, stripped, false
-	}
-	return cols, rows, stripped, true
+	cols, rows, ok := parseSize(payload)
+	return cols, rows, before + after, ok
 }

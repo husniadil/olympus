@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0]
+
+### Added
+
+- **A bare herdr client can be moved.** The in-band `go` control on a
+  piped attach (`\x1b]olympus;go;<target>\x07`, beside the resize control)
+  walks the live client from the workspace it is on to another target on
+  its server with its own keys, in the stream's own order — bytes before it
+  land before the move, bytes after wait — and the probe follows, so the
+  attach ends with the target the client is ON. A consumer keeps one client
+  per server and switches workspaces without a spawn. Nothing is forwarded
+  before the client has settled on its first target; every control in a
+  read is taken, and one cut by a read is held for its end. Behavior spec
+  §8.3, §8.10, §17.1.
+- **Every walk press is confirmed by the client.** The client paints its
+  window title as it lands on a workspace, so each press waits for that
+  title and is made once more when it does not come; then the switch's
+  frame is waited out before any typed byte goes on. Under load one press
+  in three went unread with a fixed beat, and a marker typed between the
+  title and the end of the frame never echoed (measured 2026-09-13; eight
+  of eight land with both). The controls are read on a terminal stdin as
+  well as a pipe, since a consumer's bridge drives the attach under a PTY
+  of its own. Behavior spec §8.3, §8.10.
+
 ## [0.21.2]
 
 ### Fixed

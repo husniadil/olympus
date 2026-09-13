@@ -179,7 +179,7 @@ type Attachment struct {
 	// §8.10). An error ends the attach: a client left showing the wrong
 	// workspace is worse than none. Nil means there is nothing to do once
 	// the client is up.
-	Settle func(ctx context.Context, keys io.Writer) error
+	Settle func(ctx context.Context, keys io.Writer, expect Expect) error
 	// SettleAfter, when set beside Settle, is a sequence the client writes
 	// once it is reading keys — herdr's client pushes the kitty keyboard
 	// protocol (`CSI > 7 u`) as it comes up, and reads the walk's keys a
@@ -190,7 +190,25 @@ type Attachment struct {
 	// two seconds, against a quarter of one). Nil means quiet is the
 	// only signal.
 	SettleAfter []byte
+	// Go, when set, moves the live client onto another target on the same
+	// server, with the client's own keys as `keys`, the way Settle brought
+	// it onto its first: a caller whose stdin is a pipe asks for it with the
+	// in-band `go` control (§8.3, §8.10). The attachment's Probe follows the
+	// client, so the attach ends with the target it is ON, not the one it
+	// was made for. An error ends the attach as a failed Settle does. Nil
+	// means the client cannot be moved, and a go is ignored.
+	Go func(ctx context.Context, target string, keys io.Writer, expect Expect) error
 }
+
+// An Expect registers interest in a sequence the client will write — the
+// window title it paints as it lands on a workspace — BEFORE the key that
+// provokes it is pressed, and returns the wait for it: true once the
+// sequence has come out of the client, false when `within` passed first.
+// It is how a walk knows a key was read rather than assuming it from a
+// beat (§8.10): under load a bare client dropped one press in three, and
+// the marker typed after it landed in the workspace the client was still
+// on (measured 2026-09-13).
+type Expect func(mark []byte) (seen func(within time.Duration) bool)
 
 // Close runs the cleanup, if there is one. It is safe on the zero Attachment so
 // the engine can defer it unconditionally — behavior §8.8 requires a

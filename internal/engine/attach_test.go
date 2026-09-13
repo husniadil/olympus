@@ -442,7 +442,7 @@ func TestSettleRunsOnceTheClientIsUpAndCanTypeIntoIt(t *testing.T) {
 		// Raw, or the PTY's line discipline holds the keys for a newline
 		// that never comes.
 		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf painted; dd bs=1 count=4 of="+seen+" 2>/dev/null; sleep 0.3"),
-		Settle: func(_ context.Context, keys io.Writer) error {
+		Settle: func(_ context.Context, keys io.Writer, _ backend.Expect) error {
 			mu.Lock()
 			defer mu.Unlock()
 			b, _ := os.ReadFile(out.Name())
@@ -480,7 +480,7 @@ func TestSettleRunsABeatAfterTheMarkOnAClientThatNeverGoesQuiet(t *testing.T) {
 		// on, then reads. Twelve rounds of a forked sleep is well over a
 		// second on a laptop.
 		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf 'setup\033[>7u'; i=0; while [ $i -lt 12 ]; do printf paint; sleep 0.05; i=$((i+1)); done; dd bs=1 count=4 of="+seen+" 2>/dev/null"),
-		Settle: func(_ context.Context, keys io.Writer) error {
+		Settle: func(_ context.Context, keys io.Writer, _ backend.Expect) error {
 			mu.Lock()
 			settledAt = time.Now()
 			mu.Unlock()
@@ -514,7 +514,7 @@ func TestSettleRunsABeatAfterTheMarkOnAClientThatNeverGoesQuiet(t *testing.T) {
 func TestASettleFailureEndsTheAttach(t *testing.T) {
 	attachment := backend.Attachment{
 		Cmd:    exec.Command("sh", "-c", "printf painted; exec sleep 60"),
-		Settle: func(context.Context, io.Writer) error { return errors.New("no such workspace") },
+		Settle: func(context.Context, io.Writer, backend.Expect) error { return errors.New("no such workspace") },
 	}
 	errOut := &strings.Builder{}
 	type result struct {
@@ -537,5 +537,176 @@ func TestASettleFailureEndsTheAttach(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the attach kept running after its settle step failed")
+	}
+}
+
+// §8.3 Two controls in one read are both taken, a control split across two
+// reads is held for its end, and a run of the prefix that never ends within
+// a target's length is ordinary bytes.
+func TestControlsAreParsedOneAfterAnotherAndAcrossReads(t *testing.T) {
+	verb, payload, before, after, state := engine.ParseControl("a\x1b]olympus;resize;120;40\x07b\x1b]olympus;go;w8\x07c")
+	if state != engine.ControlFound || verb != "resize" || payload != "120;40" || before != "a" {
+		t.Fatalf("first control: %q %q before %q state %v", verb, payload, before, state)
+	}
+	verb, payload, before, after, state = engine.ParseControl(after)
+	if state != engine.ControlFound || verb != "go" || payload != "w8" || before != "b" || after != "c" {
+		t.Fatalf("second control: %q %q before %q after %q state %v", verb, payload, before, after, state)
+	}
+	_, _, before, after, state = engine.ParseControl("typed\x1b]olympus;go;w")
+	if state != engine.ControlPartial || before != "typed" || after != "\x1b]olympus;go;w" {
+		t.Errorf("a control cut by the read: before %q after %q state %v", before, after, state)
+	}
+	long := "\x1b]olympus;" + strings.Repeat("x", 600)
+	if _, _, before, _, state = engine.ParseControl(long); state != engine.ControlNone || before != long {
+		t.Errorf("an unterminated run past a target's length was not handed back as bytes: state %v", state)
+	}
+}
+
+// §8.10 A go control moves the client in the stream's own order — what was
+// typed before it went before, what was typed after waits — and nothing at
+// all is forwarded before the client has settled on its first target.
+func TestAGoControlRunsInTheStreamsOrderAfterSettle(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "seen")
+	in, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer in.Close()
+	var mu sync.Mutex
+	var moved []string
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf painted; dd bs=1 count=7 of="+seen+" 2>/dev/null; sleep 0.3"),
+		Settle: func(_ context.Context, keys io.Writer, _ backend.Expect) error {
+			_, err := keys.Write([]byte("S"))
+			return err
+		},
+		Go: func(_ context.Context, target string, keys io.Writer, _ backend.Expect) error {
+			mu.Lock()
+			moved = append(moved, target)
+			mu.Unlock()
+			_, err := keys.Write([]byte("G"))
+			return err
+		},
+	}
+	// Written before the client has painted, let alone settled: it must
+	// still land after the settle step's key.
+	if _, err := w.WriteString("ab\x1b]olympus;go;w2\x07cd\x1b]olympus;go;w3\x07"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{In: in, Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	_ = w.Close()
+	got, err := os.ReadFile(seen)
+	if err != nil || string(got) != "SabGcdG" {
+		t.Errorf("the client read %q, %v; want the settle key, then the bytes and moves in order", got, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(moved, ",") != "w2,w3" {
+		t.Errorf("moved to %v, want w2 then w3", moved)
+	}
+}
+
+// §8.10 A go that fails ends the attach with its error, as a failed settle
+// does: the client is not on the target the caller thinks it is.
+func TestAGoFailureEndsTheAttach(t *testing.T) {
+	in, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer in.Close()
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sh", "-c", "printf painted; exec sleep 60"),
+		Go: func(context.Context, string, io.Writer, backend.Expect) error {
+			return errors.New("no such workspace w9")
+		},
+	}
+	errOut := &strings.Builder{}
+	type result struct {
+		code int
+		err  error
+	}
+	results := make(chan result, 1)
+	go func() {
+		code, err := engine.Attach(context.Background(), attachment,
+			engine.AttachIO{In: in, Out: discard(t), Err: errOut}, backend.AttachSpec{Role: backend.RoleController}, nil)
+		results <- result{code, err}
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if _, err := w.WriteString("\x1b]olympus;go;w9\x07"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	select {
+	case r := <-results:
+		if r.err == nil || !strings.Contains(r.err.Error(), "no such workspace w9") {
+			t.Errorf("Attach returned %d, %v; want the go's error", r.code, r.err)
+		}
+		if !strings.Contains(errOut.String(), "detached") {
+			t.Errorf("the operator was not told: %q", errOut.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the attach did not end on the failed go")
+	}
+	_ = w.Close()
+}
+
+// §8.10 An attach that cannot be moved drops a go and says so, and the
+// bytes around it still reach the client.
+func TestAGoOnAnUnmovableAttachIsIgnored(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "seen")
+	in, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer in.Close()
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf painted; dd bs=1 count=2 of="+seen+" 2>/dev/null; sleep 0.3"),
+	}
+	errOut := &strings.Builder{}
+	if _, err := w.WriteString("a\x1b]olympus;go;w2\x07b"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{In: in, Out: discard(t), Err: errOut}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	_ = w.Close()
+	if got, _ := os.ReadFile(seen); string(got) != "ab" {
+		t.Errorf("the client read %q, want the bytes around the dropped go", got)
+	}
+	if !strings.Contains(errOut.String(), "cannot be moved") {
+		t.Errorf("the operator was not told: %q", errOut.String())
+	}
+}
+
+// §8.10 A walk expects the client's answer to a press — the title it paints
+// as it lands — registered before the press, and learns within a beat
+// whether the press was read.
+func TestASettleStepSeesTheClientsAnswerToItsKey(t *testing.T) {
+	var answered, unanswered bool
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf 'setup\033[>7u'; dd bs=1 count=1 2>/dev/null; printf '\033]0;box: two\007'; sleep 0.4"),
+		Settle: func(_ context.Context, keys io.Writer, expect backend.Expect) error {
+			seen := expect([]byte(": two"))
+			if _, err := keys.Write([]byte("k")); err != nil {
+				return err
+			}
+			answered = seen(2 * time.Second)
+			unanswered = expect([]byte(": three"))(200 * time.Millisecond)
+			return nil
+		},
+		SettleAfter: []byte("[>7u"),
+	}
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if !answered {
+		t.Error("the title the client painted after the key was not seen")
+	}
+	if unanswered {
+		t.Error("a title the client never painted was reported seen")
 	}
 }

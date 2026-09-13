@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
@@ -190,7 +191,8 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	// moment it connects, and the walk of another bare client between now
 	// and then would move the focus it was read from (walklock.go).
 	var lock *walkLock
-	var steps int
+	var ring []workspaceRow
+	var origin string
 	if !walk {
 		if err := h.steer(ctx, r); err != nil {
 			return backend.Attachment{}, err
@@ -205,7 +207,7 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 			lock.release()
 			return backend.Attachment{}, err
 		}
-		steps = workspaceSteps(snap.Workspaces, snap.FocusedWorkspaceID, r.workspace.WorkspaceID)
+		ring, origin = snap.Workspaces, snap.FocusedWorkspaceID
 	}
 
 	var cmd *exec.Cmd
@@ -226,14 +228,33 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	// focuses next. The engine polls this and ends the attach on absent
 	// (§8.10). Probed by resolved id rather than by the target as given, so
 	// a label reused by a later workspace does not read as the same one.
-	id := r.id()
-	att := backend.Attachment{Cmd: cmd, Probe: func(ctx context.Context) backend.State { return h.Probe(ctx, id) }}
+	// A walked client is probed where it IS (bareClient): its target until
+	// it is moved, then each target a go took it to. A steered client is
+	// probed on its target, which is where the server put it.
+	at := &bareClient{at: r}
+	att := backend.Attachment{Cmd: cmd, Probe: func(ctx context.Context) backend.State { return h.Probe(ctx, at.id()) }}
 	if walk {
-		att.Settle = func(ctx context.Context, keys io.Writer) error {
+		att.Settle = func(ctx context.Context, keys io.Writer, expect backend.Expect) error {
 			defer lock.release()
-			return h.walk(ctx, r, steps, keys)
+			return h.walk(ctx, ring, origin, r, keys, at, expect)
 		}
 		att.SettleAfter = []byte(kittyPush)
+		att.Go = func(ctx context.Context, target string, keys io.Writer, expect backend.Expect) error {
+			lock, err := acquireWalkLock(ctx, h.socketPath)
+			if err != nil {
+				return err
+			}
+			defer lock.release()
+			snap, err := h.snapshot(ctx)
+			if err != nil {
+				return err
+			}
+			to, err := snap.resolve(target)
+			if err != nil {
+				return err
+			}
+			return h.walk(ctx, snap.Workspaces, at.workspace(), to, keys, at, expect)
+		}
 	}
 	if spec.Bare {
 		// A stripped config that hides the client's chrome. HERDR_CONFIG_PATH
@@ -286,55 +307,124 @@ func (h *Herdr) steer(ctx context.Context, r resolved) error {
 	return nil
 }
 
-// walk brings a bare client onto its target with the client's own keys: the
-// workspace by stepping from the one it came up on (the server's focus, which
-// a client shows on connecting — measured) to the target, the shorter way
-// round the ring the client's next- and previous-workspace keys walk; then
-// the tab and the pane, where the target names one, on the server, since the
-// active tab and the zoom are the workspace's own state and a client on
-// another workspace is not moved by them. The steps were counted when the
-// attach was built, under the walk lock (workspaceSteps; negative walks
-// backwards).
+// A bareClient is where a bare client IS, as far as this backend has moved
+// it: the target it was attached for, each workspace a walk stepped it
+// through, and each target a go took it to. The probe reads it from the
+// engine's own goroutine, so the attach ends with the target the client is
+// ON rather than the one it was made for (§8.10).
+type bareClient struct {
+	mu sync.Mutex
+	at resolved
+}
+
+func (c *bareClient) id() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at.id()
+}
+
+func (c *bareClient) workspace() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at.workspace.WorkspaceID
+}
+
+func (c *bareClient) set(r resolved) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.at = r
+}
+
+// walk brings a bare client from the workspace it is on (`from`) onto a
+// target with the client's own keys: the workspace by stepping the shorter
+// way round the ring the client's next- and previous-workspace keys walk
+// (`ring`, read at the same moment as `from`, under the walk lock); then
+// the tab and the pane, where the target names one, on the server, since
+// the active tab and the zoom are the workspace's own state and a client on
+// another workspace is not moved by them. Where the client is (`at`) moves
+// with every press, so a walk cut short leaves it right for the next.
 //
 // The keys are F17 and F18 in the kitty spelling, which is what herdr's
 // client reads once it has asked for that protocol (`CSI > 7 u`); the
-// legacy `CSI 31 ~` went unread (measured). A beat between presses: two
-// written at once were read as one; and a beat after the last, so the
-// server's focus has followed it before the lock is dropped and the next
-// client reads that focus as its origin.
-func (h *Herdr) walk(ctx context.Context, r resolved, steps int, keys io.Writer) error {
-	key := nextWorkspaceKey
+// legacy `CSI 31 ~` went unread (measured). Every press is CONFIRMED: the
+// client paints its window title as it lands on a workspace (`host:
+// label`, measured on its own switches every time), so the title of the
+// workspace a press lands on is expected before the press, and a press
+// that goes unanswered within a beat is made once more, then given up as
+// the walk's error. A beat between presses: two written at once were read
+// as one. Under load a press in three went unread with no confirmation
+// (measured 2026-09-13), and a marker typed after it landed in the
+// workspace the client was still on.
+func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to resolved, keys io.Writer, at *bareClient, expect backend.Expect) error {
+	ordered := append([]workspaceRow(nil), ring...)
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Number < ordered[j].Number })
+	steps := workspaceSteps(ordered, from, to.workspace.WorkspaceID)
+	key, dir := nextWorkspaceKey, 1
 	if steps < 0 {
-		key, steps = previousWorkspaceKey, -steps
+		key, dir, steps = previousWorkspaceKey, -1, -steps
+	}
+	idx := -1
+	for i, w := range ordered {
+		if w.WorkspaceID == from {
+			idx = i
+		}
 	}
 	for i := 0; i < steps; i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(keyGap):
+		next := ordered[(idx+dir+len(ordered))%len(ordered)]
+		landed := false
+		for attempt := 0; attempt < pressAttempts && !landed; attempt++ {
+			if i > 0 || attempt > 0 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(keyGap):
+				}
 			}
+			seen := expect(titleMark(next))
+			if _, err := io.WriteString(keys, key); err != nil {
+				return backend.Wrapf(backend.CodeUnexpected, err, "walking the client to %s", to.workspace.WorkspaceID)
+			}
+			landed = seen(pressWithin)
 		}
-		if _, err := io.WriteString(keys, key); err != nil {
-			return backend.Wrapf(backend.CodeUnexpected, err, "walking the client to %s", r.workspace.WorkspaceID)
+		if !landed {
+			return backend.Errorf(backend.CodeUnexpected, "the client did not reach %s: its workspace key went unread", next.WorkspaceID)
 		}
+		idx = (idx + dir + len(ordered)) % len(ordered)
+		at.set(resolved{kind: kindWorkspace, workspace: ordered[idx]})
 	}
 	if steps > 0 {
+		// The title comes at the START of the switch; the client then
+		// paints the workspace as one synchronized frame, and reads keys
+		// for its pane once that frame is out. Bytes forwarded between
+		// the two went nowhere (measured: a marker typed straight after
+		// the title never echoed). So the frame's end is waited for,
+		// and a beat after it.
+		if !expect([]byte(frameEnd))(pressWithin) {
+			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.workspace.WorkspaceID)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(keyGap):
 		}
 	}
-	if r.kind == kindWorkspace {
-		return nil
-	}
-	for _, args := range steeringArgs(r)[1:] {
+	for _, args := range steeringArgs(to)[1:] {
 		if _, err := h.run(ctx, args...); err != nil {
 			return err
 		}
 	}
+	at.set(to)
 	return nil
+}
+
+// titleMark is what the client's window title carries once it is on a
+// workspace: `<host>: <label>` for a labelled one; an unlabelled one
+// paints something else there (its directory), so any title counts.
+func titleMark(w workspaceRow) []byte {
+	if w.Label == "" {
+		return []byte("\x1b]0;")
+	}
+	return []byte(": " + w.Label + "\x07")
 }
 
 // workspaceSteps is how many next-workspace presses (positive) or
@@ -366,6 +456,15 @@ func workspaceSteps(rows []workspaceRow, from, to string) int {
 }
 
 const (
+	// How long a press is given to be answered by the client's title, and
+	// how many times it is made before the walk gives up.
+	pressWithin   = 1500 * time.Millisecond
+	pressAttempts = 2
+
+	// The end of a synchronized-output frame (DEC 2026), which closes the
+	// paint of a workspace the client has just switched to.
+	frameEnd = "\x1b[?2026l"
+
 	nextWorkspaceKey     = "\x1b[57381u" // F18, kitty spelling
 	previousWorkspaceKey = "\x1b[57380u" // F17, kitty spelling
 	keyGap               = 40 * time.Millisecond
