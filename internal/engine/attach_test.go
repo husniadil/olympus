@@ -685,6 +685,7 @@ func TestAGoOnAnUnmovableAttachIsIgnored(t *testing.T) {
 // as it lands — registered before the press, and learns within a beat
 // whether the press was read.
 func TestASettleStepSeesTheClientsAnswerToItsKey(t *testing.T) {
+	var mu sync.Mutex
 	var answered, unanswered bool
 	attachment := backend.Attachment{
 		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf 'setup\033[>7u'; dd bs=1 count=1 2>/dev/null; printf '\033]0;box: two\007'; sleep 0.4"),
@@ -693,8 +694,11 @@ func TestASettleStepSeesTheClientsAnswerToItsKey(t *testing.T) {
 			if _, err := keys.Write([]byte("k")); err != nil {
 				return err
 			}
-			answered = seen(2 * time.Second)
-			unanswered = expect([]byte(": three"))(200 * time.Millisecond)
+			a := seen(2 * time.Second)
+			u := expect([]byte(": three"))(200 * time.Millisecond)
+			mu.Lock()
+			answered, unanswered = a, u
+			mu.Unlock()
 			return nil
 		},
 		SettleAfter: []byte("[>7u"),
@@ -703,6 +707,8 @@ func TestASettleStepSeesTheClientsAnswerToItsKey(t *testing.T) {
 		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
 		t.Fatalf("Attach: %v", err)
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if !answered {
 		t.Error("the title the client painted after the key was not seen")
 	}
