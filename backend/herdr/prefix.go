@@ -17,6 +17,13 @@ const defaultPrefix = "ctrl+b"
 // The file is scanned, not parsed: one key under one table is all that is
 // wanted, and a TOML dependency is outside the budget. Absent ⇒ the default.
 func configuredPrefix(sessionDir string) string {
+	return spellPrefix(rawConfiguredPrefix(sessionDir))
+}
+
+// rawConfiguredPrefix is the same prefix in herdr's own spelling
+// (`ctrl+space`), which is what the bare configuration writes back so a
+// bare client answers to the operator's prefix (§8.9).
+func rawConfiguredPrefix(sessionDir string) string {
 	candidates := []string{}
 	if sessionDir != "" {
 		candidates = append(candidates, filepath.Join(sessionDir, "config.toml"))
@@ -26,10 +33,10 @@ func configuredPrefix(sessionDir string) string {
 	}
 	for _, path := range candidates {
 		if v, ok := prefixInConfig(path); ok {
-			return spellPrefix(v)
+			return v
 		}
 	}
-	return spellPrefix(defaultPrefix)
+	return defaultPrefix
 }
 
 // Prefix reports the prefix of the server this handle addresses: the

@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0]
+
+### Fixed
+
+- **A bare attach on herdr walks the client as soon as it reads keys.** The
+  engine waited for the client to go quiet for a quarter of a second after
+  its first byte, and a client on a workspace whose pane never stops
+  painting (an agent streaming) never does, so every such attach waited out
+  the two-second cap before the walk (measured: 2.1s to the walked frame).
+  herdr's client asks the terminal for the kitty keyboard protocol as it
+  comes up and reads a key a beat later, so the backend names that push as
+  the attachment's `SettleAfter` and the engine walks the client 100ms
+  after seeing it (measured: 0.2s to the walked frame). Quiet and the cap
+  remain the way for a client that names no mark. Behavior spec §8.10.
+- **`backend.Attachment` gains `SettleAfter`**: a sequence in the client's
+  output after which the engine runs `Settle` a beat later. Only herdr sets
+  it.
+
+### Changed
+
+- **A bare herdr client answers to the operator's prefix and splits.** The
+  stripped configuration parked the prefix on F19 and unbound every pane
+  key, on the reading that a bare pane holds nothing to split; the
+  operator split one from herdr's own client and asked why the bare one
+  could not. The prefix is now the one the operator's configuration names
+  (§13.3), the pane keys behind it (split, close pane, zoom, resize, focus
+  between panes) keep herdr's own bindings, and `pane_borders = "auto"`
+  draws a divider between split panes and nothing around a lone one. What
+  leaves the workspace or changes what the session holds (tabs, workspaces,
+  worktrees, the sidebar, the picker) stays unbound. Behavior spec §8.9.
+
 ## [0.20.0]
 
 ### Fixed

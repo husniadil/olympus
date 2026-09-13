@@ -466,6 +466,49 @@ func TestSettleRunsOnceTheClientIsUpAndCanTypeIntoIt(t *testing.T) {
 	}
 }
 
+// §8.10 Where the attachment names a sequence the client writes once it
+// reads keys, the settle step runs a beat after that sequence rather than
+// waiting for the client to go quiet: a client that never stops painting
+// never does, and waited out the cap on every attach (measured).
+func TestSettleRunsABeatAfterTheMarkOnAClientThatNeverGoesQuiet(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "seen")
+	var mu sync.Mutex
+	var settledAt time.Time
+	started := time.Now()
+	attachment := backend.Attachment{
+		// Paints without a pause of settleQuiet for a while, the mark early
+		// on, then reads. Twelve rounds of a forked sleep is well over a
+		// second on a laptop.
+		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf 'setup\033[>7u'; i=0; while [ $i -lt 12 ]; do printf paint; sleep 0.05; i=$((i+1)); done; dd bs=1 count=4 of="+seen+" 2>/dev/null"),
+		Settle: func(_ context.Context, keys io.Writer) error {
+			mu.Lock()
+			settledAt = time.Now()
+			mu.Unlock()
+			_, err := keys.Write([]byte("keys"))
+			return err
+		},
+		SettleAfter: []byte("\x1b[>7u"),
+	}
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if settledAt.IsZero() {
+		t.Fatal("the settle step never ran")
+	}
+	// The mark comes with the first bytes; the step follows it by a beat,
+	// well before the painting stops.
+	if took := settledAt.Sub(started); took > 500*time.Millisecond {
+		t.Errorf("the settle step ran %v after the start: it waited for quiet rather than the mark", took)
+	}
+	got, err := os.ReadFile(seen)
+	if err != nil || string(got) != "keys" {
+		t.Errorf("the client read %q, %v; want the keys the settle step wrote", got, err)
+	}
+}
+
 // §8.10 A settle step that fails ends the attach with its error: a client
 // left showing the wrong workspace is worse than none.
 func TestASettleFailureEndsTheAttach(t *testing.T) {

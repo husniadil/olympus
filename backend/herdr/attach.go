@@ -5,40 +5,48 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
 
-// bareSessionConfig strips a herdr session client down to a plain pane: every
-// keybinding that mutates layout is unbound, every piece of chrome (sidebar,
-// tab bar, pane borders and scrollbars, agent labels, window title, mobile
-// header) is hidden, and copy-on-select is left on so a selection still copies.
+// bareSessionConfig strips a herdr session client down to a plain pane onto
+// ONE workspace: every keybinding that leaves the workspace or changes what
+// the session holds is unbound (tabs, workspaces, worktrees, the sidebar, the
+// picker), every piece of chrome around the pane (sidebar, tab bar, the
+// outer border and scrollbars, agent labels, window title, mobile header)
+// is hidden, and copy-on-select is left on so a selection still copies.
+//
+// What the operator does INSIDE the workspace stays theirs: the prefix is
+// the one their own configuration names (§13.3, rawConfiguredPrefix), and
+// the pane keys behind it — split, close pane, zoom, resize, focus between
+// panes — keep herdr's own bindings, so a bare pane splits the way the
+// operator's own client does. It was parked on F19 with every pane key
+// unbound for a while, on the reading that a bare pane holds nothing to
+// split; the operator split one from herdr's own client and asked why the
+// bare one could not. `pane_borders = "auto"` draws a divider between
+// split panes and nothing around a lone one.
+//
 // Two keys are BOUND, to F17 and F18 (keys a terminal almost never sends):
 // the previous- and next-workspace steps, which is how the attach walks the
 // client onto its workspace on a herdr whose clients keep their own view
 // (attachSessionClient says why).
 //
-// Two values are load-bearing and NOT free choices: prefix cannot be the empty
-// string — herdr rejects an empty keybinding and falls back to the default — so
-// it is parked on F19 (a key a terminal almost never sends) rather than
-// disabled; and mobile_width_threshold must be 0, or a narrow pane paints the
-// mobile header this config exists to remove. It is validated with
-// `herdr config check` (config: ok).
-const bareSessionConfig = `onboarding = false
+// One value is load-bearing and NOT a free choice: mobile_width_threshold
+// must be 0, or a narrow pane paints the mobile header this config exists
+// to remove. It is validated with `herdr config check` (config: ok).
+func bareSessionConfig(prefix string) string {
+	return `onboarding = false
 [keys]
-prefix = "f19"
-split_vertical = ""
-split_horizontal = ""
+prefix = "` + prefix + `"
 new_tab = ""
 close_tab = ""
-close_pane = ""
 close_workspace = ""
 new_workspace = ""
 new_worktree = ""
-resize_mode = ""
-zoom = ""
+rename_workspace = ""
 toggle_sidebar = ""
 workspace_picker = ""
 next_workspace = "f18"
@@ -48,13 +56,21 @@ sidebar_start_collapsed = true
 sidebar_collapsed_mode = "hidden"
 hide_tab_bar_when_single_tab = true
 mobile_width_threshold = 0
-pane_borders = false
+pane_borders = "auto"
 pane_outer_borders = false
 pane_scrollbars = false
 show_agent_labels_on_pane_borders = false
 copy_on_select = true
 window_title = ""
 `
+}
+
+// kittyPush is what herdr's client writes as it comes up to ask for the
+// kitty keyboard protocol, in which it then reads the walk's keys: the
+// attachment names it as SettleAfter, so the engine walks the client a
+// beat after it rather than waiting for the client to go quiet, which a
+// client on a streaming workspace never does (measured, §8.10).
+const kittyPush = "\x1b[>7u"
 
 // Attach prepares an attach client for the engine to run inside a PTY.
 //
@@ -195,6 +211,7 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	att := backend.Attachment{Cmd: cmd, Probe: func(ctx context.Context) backend.State { return h.Probe(ctx, id) }}
 	if walk {
 		att.Settle = func(ctx context.Context, keys io.Writer) error { return h.walk(ctx, r, keys) }
+		att.SettleAfter = []byte(kittyPush)
 	}
 	if spec.Bare {
 		// A stripped config that hides the client's chrome. HERDR_CONFIG_PATH
@@ -202,7 +219,7 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		// session resolves against (verified: the session still resolves), so
 		// the client renders as a plain pane while still attaching the same
 		// server. The temp file is reaped when the attach ends.
-		path, err := writeBareConfig()
+		path, err := writeBareConfig(rawConfiguredPrefix(filepath.Dir(h.socketPath)))
 		if err != nil {
 			return backend.Attachment{}, err
 		}
@@ -377,12 +394,12 @@ func (h *Herdr) clientEnv() []string {
 // the operator's ambient config directory the client reads from, which Olympus
 // does not own, and the override is a single file that exists only for the life
 // of this one client.
-func writeBareConfig() (string, error) {
+func writeBareConfig(prefix string) (string, error) {
 	f, err := os.CreateTemp("", "herdr-bare-*.toml")
 	if err != nil {
 		return "", backend.Wrapf(backend.CodeUnexpected, err, "creating a stripped herdr config for a bare session attach")
 	}
-	if _, err := f.WriteString(bareSessionConfig); err != nil {
+	if _, err := f.WriteString(bareSessionConfig(prefix)); err != nil {
 		_ = f.Close()
 		_ = os.Remove(f.Name())
 		return "", backend.Wrapf(backend.CodeUnexpected, err, "writing a stripped herdr config")

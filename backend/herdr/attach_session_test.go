@@ -204,7 +204,7 @@ func TestBareSessionClientAttachWritesStrippedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the stripped config at %s: %v", path, err)
 	}
-	if string(content) != bareSessionConfig {
+	if string(content) != bareSessionConfig(rawConfiguredPrefix(filepath.Dir(b.socketPath))) {
 		t.Errorf("the written config does not match bareSessionConfig")
 	}
 	if att.Cleanup == nil {
@@ -262,6 +262,29 @@ func TestSessionClientAttachOntoNothingIsNotFound(t *testing.T) {
 	}
 }
 
+// §8.9 The stripped config keeps the operator's prefix and the pane keys
+// behind it, and unbinds what leaves the workspace.
+func TestBareSessionConfigKeepsThePrefixAndThePaneKeys(t *testing.T) {
+	t.Parallel()
+	cfg := bareSessionConfig("ctrl+space")
+	if !strings.Contains(cfg, `prefix = "ctrl+space"`) {
+		t.Errorf("the config does not carry the prefix it was given:\n%s", cfg)
+	}
+	for _, key := range []string{"split_vertical", "split_horizontal", "close_pane", "zoom", "resize_mode", "focus_pane_left"} {
+		if strings.Contains(cfg, key+" = ") {
+			t.Errorf("%s is set in the bare config; a pane key keeps herdr's own binding", key)
+		}
+	}
+	for _, key := range []string{"new_tab", "close_tab", "new_workspace", "close_workspace", "workspace_picker", "toggle_sidebar"} {
+		if !strings.Contains(cfg, key+` = ""`) {
+			t.Errorf("%s is not unbound; it leaves the workspace or changes what the session holds", key)
+		}
+	}
+	if !strings.Contains(cfg, `pane_borders = "auto"`) {
+		t.Errorf("pane_borders is not auto, so a split would draw no divider")
+	}
+}
+
 // The stripped config is what herdr accepts: `herdr config check` reports it ok.
 // Guarded on the binary being installed, so a host without herdr still passes.
 func TestBareSessionConfigValidatesAgainstHerdr(t *testing.T) {
@@ -271,7 +294,7 @@ func TestBareSessionConfigValidatesAgainstHerdr(t *testing.T) {
 	}
 	dir := shortDir(t)
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte(bareSessionConfig), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(bareSessionConfig(defaultPrefix)), 0o600); err != nil {
 		t.Fatalf("writing config: %v", err)
 	}
 	cmd := exec.Command("herdr", "config", "check")
@@ -324,6 +347,9 @@ func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
 	}
 	if att.Settle == nil {
 		t.Fatalf("herdr %s keeps a view per client, yet the attachment steers the server", version)
+	}
+	if string(att.SettleAfter) != kittyPush {
+		t.Errorf("SettleAfter = %q, want the client's kitty push", att.SettleAfter)
 	}
 	if ws != ids[1] {
 		t.Errorf("herdr %s: Attach moved the server's focus to %s, which moves every client", version, ws)

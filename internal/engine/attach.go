@@ -3,6 +3,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,10 +26,15 @@ import (
 // taken to be up and reading keys; settleLatest bounds the wait for a
 // client that never stops painting (behavior §8.10). Both measured against
 // herdr 0.9.0: its connecting frames arrive within a few hundred
-// milliseconds of the first byte.
+// milliseconds of the first byte. settleMark is the beat after the
+// attachment's SettleAfter sequence, where it names one: herdr's client
+// pushes the kitty protocol and reads a key written 20ms later, and
+// drops one written at once (measured, 4 of 4 landed at 50ms and 100ms,
+// 0 of 4 at 0ms); the beat is the margin over that for a slower machine.
 const (
 	settleQuiet  = 250 * time.Millisecond
 	settleLatest = 2 * time.Second
+	settleMark   = 100 * time.Millisecond
 )
 
 // resetSequence turns off everything an inner application may have switched on
@@ -217,9 +223,13 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	// quiet stretch after the first byte, and at the latest a moment after
 	// the first byte where the client never goes quiet. The first byte alone
 	// was too early: the terminal setup is painted before the client has
-	// connected (measured, behavior §8.10). The step runs beside the copy
-	// rather than in its way, and one that fails ends the attach the way a
-	// vanished target does.
+	// connected (measured, behavior §8.10). Where the backend names a
+	// sequence the client writes once it reads keys (SettleAfter), the
+	// step runs a beat after that instead, since a client on a workspace
+	// that never stops painting never goes quiet and waited out the cap on
+	// every attach (measured). The step runs beside the copy rather than
+	// in its way, and one that fails ends the attach the way a vanished
+	// target does.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -255,6 +265,10 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 		}()
 		var quiet <-chan time.Time
 		var latest <-chan time.Time
+		var marked <-chan time.Time
+		// The tail of what has been seen, long enough to hold the mark
+		// across a chunk boundary.
+		var tail []byte
 		for {
 			select {
 			case chunk, ok := <-chunks:
@@ -267,7 +281,18 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 					if latest == nil {
 						latest = time.After(settleLatest)
 					}
+					if mark := attachment.SettleAfter; len(mark) > 0 && marked == nil {
+						tail = append(tail, chunk...)
+						if bytes.Contains(tail, mark) {
+							marked = time.After(settleMark)
+						} else if len(tail) > len(mark) {
+							tail = tail[len(tail)-len(mark)+1:]
+						}
+					}
 				}
+			case <-marked:
+				settle()
+				marked = nil
 			case <-quiet:
 				settle()
 				quiet = nil

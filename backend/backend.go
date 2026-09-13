@@ -180,6 +180,16 @@ type Attachment struct {
 	// workspace is worse than none. Nil means there is nothing to do once
 	// the client is up.
 	Settle func(ctx context.Context, keys io.Writer) error
+	// SettleAfter, when set beside Settle, is a sequence the client writes
+	// once it is reading keys — herdr's client pushes the kitty keyboard
+	// protocol (`CSI > 7 u`) as it comes up, and reads the walk's keys a
+	// beat after — so the engine runs Settle a short beat after seeing it
+	// rather than waiting for the client to go quiet. A client on a
+	// workspace that never stops painting (an agent streaming) never goes
+	// quiet, and the wait ran to its cap on every such attach (measured:
+	// two seconds, against a quarter of one). Nil means quiet is the
+	// only signal.
+	SettleAfter []byte
 }
 
 // Close runs the cleanup, if there is one. It is safe on the zero Attachment so

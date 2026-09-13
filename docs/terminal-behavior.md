@@ -1968,7 +1968,14 @@ independently reap the per-view session, or it leaks forever.
 ### 8.9 A bare attach on tmux is an attach onto a throwaway view
 
 A *bare* attach shows a session as a plain pane with no chrome. On herdr that is
-the session client with its chrome hidden; on tmux it is a **view** (§9): a
+the session client with its chrome hidden and every key that leaves the
+workspace unbound (tabs, workspaces, worktrees, the sidebar, the picker),
+under a configuration file written for the one attach; what the operator does
+INSIDE the workspace stays theirs — the prefix is the one their own
+configuration names (§13.3), and the pane keys behind it (split, close pane,
+zoom, resize, focus between panes) keep herdr's bindings, with a divider
+drawn between split panes and nothing around a lone one. On tmux it is a
+**view** (§9): a
 grouped session is already bare by construction — no status bar, no prefix, an
 inert key table (§9.3) — so a bare attach MUST create a view onto the session,
 attach the client to the view rather than to the session, and reap the view
@@ -2034,9 +2041,17 @@ view of its own, but `workspace focus` on the server still moves EVERY
 client, those included; so on the server there is no way to put two clients
 on two workspaces, and steering it for a second tab moved the first. A bare
 client is therefore WALKED: it comes up on the server's focus (measured),
-and once it has painted and gone quiet — the engine waits for the first
-quiet stretch after its first byte, since the first byte comes before the
-connection — the backend reads the workspaces in the order of their numbers
+and once it is reading keys — a beat after the client asks the terminal for
+the kitty keyboard protocol (`CSI > 7 u`), which the backend names as the
+attachment's `SettleAfter` and the engine watches the output for; a key
+written with the push itself is dropped, one written 20ms after is read
+(measured, 0 of 4 and then 8 of 8 at 50ms and 100ms), so the beat is 100ms.
+The engine waited for the first quiet stretch after the first byte before
+that, since the first byte comes before the connection; a client on a
+workspace whose pane never stops painting never goes quiet, and every such
+attach waited out the two-second cap (measured: 2.1s to the walked frame,
+against 0.2s by the mark). Quiet, and the cap, remain the way for a client
+that names no mark — the backend reads the workspaces in the order of their numbers
 and writes the client's own next- or previous-workspace key, the shorter
 way round the ring those keys walk, once per step with a beat between
 (two at once were read as one). The bare configuration binds them to F17
