@@ -2223,6 +2223,33 @@ target would be a second contract to keep in step.
 
 ---
 
+### 8.11 What the bare client cannot hold against
+
+Three things about a bare herdr client are limits of herdr's API rather
+than of this walk, and a consumer should know them rather than read them
+as defects here:
+
+- **A server-side focus moves every client.** `herdr workspace focus`,
+  `herdr tab focus` and `herdr agent focus`, from any CLI or agent, and
+  Olympus's own `focus` verb (§13), move every attached client, this one
+  included, and nothing reports it: herdr has no request that names a
+  client, and no way to read which workspace a given client is on. A
+  client dragged this way shows the wrong workspace until its next walk.
+- **The ring can shift under a walk.** The steps are counted from the
+  workspaces as they stood when the walk began; a workspace created or
+  closed meanwhile moves the ring under the keys. The walk lock serialises
+  Olympus's own walks on a server and nothing else.
+- **A walk is bounded by a lock and a press timeout.** Bare attaches onto
+  one server are built one at a time (§8.10); a second waits up to fifteen
+  seconds and is then refused as a conflict. Each press waits a beat and a
+  half for the client's title and is made once more; a client that never
+  answers ends the attach with an error.
+
+All three go away with a herdr request that attaches or moves ONE client
+onto a workspace; until then the walk is the only way in, and it is
+confirmed press by press so that what it cannot see is at least not
+guessed.
+
 ## 9. Views
 
 Read-only grouped sessions over a base. **tmux only**; zmx has no grouped-session
