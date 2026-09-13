@@ -499,8 +499,8 @@ func TestSettleRunsABeatAfterTheMarkOnAClientThatNeverGoesQuiet(t *testing.T) {
 		t.Fatal("the settle step never ran")
 	}
 	// The mark comes with the first bytes; the step follows it by a beat,
-	// well before the painting stops.
-	if took := settledAt.Sub(started); took > 500*time.Millisecond {
+	// well before the painting stops (a full second of it here).
+	if took := settledAt.Sub(started); took > 900*time.Millisecond {
 		t.Errorf("the settle step ran %v after the start: it waited for quiet rather than the mark", took)
 	}
 	got, err := os.ReadFile(seen)

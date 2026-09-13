@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1]
+
+### Fixed
+
+- **The bare walk waits long enough for the client to read its keys.** 0.21.0
+  walked a beat (100ms) after the client asked for the kitty keyboard
+  protocol; idle that was enough, but under load — the app opening a set of
+  tabs, several clients attaching to one server at once — the client was not
+  yet reading keys, and the walk was lost, leaving a client on the wrong
+  workspace (the two-clients e2e failed 6 of 6 at 250ms, passed 6 of 6 at
+  400ms; measured 2026-09-13). The beat is 400ms now. A client that goes
+  quiet before then still settles on quiet, so this only lengthens the walk
+  of a client on a workspace that never goes quiet, which still beats the
+  two-second cap it waited before. Behavior spec §8.10.
+
 ## [0.21.0]
 
 ### Fixed

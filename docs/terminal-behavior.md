@@ -2046,8 +2046,12 @@ client is therefore WALKED: it comes up on the server's focus (measured),
 and once it is reading keys — a beat after the client asks the terminal for
 the kitty keyboard protocol (`CSI > 7 u`), which the backend names as the
 attachment's `SettleAfter` and the engine watches the output for; a key
-written with the push itself is dropped, one written 20ms after is read
-(measured, 0 of 4 and then 8 of 8 at 50ms and 100ms), so the beat is 100ms.
+written with the push itself is dropped, a key
+written a stretch after is read once the client is up. Idle that stretch is
+short, but under load — several clients attaching to one server at once —
+the client is not reading keys for longer: the two-clients e2e failed 6 of
+6 at a 250ms beat and passed 6 of 6 at 400ms (measured 2026-09-13), so the
+beat is 400ms.
 The engine waited for the first quiet stretch after the first byte before
 that, since the first byte comes before the connection; a client on a
 workspace whose pane never stops painting never goes quiet, and every such

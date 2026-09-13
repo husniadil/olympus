@@ -28,13 +28,19 @@ import (
 // herdr 0.9.0: its connecting frames arrive within a few hundred
 // milliseconds of the first byte. settleMark is the beat after the
 // attachment's SettleAfter sequence, where it names one: herdr's client
-// pushes the kitty protocol and reads a key written 20ms later, and
-// drops one written at once (measured, 4 of 4 landed at 50ms and 100ms,
-// 0 of 4 at 0ms); the beat is the margin over that for a slower machine.
+// pushes the kitty protocol as it comes up and is ready to read the walk's
+// keys a stretch later. Idle it is ready almost at once (a key landed 4 of
+// 4 at 50ms), but under load — the app opening a set of tabs, several
+// clients attaching to one server at once — it needs longer: the
+// two-clients e2e failed 6 of 6 at a 250ms beat and passed 6 of 6 at 400ms
+// (measured 2026-09-13). Quiet still fires first for a client that goes
+// quiet before then; the mark is what walks a client on a workspace that
+// never does (a streaming agent), where the wait ran to the two-second cap
+// before (measured: 2.1s to the walked frame, 0.5s after).
 const (
 	settleQuiet  = 250 * time.Millisecond
 	settleLatest = 2 * time.Second
-	settleMark   = 100 * time.Millisecond
+	settleMark   = 400 * time.Millisecond
 )
 
 // resetSequence turns off everything an inner application may have switched on
