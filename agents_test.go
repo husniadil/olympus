@@ -584,6 +584,32 @@ func TestKindsReportClaudeUnderClaudeCode(t *testing.T) {
 	t.Fatal("kinds does not report claude at all")
 }
 
+// §3.7 The way an agent resumes is part of its row, and only for a name the
+// table has: a consumer that starts agents reads it here rather than keeping
+// its own four-entry copy.
+func TestKindsCarryResumeForTheAgentsThatHaveOne(t *testing.T) {
+	byName := map[string]backend.AgentKind{}
+	for _, kind := range Kinds() {
+		byName[kind.Name] = kind
+	}
+	for name, args := range agentResume {
+		kind, ok := byName[name]
+		if !ok {
+			t.Errorf("resume names %s, which is no canonical agent", name)
+			continue
+		}
+		if !reflect.DeepEqual(kind.Resume, args) {
+			t.Errorf("%s resumes with %v in kinds, %v in the table", name, kind.Resume, args)
+		}
+	}
+	if byName["claude"].Resume == nil {
+		t.Error("claude carries no resume")
+	}
+	if byName["gemini"].Resume != nil {
+		t.Errorf("gemini carries a resume nobody stated: %v", byName["gemini"].Resume)
+	}
+}
+
 // §3.7 What the agent said is asked for, never assumed. Without the option a
 // row carries no line and nothing is captured; with it the line is read off
 // the pane, and a blocked row answers with the question rather than with the

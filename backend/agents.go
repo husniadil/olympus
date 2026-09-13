@@ -131,4 +131,9 @@ type AgentKind struct {
 	// `node …/@anthropic-ai/claude-code/cli.js` — and is omitted for an
 	// agent that has none.
 	Packages []string `json:"packages,omitempty"`
+	// Resume is the arguments that open this agent's own list of past
+	// conversations to pick one up again — only the picker, since which
+	// conversation is a choice made in the pane. Omitted for an agent
+	// whose way of resuming Olympus does not know.
+	Resume []string `json:"resume,omitempty"`
 }

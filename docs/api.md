@@ -686,7 +686,7 @@ nothing: Olympus neither stores nor infers a conversation.
 **Agent kind row** (`kinds`):
 
 ```json
-{ "name": "claude", "executables": ["claude", "claude-code"], "packages": ["claude-code"] }
+{ "name": "claude", "executables": ["claude", "claude-code"], "packages": ["claude-code"], "resume": ["--resume"] }
 ```
 
 `kinds` answers which agents Olympus knows and by what executables: the
@@ -703,7 +703,11 @@ identify the agent where no token is named after it — an npm install runs as
 `node …/@anthropic-ai/claude-code/cli.js`, whose path holds `claude-code` —
 and is omitted for an agent that has none. Both lists are derived from the
 detection tables themselves rather than restated, so the verb cannot disagree
-with what `agents` matches on. Two things are deliberately absent: muse's
+with what `agents` matches on. `resume` (0.23.0) is the arguments that open
+the agent's own list of past conversations to pick one up again — only the
+picker, since which conversation is a choice made in the pane — and is
+omitted where Olympus does not know the agent's way; a consumer that starts
+agents reads it here rather than keeping a copy that covers a few of them. Two things are deliberately absent: muse's
 versioned launcher (`muse-bin-<version>`) is matched by shape rather than by a
 token, so no row can list it; and a name a natively-detecting backend reports
 that is outside this table is still possible on an agent row, since the

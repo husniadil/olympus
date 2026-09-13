@@ -98,6 +98,18 @@ var agentPackages = []struct{ dir, agent string }{
 // sorted, since a map has no order to preserve. Muse's versioned launcher
 // (`muse-bin-<version>`) is a shape rather than a token, so it is not
 // enumerable here.
+// agentResume is how each agent, by canonical name, opens its own list of
+// past conversations. A vocabulary fact of the same shape as the aliases: a
+// consumer starting an agent asks `kinds` rather than keeping a table that
+// covers four of the agents Olympus knows. Only the agents whose picker is
+// known are here; an absent entry is an absent field, not a guess.
+var agentResume = map[string][]string{
+	"claude": {"--resume"},
+	"codex":  {"resume"},
+	"cursor": {"--resume"},
+	"droid":  {"--resume"},
+}
+
 func Kinds() []backend.AgentKind {
 	executables := map[string][]string{}
 	for alias, name := range agentAliases {
@@ -116,7 +128,9 @@ func Kinds() []backend.AgentKind {
 			}
 			return aliases[i] < aliases[j]
 		})
-		kinds = append(kinds, backend.AgentKind{Name: name, Executables: aliases, Packages: packages[name]})
+		kinds = append(kinds, backend.AgentKind{
+			Name: name, Executables: aliases, Packages: packages[name], Resume: agentResume[name],
+		})
 	}
 	sort.Slice(kinds, func(i, j int) bool { return kinds[i].Name < kinds[j].Name })
 	return kinds

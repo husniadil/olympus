@@ -18,7 +18,7 @@ func (a *App) kindsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "kinds",
 		Short: "List the agent vocabulary: which agents Olympus knows, and by what executables",
-		Long: "List the agent vocabulary the `agents` listing reports names in: one row per canonical name, with every executable token that names it and the package directories that identify it." +
+		Long: "List the agent vocabulary the `agents` listing reports names in: one row per canonical name, with every executable token that names it, the package directories that identify it, and the arguments that open its list of past conversations where Olympus knows them." +
 			"\n\nIt addresses nothing and resolves no backend, so it answers with no multiplexer installed at all. Both lists come from the detection tables themselves, so this verb cannot disagree with what `agents` matches on. Rows are ordered by name; executables lead with the canonical spelling. Muse's versioned launcher (muse-bin-<version>) is matched by shape rather than by a token, so it is not listed." +
 			scriptsNote,
 		Args: cobra.NoArgs,
@@ -30,10 +30,11 @@ func (a *App) kindsCmd() *cobra.Command {
 
 			return a.emit(kinds, nil, func(w io.Writer) {
 				table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-				fmt.Fprintln(table, "NAME\tEXECUTABLES\tPACKAGES")
+				fmt.Fprintln(table, "NAME\tEXECUTABLES\tPACKAGES\tRESUME")
 				for _, k := range kinds {
-					fmt.Fprintf(table, "%s\t%s\t%s\n", k.Name,
-						strings.Join(k.Executables, " "), strings.Join(k.Packages, " "))
+					fmt.Fprintf(table, "%s\t%s\t%s\t%s\n", k.Name,
+						strings.Join(k.Executables, " "), strings.Join(k.Packages, " "),
+						strings.Join(k.Resume, " "))
 				}
 				_ = table.Flush()
 			})
