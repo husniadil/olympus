@@ -185,10 +185,27 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		return backend.Attachment{}, err
 	}
 	walk := spec.Bare && !sharedClientFocus(version)
+	// The walk's origin and its steps are read HERE, under the lock, and
+	// not when the walk runs: the client comes up on the focus at the
+	// moment it connects, and the walk of another bare client between now
+	// and then would move the focus it was read from (walklock.go).
+	var lock *walkLock
+	var steps int
 	if !walk {
 		if err := h.steer(ctx, r); err != nil {
 			return backend.Attachment{}, err
 		}
+	} else {
+		var err error
+		if lock, err = acquireWalkLock(ctx, h.socketPath); err != nil {
+			return backend.Attachment{}, err
+		}
+		snap, err := h.snapshot(ctx)
+		if err != nil {
+			lock.release()
+			return backend.Attachment{}, err
+		}
+		steps = workspaceSteps(snap.Workspaces, snap.FocusedWorkspaceID, r.workspace.WorkspaceID)
 	}
 
 	var cmd *exec.Cmd
@@ -212,7 +229,10 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	id := r.id()
 	att := backend.Attachment{Cmd: cmd, Probe: func(ctx context.Context) backend.State { return h.Probe(ctx, id) }}
 	if walk {
-		att.Settle = func(ctx context.Context, keys io.Writer) error { return h.walk(ctx, r, keys) }
+		att.Settle = func(ctx context.Context, keys io.Writer) error {
+			defer lock.release()
+			return h.walk(ctx, r, steps, keys)
+		}
 		att.SettleAfter = []byte(kittyPush)
 	}
 	if spec.Bare {
@@ -223,10 +243,16 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		// server. The temp file is reaped when the attach ends.
 		path, err := writeBareConfig(rawConfiguredPrefix(filepath.Dir(h.socketPath)))
 		if err != nil {
+			lock.release()
 			return backend.Attachment{}, err
 		}
 		env = append(env, "HERDR_CONFIG_PATH="+path)
-		att.Cleanup = func() error { return os.Remove(path) }
+		// A client that ends before it settles never runs the walk, so the
+		// lock is dropped here as well.
+		att.Cleanup = func() error {
+			lock.release()
+			return os.Remove(path)
+		}
 	}
 	if !spec.Supersede {
 		att.Notices = append(att.Notices,
@@ -266,18 +292,17 @@ func (h *Herdr) steer(ctx context.Context, r resolved) error {
 // round the ring the client's next- and previous-workspace keys walk; then
 // the tab and the pane, where the target names one, on the server, since the
 // active tab and the zoom are the workspace's own state and a client on
-// another workspace is not moved by them.
+// another workspace is not moved by them. The steps were counted when the
+// attach was built, under the walk lock (workspaceSteps; negative walks
+// backwards).
 //
 // The keys are F17 and F18 in the kitty spelling, which is what herdr's
 // client reads once it has asked for that protocol (`CSI > 7 u`); the
 // legacy `CSI 31 ~` went unread (measured). A beat between presses: two
-// written at once were read as one.
-func (h *Herdr) walk(ctx context.Context, r resolved, keys io.Writer) error {
-	snap, err := h.snapshot(ctx)
-	if err != nil {
-		return err
-	}
-	steps := workspaceSteps(snap.Workspaces, snap.FocusedWorkspaceID, r.workspace.WorkspaceID)
+// written at once were read as one; and a beat after the last, so the
+// server's focus has followed it before the lock is dropped and the next
+// client reads that focus as its origin.
+func (h *Herdr) walk(ctx context.Context, r resolved, steps int, keys io.Writer) error {
 	key := nextWorkspaceKey
 	if steps < 0 {
 		key, steps = previousWorkspaceKey, -steps
@@ -292,6 +317,13 @@ func (h *Herdr) walk(ctx context.Context, r resolved, keys io.Writer) error {
 		}
 		if _, err := io.WriteString(keys, key); err != nil {
 			return backend.Wrapf(backend.CodeUnexpected, err, "walking the client to %s", r.workspace.WorkspaceID)
+		}
+	}
+	if steps > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(keyGap):
 		}
 	}
 	if r.kind == kindWorkspace {

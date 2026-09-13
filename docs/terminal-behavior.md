@@ -2070,7 +2070,22 @@ workspace. A client with the operator's configuration (`--client` without
 server as before, and moves every other client with it. The backend hands
 the walk to the engine as the attachment's `Settle`, run with the client's
 own input; a `Settle` that fails ends the attach with its error, since a
-client left on the wrong workspace is worse than none. The `focus` verb
+client left on the wrong workspace is worse than none.
+
+Where the client comes up is read when the attach is BUILT, and the steps
+are counted then, not when the walk runs: a walk moves the server's focus
+(the focus follows whichever client last moved, measured), and a second
+bare client spawned a beat after the first came up on the focus of one
+moment and walked from the focus of another (measured 2026-09-13: spawned
+on `w14`, the first's walk moved the focus to `wY` meanwhile, and the
+second walked `wY → wZ` from `w14` and landed on `wY`). And the bare
+attaches onto one server are built ONE AT A TIME: a lock per server, in the
+reserved lock directory (§17.1), held from the moment the focus is read to
+a beat after the last key of the walk, or to the attachment's cleanup where
+the client ended before it walked. A second attach waits for it, up to
+fifteen seconds, and is refused as a conflict after. A consumer opening
+several tabs at once pays the walks in a row, each under a second, which is
+what makes every one of them land. The `focus` verb
 (§13) is unchanged and still steers the server directly, which on 0.9.0
 moves every client.
 

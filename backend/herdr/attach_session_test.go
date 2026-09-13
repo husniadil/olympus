@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -354,16 +355,20 @@ func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
 	if ws != ids[1] {
 		t.Errorf("herdr %s: Attach moved the server's focus to %s, which moves every client", version, ws)
 	}
+	// The focus moves on before the walk runs — another client's walk, in
+	// the race this holds against — and the walk still counts from where
+	// the client came up, which was read when the attach was built.
+	raw(t, b, "workspace", "focus", ids[0])
 	var keys strings.Builder
 	if err := att.Settle(ctx, &keys); err != nil {
 		t.Fatalf("Settle: %v", err)
 	}
-	// The client came up on `second`, the server's focus; `third` is the
-	// next one along.
+	// The client came up on `second`, the server's focus at the attach;
+	// `third` is the next one along.
 	if got := keys.String(); got != nextWorkspaceKey {
 		t.Errorf("the walk wrote %q, want one next-workspace press", got)
 	}
-	if ws, _, _, _ := focus(t, b); ws != ids[1] {
+	if ws, _, _, _ := focus(t, b); ws != ids[0] {
 		t.Errorf("the walk moved the server's focus to %s; it must move the client alone", ws)
 	}
 	// The operator's own client has no keys this backend can count on: it
@@ -377,6 +382,86 @@ func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
 	}
 	if ws, _, _, _ := focus(t, b); ws != ids[0] {
 		t.Errorf("Attach(first) left the focus on %s, want %s", ws, ids[0])
+	}
+}
+
+// §8.10 Bare attaches onto one server are built one at a time: the second
+// waits until the first has walked, or ended without walking, so the focus
+// it reads is the one its client comes up on.
+func TestBareAttachesOntoOneServerWalkOneAtATime(t *testing.T) {
+	requireHerdrRunnable(t)
+	b := liveBackend(t)
+	ctx := context.Background()
+	for _, name := range []string{"first", "second"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	version, err := b.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if sharedClientFocus(version) {
+		t.Skipf("herdr %s shares one focus across clients; nothing walks", version)
+	}
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
+	attach := func(target string) (backend.Attachment, error) {
+		att, err := b.Attach(ctx, target, spec)
+		if err == nil && att.Cleanup != nil {
+			t.Cleanup(func() { _ = att.Cleanup() })
+		}
+		return att, err
+	}
+	first, err := attach("first")
+	if err != nil {
+		t.Fatalf("Attach(first): %v", err)
+	}
+	type built struct {
+		att backend.Attachment
+		err error
+	}
+	second := make(chan built, 1)
+	go func() {
+		att, err := attach("second")
+		second <- built{att, err}
+	}()
+	select {
+	case got := <-second:
+		t.Fatalf("the second bare attach was built (err %v) while the first had not walked", got.err)
+	case <-time.After(400 * time.Millisecond):
+	}
+	if err := first.Settle(ctx, io.Discard); err != nil {
+		t.Fatalf("Settle(first): %v", err)
+	}
+	var next backend.Attachment
+	select {
+	case got := <-second:
+		if got.err != nil {
+			t.Fatalf("Attach(second): %v", got.err)
+		}
+		next = got.att
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second bare attach did not go on once the first had walked")
+	}
+	// A client that ends before it settles drops the lock on its cleanup.
+	if err := next.Cleanup(); err != nil {
+		t.Fatalf("Cleanup(second): %v", err)
+	}
+	third := make(chan built, 1)
+	go func() {
+		att, err := attach("first")
+		third <- built{att, err}
+	}()
+	select {
+	case got := <-third:
+		if got.err != nil {
+			t.Fatalf("Attach(first) again: %v", got.err)
+		}
+		if err := got.att.Settle(ctx, io.Discard); err != nil {
+			t.Fatalf("Settle: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a bare attach did not go on once the last one was cleaned up unwalked")
 	}
 }
 

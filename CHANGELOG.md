@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.2]
+
+### Fixed
+
+- **Two bare clients attached a beat apart both land where they were sent.**
+  The walk counted its steps from the server's focus when it RAN, but the
+  client came up on the focus when it CONNECTED, and the walk of another
+  bare client in between moved the focus (measured 2026-09-13: the second
+  client spawned on `w14`, the first's walk moved the focus to `wY`, and the
+  second walked `wY → wZ` from `w14` and landed on `wY`). The focus and the
+  steps are read when the attach is built now, and the bare attaches onto
+  one server are built one at a time under a lock per server, held to a
+  beat after the last key of the walk, or to the cleanup of a client that
+  ended before it walked. Behavior spec §8.10.
+
 ## [0.21.1]
 
 ### Fixed
