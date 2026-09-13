@@ -26,8 +26,10 @@ import (
 // operator's own client does. It was parked on F19 with every pane key
 // unbound for a while, on the reading that a bare pane holds nothing to
 // split; the operator split one from herdr's own client and asked why the
-// bare one could not. `pane_borders = "auto"` draws a divider between
-// split panes and nothing around a lone one.
+// bare one could not. `pane_borders = true` draws a divider between
+// split panes and nothing around a lone one: it is 0.9.0's "auto" in the
+// legacy spelling, which the herdr the release gate installs (0.8.2)
+// still parses, where the word did not (CI, 2026-09-13).
 //
 // Two keys are BOUND, to F17 and F18 (keys a terminal almost never sends):
 // the previous- and next-workspace steps, which is how the attach walks the
@@ -56,7 +58,7 @@ sidebar_start_collapsed = true
 sidebar_collapsed_mode = "hidden"
 hide_tab_bar_when_single_tab = true
 mobile_width_threshold = 0
-pane_borders = "auto"
+pane_borders = true
 pane_outer_borders = false
 pane_scrollbars = false
 show_agent_labels_on_pane_borders = false

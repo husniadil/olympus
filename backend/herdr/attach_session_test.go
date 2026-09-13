@@ -280,8 +280,8 @@ func TestBareSessionConfigKeepsThePrefixAndThePaneKeys(t *testing.T) {
 			t.Errorf("%s is not unbound; it leaves the workspace or changes what the session holds", key)
 		}
 	}
-	if !strings.Contains(cfg, `pane_borders = "auto"`) {
-		t.Errorf("pane_borders is not auto, so a split would draw no divider")
+	if !strings.Contains(cfg, "pane_borders = true") {
+		t.Errorf("pane_borders is off, so a split would draw no divider")
 	}
 }
 

@@ -30,7 +30,7 @@ All notable changes to this project are documented here. The format follows
   operator split one from herdr's own client and asked why the bare one
   could not. The prefix is now the one the operator's configuration names
   (§13.3), the pane keys behind it (split, close pane, zoom, resize, focus
-  between panes) keep herdr's own bindings, and `pane_borders = "auto"`
+  between panes) keep herdr's own bindings, and `pane_borders = true`
   draws a divider between split panes and nothing around a lone one. What
   leaves the workspace or changes what the session holds (tabs, workspaces,
   worktrees, the sidebar, the picker) stays unbound. Behavior spec §8.9.

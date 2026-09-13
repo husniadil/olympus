@@ -1974,7 +1974,9 @@ under a configuration file written for the one attach; what the operator does
 INSIDE the workspace stays theirs — the prefix is the one their own
 configuration names (§13.3), and the pane keys behind it (split, close pane,
 zoom, resize, focus between panes) keep herdr's bindings, with a divider
-drawn between split panes and nothing around a lone one. On tmux it is a
+drawn between split panes and nothing around a lone one (`pane_borders =
+true`, the legacy spelling of 0.9.0's `"auto"`, which an older herdr still
+parses). On tmux it is a
 **view** (§9): a
 grouped session is already bare by construction — no status bar, no prefix, an
 inert key table (§9.3) — so a bare attach MUST create a view onto the session,
