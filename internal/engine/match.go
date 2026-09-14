@@ -25,6 +25,20 @@ func Normalize(s string) string {
 	return normalize(s, normalizedLimit)
 }
 
+// NormalizeTail is Normalize over the END of the text: the last
+// normalizedLimit letters and digits rather than the first.
+//
+// An input line longer than the box drawing it scrolls to where the cursor
+// is, which is the end, so long text shows its tail and never its head. A
+// short text normalizes to the same needle either way.
+func NormalizeTail(s string) string {
+	all := []rune(normalize(s, -1))
+	if len(all) <= normalizedLimit {
+		return string(all)
+	}
+	return string(all[len(all)-normalizedLimit:])
+}
+
 // normalizeLine is Normalize with no cap, for the text being SEARCHED.
 //
 // The haystack must not be truncated. What the cap is for — keeping a needle

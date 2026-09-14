@@ -41,6 +41,37 @@ func TestTextObservedOnScreenIsSubmittedOnce(t *testing.T) {
 	}
 }
 
+// §7.1: an input box that scrolls shows the END of long text, where the
+// cursor is, and its beginning has gone above the box's top edge. Looking for
+// the head alone read that as a dropped delivery and typed the text a second
+// time, leaving it doubled in the input line and unsubmitted (measured: a
+// ~1,500-character prompt into a 52-column pane).
+func TestLongTextWhoseStartScrolledOutOfTheInputIsObserved(t *testing.T) {
+	text := "From the agent on this host, round two. " +
+		strings.Repeat("Several sentences of context that wrap across many rows. ", 20) +
+		"Pick one and say why."
+	f := &fakeBackend{
+		onType: func(f *fakeBackend, text string) {
+			// A 52-column box that keeps its last four rows in view.
+			var rows []string
+			for i := 0; i < len(text); i += 52 {
+				rows = append(rows, text[i:min(i+52, len(text))])
+			}
+			f.setScreen("> " + strings.Join(rows[len(rows)-4:], "\n  "))
+		},
+	}
+	if err := delivery(t, f, nil).VerifiedSubmit(context.Background(), "build", text); err != nil {
+		t.Fatalf("VerifiedSubmit: %v", err)
+	}
+	typed, submits := f.counts()
+	if typed != 1 {
+		t.Errorf("sent the text %d times, want 1", typed)
+	}
+	if submits != 1 {
+		t.Errorf("submitted %d times, want 1", submits)
+	}
+}
+
 // The failure guarded is a dropped or coalesced FIRST delivery. The same text
 // is resent, and the second window is what decides.
 // §4.4: a failed Enter after injection MUST be retried exactly once. Text left

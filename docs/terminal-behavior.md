@@ -1687,6 +1687,15 @@ text begins. A verified send then fails after its resend with its own echo
 plainly on screen. It survives review easily because a multi-line prompt — which
 many developers have — puts the command on a clean second line and hides it.
 
+**The needle is taken from BOTH ends of the text, and either one seen counts.**
+An input box drawn narrower than the text scrolls to where the cursor is, which
+is the end, so a long text's first 24 characters are above the box's top edge
+while its last 24 are on screen. Looking for the head alone reads that as a
+dropped delivery, and the §7.4 resend then types the text a second time: the
+input line holds it twice and nothing is submitted. Measured: a prompt of about
+1,500 characters into a 52-column pane of a full-screen agent client. A text of
+24 normalized characters or fewer yields one needle either way.
+
 ### 7.2 Match per line, NOT across the whole screen
 
 Normalization MUST be applied per line, never to the full multi-line capture as

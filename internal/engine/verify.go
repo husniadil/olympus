@@ -82,20 +82,25 @@ func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
 // The failure guarded is a dropped or coalesced FIRST delivery, not a garbled
 // second attempt: the same text is resent, and only a miss on the second,
 // independent window fails.
+//
+// Either end of the text counts as seen (behavior §7.1). A resend of text
+// that did land is not harmless: it doubles the input line and leaves it
+// unsubmitted, so a long text whose head has scrolled out of its input box
+// must not read as dropped.
 func (d Delivery) deliver(ctx context.Context, target, text string) error {
-	needle := Normalize(text)
+	head, tail := Normalize(text), NormalizeTail(text)
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {
 		return err
 	}
-	if d.observed(ctx, target, needle) {
+	if d.observed(ctx, target, head, tail) {
 		return nil
 	}
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {
 		return err
 	}
-	if d.observed(ctx, target, needle) {
+	if d.observed(ctx, target, head, tail) {
 		return nil
 	}
 
@@ -103,15 +108,15 @@ func (d Delivery) deliver(ctx context.Context, target, text string) error {
 		"text sent to %s was never observed on screen, after one resend", target)
 }
 
-// observed polls the screen for the needle within one attempt budget.
-func (d Delivery) observed(ctx context.Context, target, needle string) bool {
+// observed polls the screen for either needle within one attempt budget.
+func (d Delivery) observed(ctx context.Context, target, head, tail string) bool {
 	deadline := time.Now().Add(d.Budget)
 	for {
 		capture, err := d.Backend.Screen(ctx, target, backend.ScreenOpts{})
 		// A capture failure is not a match, and not a reason to stop: the
 		// budget is what bounds this, so a transient read failure costs one
 		// poll rather than the whole attempt.
-		if err == nil && ScreenContains(capture.Text, needle) {
+		if err == nil && (ScreenContains(capture.Text, head) || ScreenContains(capture.Text, tail)) {
 			return true
 		}
 		if time.Now().After(deadline) {
