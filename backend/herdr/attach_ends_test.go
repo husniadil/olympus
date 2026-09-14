@@ -24,11 +24,28 @@ import (
 // A second workspace exists so the server has somewhere to move the focus —
 // the shape the defect was measured in.
 func TestSessionClientAttachEndsWhenTheWorkspaceCloses(t *testing.T) {
+	sessionClientAttachEndsWithItsWorkspace(t, true)
+}
+
+// §8.10 The same with no other workspace: herdr refills an empty session
+// with a fresh workspace for a connected client the moment the last one
+// closes (App::ensure_default_workspace, herdr 0.9.0), so the client is
+// never on nothing. The attach must end all the same, since the workspace
+// it was steered onto is gone; it must not follow the client onto the new
+// one (measured behind Agamemnon on herdr 0.9.0 / olympus 0.23.0).
+func TestSessionClientAttachEndsWhenTheLastWorkspaceCloses(t *testing.T) {
+	sessionClientAttachEndsWithItsWorkspace(t, false)
+}
+
+func sessionClientAttachEndsWithItsWorkspace(t *testing.T, other bool) {
+	t.Helper()
 	requireHerdrRunnable(t)
 	b := liveBackend(t)
 	ctx := context.Background()
-	if _, err := b.Create(ctx, backend.CreateSpec{Name: "elsewhere"}); err != nil {
-		t.Fatalf("Create: %v", err)
+	if other {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: "elsewhere"}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
 	}
 	created, err := b.Create(ctx, backend.CreateSpec{Name: "doomed"})
 	if err != nil {
@@ -105,7 +122,7 @@ func TestSessionClientAttachEndsWhenTheWorkspaceCloses(t *testing.T) {
 	if out, _ := exec.Command("ps", "-p", pid, "-o", "pid=").Output(); strings.TrimSpace(string(out)) != "" {
 		t.Errorf("the client (pid %s) is still alive after the attach ended:\n%s", pid, out)
 	}
-	if b.Probe(ctx, "elsewhere") != backend.StatePresent {
+	if other && b.Probe(ctx, "elsewhere") != backend.StatePresent {
 		t.Error("ending the attach took the other workspace with it")
 	}
 }
