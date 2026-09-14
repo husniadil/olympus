@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1]
+
+### Fixed
+
+- **A verified send of a long text lands once.** An input box narrower than
+  the text scrolls to the cursor, which is the end, so the text's first 24
+  characters were above the box while its last were on screen. The check
+  looked for the head alone, read that as a dropped delivery, and resent: the
+  text doubled in the input line and was never submitted (measured with a
+  1,500-character prompt into a 52-column pane). The needle is taken from both
+  ends now, and either one seen counts. A paste the client collapses to a
+  short slice still shows neither end. Behavior spec §7.1.
+
 ## [0.23.0]
 
 ### Added
