@@ -17,6 +17,21 @@ All notable changes to this project are documented here. The format follows
   separator even inside a key name, so that one is sent as `M-\;`.
   Behavior spec §4.9, §4.10.
 
+### Fixed
+
+- **What is typed after a bare herdr client goes onto a pane lands in that
+  pane far more often.** On a server that advertises `client_view_focus`, the
+  pane was zoomed after the client's view moved, and the wait for the zoom's
+  repaint was met by a frame the view change painted late; herdr then dropped
+  the input the client addressed to the pane it still had focused (3 of 20
+  goes onto a pane in another tab under load). The zoom now runs before the
+  view moves, and before the client is spawned for an attach, so the state
+  the client is sent already has the pane focused; a zoom that leaves the
+  focus where it was is no longer waited for. The frame end that confirms a
+  view change can still be a late frame, since herdr reports no sign a client
+  has applied what it was sent (3 of 60 under the same load, none of 60
+  without). Behavior spec §8.10, §8.11.
+
 ## [0.24.1]
 
 ### Fixed

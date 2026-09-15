@@ -313,13 +313,18 @@ func (h *Herdr) sessionClientCommand(ctx context.Context, args ...string) (*exec
 //
 // No key is pressed and no title is waited for, and no walk lock is taken:
 // nothing here reads the server's focus, so there is nothing for another
-// attach to move under it. The attachment's Settle waits for the client to
-// be listed, puts it on the target's tab where the target names one, and
-// zooms as the steering table says; a go moves it the same way, and the
-// probe reads where `client.list` has it.
+// attach to move under it. The zoom steps of the steering table run here,
+// before the client exists, so the first state it is sent already has the
+// target's pane focused (showOnClient says why that cannot wait). The
+// attachment's Settle waits for the client to be listed and puts it on the
+// target's tab where the target names one; a go zooms and moves it the same
+// way, and the probe reads where `client.list` has it.
 func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.AttachSpec) (backend.Attachment, error) {
 	tag, err := newClientTag()
 	if err != nil {
+		return backend.Attachment{}, err
+	}
+	if _, err := h.zoomSteps(ctx, r); err != nil {
 		return backend.Attachment{}, err
 	}
 	cmd, env := h.sessionClientCommand(ctx, "--workspace", r.workspace.WorkspaceID, "--client-tag", tag)
@@ -359,9 +364,7 @@ func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.A
 // and returns once the client is showing it, which is what lets the engine
 // forward what was typed after a go (§8.10). A tab or pane target names its
 // tab; a workspace target does not, and the client shows the tab it last
-// showed there, as a person switching to it would see. The zoom steps of the
-// steering table then run on the server: the zoom is the tab's own state,
-// and there is no zoom of one client's.
+// showed there, as a person switching to it would see.
 //
 // The server's answer says the view moved, and that is not yet enough to
 // type into it: the client addresses what it sends to the pane it believes
@@ -369,7 +372,20 @@ func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.A
 // views, until the repaint that tells the client where it is has reached it
 // (measured: a marker written straight after the answer never echoed). So
 // the end of that repaint's synchronized frame is waited for, and a beat
-// after it, the same as after a walk.
+// after it, the same as after a walk. That frame end is the only sign herdr
+// gives, and it cannot be told from a late frame the client painted for
+// where it was before (§8.11).
+//
+// The zoom steps of the steering table run on the server BEFORE the view
+// moves: the zoom is the tab's own state, there is no zoom of one client's,
+// and a zoom that moves the tab's focus changes which pane the server takes
+// the client's input for. Zoomed first, the repaint the view change is
+// waited for is built from a state that already has the pane focused. Zoomed
+// after, the zoom's repaint needed a wait of its own, and nothing the client
+// paints tells that repaint from a late frame of the view change: the wait
+// was met by one before the zoom had even answered (measured, 17 of 20 goes
+// under load), and a marker typed after the go was dropped whenever the
+// zoom's repaint was still on its way (4 of 20).
 //
 // The client is waited for in `client.list` first, since the first placement
 // may run before it has connected, and one already where the target is (as
@@ -383,8 +399,33 @@ func (h *Herdr) showOnClient(ctx context.Context, tag string, to resolved, at *b
 	if err != nil {
 		return err
 	}
-	showing := row.TabID
-	if row.WorkspaceID != to.workspace.WorkspaceID || (tab != "" && row.TabID != tab) {
+	moves := row.WorkspaceID != to.workspace.WorkspaceID || (tab != "" && row.TabID != tab)
+
+	// A zoom that moves the focus of the tab the client already shows has
+	// no view change to carry it, so its repaint is waited for as the only
+	// sign the client has it. That frame cannot be told from an earlier one
+	// (§8.11). A zoom that leaves the focus where it was needs no wait: the
+	// pane the client addresses is the one the server takes input for.
+	var repainted func(time.Duration) bool
+	if !moves && row.TabID == to.tab.TabID {
+		repainted = expect([]byte(frameEnd))
+	}
+	refocused, err := h.zoomSteps(ctx, to)
+	if err != nil {
+		return err
+	}
+	if refocused && repainted != nil {
+		if !repainted(pressWithin) {
+			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.id())
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(keyGap):
+		}
+	}
+
+	if moves {
 		params := map[string]string{"client_tag": tag, "workspace_id": to.workspace.WorkspaceID}
 		if tab != "" {
 			params["tab_id"] = tab
@@ -404,44 +445,6 @@ func (h *Herdr) showOnClient(ctx context.Context, tag string, to resolved, at *b
 			return backend.Errorf(backend.CodeUnexpected, "herdr put the client on %s %s, not %s",
 				answer.Client.WorkspaceID, answer.Client.TabID, to.id())
 		}
-		showing = answer.Client.TabID
-		if !painted(pressWithin) {
-			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.id())
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(keyGap):
-		}
-	}
-	for _, args := range steeringArgs(to) {
-		if args[0] != "pane" {
-			continue
-		}
-		// A zoom that changed anything moves the tab's focused pane or its
-		// layout, which the client learns from its next repaint the same way
-		// it learns its view: what is typed before then goes to the pane it
-		// showed (measured, a marker typed after a zoom onto the second pane
-		// of a split never echoed there). A client showing another tab of
-		// the workspace has nothing to repaint, and is not waited for.
-		painted := expect([]byte(frameEnd))
-		out, err := h.run(ctx, args...)
-		if err != nil {
-			return err
-		}
-		var zoom struct {
-			Result struct {
-				Zoom struct {
-					Changed bool `json:"changed"`
-				} `json:"zoom"`
-			} `json:"result"`
-		}
-		if err := json.Unmarshal([]byte(out), &zoom); err != nil {
-			return backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to %s", strings.Join(args, " "))
-		}
-		if !zoom.Result.Zoom.Changed || showing != to.tab.TabID {
-			continue
-		}
 		if !painted(pressWithin) {
 			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.id())
 		}
@@ -453,6 +456,32 @@ func (h *Herdr) showOnClient(ctx context.Context, tag string, to resolved, at *b
 	}
 	at.set(to)
 	return nil
+}
+
+// zoomSteps runs the zoom steps of the steering table for a target on the
+// server, and reports whether one moved the focus of the target's tab.
+func (h *Herdr) zoomSteps(ctx context.Context, to resolved) (refocused bool, err error) {
+	for _, args := range steeringArgs(to) {
+		if args[0] != "pane" {
+			continue
+		}
+		out, err := h.run(ctx, args...)
+		if err != nil {
+			return false, err
+		}
+		var zoom struct {
+			Result struct {
+				Zoom struct {
+					FocusChanged bool `json:"focus_changed"`
+				} `json:"zoom"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(out), &zoom); err != nil {
+			return false, backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to %s", strings.Join(args, " "))
+		}
+		refocused = refocused || zoom.Result.Zoom.FocusChanged
+	}
+	return refocused, nil
 }
 
 // clientArrival bounds the wait for a launched client to be listed. The

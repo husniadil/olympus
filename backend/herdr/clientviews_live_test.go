@@ -514,6 +514,150 @@ func TestAPerClientViewGoOntoAPaneShowsItsTabAndTheProbeFollows(t *testing.T) {
 	}
 }
 
+// splitRight splits a pane without focusing the new one, and returns the new
+// pane's id.
+func splitRight(t *testing.T, b *Herdr, pane string) string {
+	t.Helper()
+	var split struct {
+		Result struct {
+			Pane paneRow `json:"pane"`
+		} `json:"result"`
+	}
+	out := raw(t, b, "pane", "split", pane, "--direction", "right", "--no-focus")
+	if err := json.Unmarshal([]byte(out), &split); err != nil || split.Result.Pane.PaneID == "" {
+		t.Fatalf("pane split answered no pane: %v\n%s", err, out)
+	}
+	return split.Result.Pane.PaneID
+}
+
+// zoomedOnto reports whether a pane's tab is zoomed with that pane focused,
+// which is what the server accepts a client's input for and nothing else.
+func zoomedOnto(t *testing.T, b *Herdr, pane string) bool {
+	t.Helper()
+	snap, err := b.snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	row, ok := snap.paneByID(pane)
+	return ok && snap.zoomedOf(row.TabID) && snap.focusedPaneOf(row.TabID).PaneID == pane
+}
+
+// §8.10 A bare attach onto a pane of its workspace's shown tab zooms the pane
+// before the client is spawned: the client addresses what it sends to the
+// pane its own copy of the tab has focused, and herdr drops input for any
+// other pane of a zoomed tab, so a zoom made once the client is up is typed
+// past until a repaint reaches it, and no frame the client paints tells that
+// repaint from an earlier one. Zoomed before the client exists, the first
+// state it is sent already has the pane focused.
+func TestAPerClientViewAttachOntoAPaneZoomsItBeforeTheClientIsSpawned(t *testing.T) {
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "split"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	panes, err := b.Panes(ctx, "split")
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("Panes(split) = %v, %v; want one pane", panes, err)
+	}
+	target := splitRight(t, b, panes[0].ID)
+
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true, Cols: 120, Rows: 40}
+	att, err := b.Attach(ctx, target, spec)
+	if err != nil {
+		t.Fatalf("bare Attach(%s): %v", target, err)
+	}
+	_ = att.Close()
+	if !zoomedOnto(t, b, target) {
+		t.Fatalf("building the attach onto %s left its tab unzoomed or focused elsewhere", target)
+	}
+
+	raw(t, b, "pane", "zoom", "--pane", panes[0].ID, "--off")
+	c := startBare(t, b, target)
+	_, _ = c.in.WriteString("echo olympus-on-the-split\r")
+	waitScreen(t, b, target, "olympus-on-the-split")
+	if screenShows(t, b, panes[0].ID, "olympus-on-the-split") {
+		t.Errorf("the marker typed after attaching %s landed in %s", target, panes[0].ID)
+	}
+}
+
+// §8.10 A go onto a pane in a tab the client does not show zooms the pane
+// before the client's view is moved, so the repaint the go waits for is the
+// one that moved the view, and the state that repaint carries already has the
+// pane focused. Waited for the other way round, the zoom's own wait was met by
+// a frame the view change painted late (measured: 17 of 20 goes under load),
+// and a marker typed after the go was dropped by the server whenever the
+// zoom's repaint had not yet reached the client (4 of those 20).
+func TestAPerClientViewGoOntoAPaneInAnotherTabZoomsBeforeTheViewMoves(t *testing.T) {
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	for _, name := range []string{"first", "second"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	second, err := b.resolve(ctx, "second")
+	if err != nil {
+		t.Fatalf("resolve(second): %v", err)
+	}
+	var tabbed struct {
+		Result struct {
+			Tab  tabRow  `json:"tab"`
+			Root paneRow `json:"root_pane"`
+		} `json:"result"`
+	}
+	out := raw(t, b, "tab", "create", "--workspace", second.workspace.WorkspaceID, "--no-focus")
+	if err := json.Unmarshal([]byte(out), &tabbed); err != nil || tabbed.Result.Tab.TabID == "" {
+		t.Fatalf("tab create answered no tab: %v\n%s", err, out)
+	}
+	target := splitRight(t, b, tabbed.Result.Root.PaneID)
+
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true, Cols: 120, Rows: 40}
+	att, err := b.Attach(ctx, "first", spec)
+	if err != nil {
+		t.Fatalf("bare Attach(first): %v", err)
+	}
+	inR, inW, _ := os.Pipe()
+	outR, outW, _ := os.Pipe()
+	defer func() { _ = inW.Close(); _ = inR.Close(); _ = outW.Close(); _ = outR.Close() }()
+	go func() { _, _ = io.Copy(io.Discard, outR) }()
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = engine.Attach(runCtx, att, engine.AttachIO{In: inR, Out: outW, Err: io.Discard}, spec, nil)
+	}()
+	defer func() { cancel(); <-done }()
+	c := &liveClient{tag: flagValue(att.Cmd.Args, "--client-tag"), done: done}
+	first, _ := b.resolve(ctx, "first")
+	waitClientOn(t, b, c, first.workspace.WorkspaceID)
+	// Input is forwarded only once the attach has settled, and settling puts
+	// the client on its target: a move made before then is undone by it.
+	_, _ = inW.WriteString("echo olympus-settled\r")
+	waitScreen(t, b, first.workspace.WorkspaceID, "olympus-settled")
+
+	waits := 0
+	zoomedFirst := func(mark []byte) func(time.Duration) bool {
+		waits++
+		if row, _, _ := b.taggedClient(ctx, c.tag); row.TabID != tabbed.Result.Tab.TabID && !zoomedOnto(t, b, target) {
+			t.Errorf("a repaint was waited for with the client on %s and %s not yet zoomed", row.TabID, target)
+		}
+		return func(time.Duration) bool { return true }
+	}
+	if err := att.Go(ctx, target, io.Discard, zoomedFirst); err != nil {
+		t.Fatalf("Go(%s): %v", target, err)
+	}
+	if waits == 0 {
+		t.Error("the go returned without waiting for the client's repaint")
+	}
+	row, ok, err := b.taggedClient(ctx, c.tag)
+	if err != nil || !ok || row.TabID != tabbed.Result.Tab.TabID {
+		t.Errorf("after Go(%s) the client is %+v (%v, %v), want on %s", target, row, ok, err, tabbed.Result.Tab.TabID)
+	}
+	if !zoomedOnto(t, b, target) {
+		t.Errorf("after Go(%s) its tab is not zoomed onto it", target)
+	}
+}
+
 // testLog carries what the engine narrates about a client into the test log.
 type testLog struct {
 	t   *testing.T

@@ -2242,9 +2242,9 @@ configuration is steered as before):
 
 | step | what runs |
 |---|---|
-| build | nothing on the server: no `workspace focus`, no `tab focus`, no walk lock |
+| build | the zoom steps of the table above, and nothing else on the server: no `workspace focus`, no `tab focus`, no walk lock |
 | spawn | the client with `--workspace <ws> --client-tag olympus-client-<16 hex>` (§17.1), a tag drawn per attach |
-| settle | wait for the tag in `client.list`; if it is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id`; then the zoom steps of the table above |
+| settle | wait for the tag in `client.list`; the zoom steps of the table above; then, if the client is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id` |
 | go | resolve the target; the same as settle, from where `client.list` has the client |
 | probe | `client.list` for the tag, then the presence of the target the backend last put the client on |
 
@@ -2257,12 +2257,27 @@ that tells the client where it is has reached it (measured: a marker
 written straight after the answer never echoed, and landed once the frame
 was waited for). So the end of that repaint's synchronized frame is waited
 for, a beat and a half at most, and a beat after it, before the call
-returns; a client that paints nothing ends the attach with an error. A zoom
-step that changed anything on the tab the client shows is followed by the
-same wait, for the same reason (measured: a marker typed straight after a zoom onto the second pane
-of a split never echoed). No key is pressed and no window title is waited
-for. A client that is already where the target is — a client launched onto
-its workspace, or a go onto where it is — is not moved again.
+returns; a client that paints nothing ends the attach with an error. No key
+is pressed and no window title is waited for. A client that is already where
+the target is — a client launched onto its workspace, or a go onto where it
+is — is not moved again.
+
+The zoom steps run BEFORE the view moves, and at build before the client
+exists. The client addresses its input to the pane its own copy of the tab
+has focused, and herdr takes input for a zoomed tab from its focused pane
+alone, so a zoom that moves the tab's focus is typed past until the client
+has it (measured: a marker typed straight after a zoom onto the second pane
+of a split never echoed). Zoomed first, the state the view change sends the
+client already has the pane focused, and a client launched onto a zoomed
+tab is sent it in its first state. Zoomed after the view moved, the zoom
+needed a frame wait of its own, and that wait was met by a frame the view
+change painted late, before the zoom had even answered, in 17 of 20 goes
+onto a pane in another tab under load; the marker typed after the go was
+dropped in 4 of them. Where the client already shows the target's tab
+there is no view change to carry the zoom: a zoom that moves that tab's
+focus is followed by the same frame wait, and one that leaves the focus
+where it was (the pane already focused, or a zoom-out) needs none, since
+the pane the client addresses is the one herdr takes input for.
 
 The zoom steps stay because a zoom is the tab's own state and there is no
 zoom of one client's: a pane target still means that pane alone, and a
@@ -2396,6 +2411,20 @@ where the client went, so a go puts it back from wherever it is and the
 probe follows it rather than guessing. On a server without the capability
 the walk is the only way in, and it is confirmed press by press so that
 what it cannot see is at least not guessed.
+
+One limit is new on such a server: **nothing confirms the client has what
+it was sent.** herdr reports no sign that a client has applied a view or
+focus change — `client.list` gives a client's id, tag, workspace and tab as
+the server holds them, and the client acknowledges no state it is sent — so
+the end of a frame is the only sign, and a late frame the client painted
+for where it was before ends the wait as well. Input forwarded then is
+addressed to a pane the client no longer shows, and herdr drops it.
+Measured: with the zoom made first, a frame the zoom made the client paint
+for its old view ended the view change's wait before its answer had
+arrived, and the marker typed after that go was dropped. That go failed
+in 3 of 60 runs under load and in none of 60 without, where it failed in
+3 of 20 under the same load with the zoom made after. Closing it needs
+herdr to report, per client, the state it has applied.
 
 ## 9. Views
 
