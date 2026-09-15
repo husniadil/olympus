@@ -104,6 +104,10 @@ type Herdr struct {
 	// an error, which a server of its own never does: it lost the start to
 	// somebody else's server, and the one answering is not ours to claim.
 	serverExited bool
+	// viewsKnown and views are the server's `client_view_focus`
+	// capability, once asked (clientViews).
+	viewsKnown bool
+	views      bool
 }
 
 // startedTheServer reports whether this handle brought the answering server up.
@@ -124,6 +128,7 @@ func (h *Herdr) noteStarted() {
 	if !h.serverExited {
 		h.started = true
 	}
+	h.viewsKnown, h.views = false, false
 }
 
 // noteSpawning clears the record of a lost start, so a handle that lost once

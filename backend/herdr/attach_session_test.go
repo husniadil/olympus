@@ -328,6 +328,7 @@ func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version: %v", err)
 	}
+	skipWhereClientViewsMove(t, b)
 	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
 	att, err := b.Attach(ctx, "third", spec)
 	if err != nil {
@@ -335,6 +336,15 @@ func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
 	}
 	if att.Cleanup != nil {
 		defer func() { _ = att.Cleanup() }()
+	}
+	// A server that has not said it moves one client's view is never handed
+	// the flags that ask it to: a herdr without them refuses to launch.
+	for _, flag := range []string{"--workspace", "--client-tag"} {
+		for _, arg := range att.Cmd.Args {
+			if arg == flag {
+				t.Errorf("herdr %s does not advertise client_view_focus, yet the client is launched with %s (args %v)", version, flag, att.Cmd.Args)
+			}
+		}
 	}
 	ws, _, _, _ := focus(t, b)
 	if sharedClientFocus(version) {
@@ -404,6 +414,7 @@ func TestBareAttachesOntoOneServerWalkOneAtATime(t *testing.T) {
 	if sharedClientFocus(version) {
 		t.Skipf("herdr %s shares one focus across clients; nothing walks", version)
 	}
+	skipWhereClientViewsMove(t, b)
 	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
 	attach := func(target string) (backend.Attachment, error) {
 		att, err := b.Attach(ctx, target, spec)
@@ -488,6 +499,7 @@ func TestAGoWalksTheBareClientFromWhereItIsAndTheProbeFollows(t *testing.T) {
 	if sharedClientFocus(version) {
 		t.Skipf("herdr %s shares one focus across clients; nothing walks", version)
 	}
+	skipWhereClientViewsMove(t, b)
 	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
 	att, err := b.Attach(ctx, "third", spec)
 	if err != nil {
@@ -522,6 +534,20 @@ func TestAGoWalksTheBareClientFromWhereItIsAndTheProbeFollows(t *testing.T) {
 	raw(t, b, "workspace", "close", ids[0])
 	if got := att.Probe(ctx); got != backend.StateAbsent {
 		t.Errorf("after closing the workspace the client is on the probe answered %v, want absent", got)
+	}
+}
+
+// skipWhereClientViewsMove skips a walk case on a server that moves one
+// client's view, where nothing walks (§8.10). The suite's herdr is found on
+// PATH, so this is the leg a released herdr runs.
+func skipWhereClientViewsMove(t *testing.T, b *Herdr) {
+	t.Helper()
+	views, err := b.clientViews(context.Background())
+	if err != nil {
+		t.Fatalf("asking the server for its capabilities: %v", err)
+	}
+	if views {
+		t.Skip("the herdr on PATH advertises client_view_focus, so a bare client is moved by its tag and this walk case is not being run")
 	}
 }
 

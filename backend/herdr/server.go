@@ -251,6 +251,7 @@ func (h *Herdr) Stop(ctx context.Context) error {
 	if _, err := h.run(ctx, "server", "stop"); err != nil {
 		return err
 	}
+	h.forgetCapabilities()
 
 	// Waited out rather than returned from, because the stop request is
 	// acknowledged before the server has finished exiting — and a server on its

@@ -2,11 +2,13 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -158,7 +160,9 @@ func (h *Herdr) Attach(ctx context.Context, target string, spec backend.AttachSp
 // and a marker typed into each: after `focus three` both typed into
 // `three`); so a bare client, whose configuration is this backend's, is
 // walked to its workspace with the client's own next- and previous-workspace
-// keys once it is up, as the attachment's Settle (§8.10). A client with the
+// keys once it is up, as the attachment's Settle (§8.10) — unless the server
+// advertises that it moves one client's view, where the client is launched
+// onto its workspace and moved by a tag instead (attachClientView). A client with the
 // operator's configuration (`--client` without `--bare`) has no keys this
 // backend can count on, so it is steered on the server as before, and moves
 // every other client with it.
@@ -180,6 +184,19 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	r, err := h.resolve(ctx, target)
 	if err != nil {
 		return backend.Attachment{}, err
+	}
+	// A server that moves one client's view is asked, never inferred from
+	// its version: a build with the request and one without report the same
+	// number. There the client is launched onto its workspace and moved by
+	// its tag, and nothing is walked (attachClientView).
+	if spec.Bare {
+		views, err := h.clientViews(ctx)
+		if err != nil {
+			return backend.Attachment{}, err
+		}
+		if views {
+			return h.attachClientView(ctx, r, spec)
+		}
 	}
 	version, err := h.Version(ctx)
 	if err != nil {
@@ -210,17 +227,7 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		ring, origin = snap.Workspaces, snap.FocusedWorkspaceID
 	}
 
-	var cmd *exec.Cmd
-	env := h.clientEnv()
-	if h.serverName != "" {
-		cmd = exec.CommandContext(ctx, "herdr", "session", "attach", h.serverName)
-		// The named session resolves under the operator's real configuration
-		// directory, which attachEnv already reads; the socket override would
-		// only say the same thing a second way.
-		env = attachEnv()
-	} else {
-		cmd = exec.CommandContext(ctx, "herdr")
-	}
+	cmd, env := h.sessionClientCommand(ctx)
 
 	// The client is attached to the whole session, so it does not end when
 	// the target it was steered onto does: herdr closes the pane, the
@@ -276,11 +283,239 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		}
 	}
 	if !spec.Supersede {
-		att.Notices = append(att.Notices,
-			"herdr's session client has no co-attach control, so --keep-others cannot be honored here")
+		att.Notices = append(att.Notices, keepOthersNotice)
 	}
 	cmd.Env = env
 	return att, nil
+}
+
+const keepOthersNotice = "herdr's session client has no co-attach control, so --keep-others cannot be honored here"
+
+// sessionClientCommand is herdr's own client onto this backend's server, and
+// the environment it runs with: `herdr session attach <name>` for a server
+// selected by name, plain `herdr` with the socket override for one selected
+// by path (§8.10).
+func (h *Herdr) sessionClientCommand(ctx context.Context, args ...string) (*exec.Cmd, []string) {
+	if h.serverName != "" {
+		// The named session resolves under the operator's real configuration
+		// directory, which attachEnv already reads; the socket override would
+		// only say the same thing a second way.
+		return exec.CommandContext(ctx, "herdr", append([]string{"session", "attach", h.serverName}, args...)...), attachEnv()
+	}
+	return exec.CommandContext(ctx, "herdr", args...), h.clientEnv()
+}
+
+// attachClientView runs a bare client on a server that moves one client's
+// view (`client_view_focus`, §8.10). The client is launched onto the
+// target's workspace with `--workspace`, which moves neither the server's
+// focus nor any other client, and named with `--client-tag`, a tag of its
+// own; from then on it is addressed by that tag and nothing else.
+//
+// No key is pressed and no title is waited for, and no walk lock is taken:
+// nothing here reads the server's focus, so there is nothing for another
+// attach to move under it. The attachment's Settle waits for the client to
+// be listed, puts it on the target's tab where the target names one, and
+// zooms as the steering table says; a go moves it the same way, and the
+// probe reads where `client.list` has it.
+func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.AttachSpec) (backend.Attachment, error) {
+	tag, err := newClientTag()
+	if err != nil {
+		return backend.Attachment{}, err
+	}
+	cmd, env := h.sessionClientCommand(ctx, "--workspace", r.workspace.WorkspaceID, "--client-tag", tag)
+	path, err := writeBareConfig(rawConfiguredPrefix(filepath.Dir(h.socketPath)))
+	if err != nil {
+		return backend.Attachment{}, err
+	}
+	cmd.Env = append(env, "HERDR_CONFIG_PATH="+path)
+
+	at := &bareClient{at: r}
+	att := backend.Attachment{
+		Cmd:     cmd,
+		Cleanup: func() error { return os.Remove(path) },
+		Probe:   func(ctx context.Context) backend.State { return h.probeClientView(ctx, tag, at) },
+		// Settle runs once the client is up; it asks the server where the
+		// client is rather than watching what it paints, so the kitty push
+		// only says when to start asking.
+		SettleAfter: []byte(kittyPush),
+		Settle: func(ctx context.Context, _ io.Writer, expect backend.Expect) error {
+			return h.showOnClient(ctx, tag, r, at, expect)
+		},
+		Go: func(ctx context.Context, target string, _ io.Writer, expect backend.Expect) error {
+			to, err := h.resolve(ctx, target)
+			if err != nil {
+				return err
+			}
+			return h.showOnClient(ctx, tag, to, at, expect)
+		},
+	}
+	if !spec.Supersede {
+		att.Notices = append(att.Notices, keepOthersNotice)
+	}
+	return att, nil
+}
+
+// showOnClient puts the tagged client on a target with `client.view.focus`
+// and returns once the client is showing it, which is what lets the engine
+// forward what was typed after a go (§8.10). A tab or pane target names its
+// tab; a workspace target does not, and the client shows the tab it last
+// showed there, as a person switching to it would see. The zoom steps of the
+// steering table then run on the server: the zoom is the tab's own state,
+// and there is no zoom of one client's.
+//
+// The server's answer says the view moved, and that is not yet enough to
+// type into it: the client addresses what it sends to the pane it believes
+// it shows, and the server drops input for a pane the client no longer
+// views, until the repaint that tells the client where it is has reached it
+// (measured: a marker written straight after the answer never echoed). So
+// the end of that repaint's synchronized frame is waited for, and a beat
+// after it, the same as after a walk.
+//
+// The client is waited for in `client.list` first, since the first placement
+// may run before it has connected, and one already where the target is (as
+// a client launched onto its workspace is) is not moved again.
+func (h *Herdr) showOnClient(ctx context.Context, tag string, to resolved, at *bareClient, expect backend.Expect) error {
+	tab := ""
+	if to.kind != kindWorkspace {
+		tab = to.tab.TabID
+	}
+	row, err := h.waitForClient(ctx, tag)
+	if err != nil {
+		return err
+	}
+	showing := row.TabID
+	if row.WorkspaceID != to.workspace.WorkspaceID || (tab != "" && row.TabID != tab) {
+		params := map[string]string{"client_tag": tag, "workspace_id": to.workspace.WorkspaceID}
+		if tab != "" {
+			params["tab_id"] = tab
+		}
+		painted := expect([]byte(frameEnd))
+		result, err := h.call(ctx, "client.view.focus", params)
+		if err != nil {
+			return err
+		}
+		var answer struct {
+			Client clientRow `json:"client"`
+		}
+		if err := json.Unmarshal(result, &answer); err != nil {
+			return backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to client.view.focus")
+		}
+		if answer.Client.WorkspaceID != to.workspace.WorkspaceID || (tab != "" && answer.Client.TabID != tab) {
+			return backend.Errorf(backend.CodeUnexpected, "herdr put the client on %s %s, not %s",
+				answer.Client.WorkspaceID, answer.Client.TabID, to.id())
+		}
+		showing = answer.Client.TabID
+		if !painted(pressWithin) {
+			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.id())
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(keyGap):
+		}
+	}
+	for _, args := range steeringArgs(to) {
+		if args[0] != "pane" {
+			continue
+		}
+		// A zoom that changed anything moves the tab's focused pane or its
+		// layout, which the client learns from its next repaint the same way
+		// it learns its view: what is typed before then goes to the pane it
+		// showed (measured, a marker typed after a zoom onto the second pane
+		// of a split never echoed there). A client showing another tab of
+		// the workspace has nothing to repaint, and is not waited for.
+		painted := expect([]byte(frameEnd))
+		out, err := h.run(ctx, args...)
+		if err != nil {
+			return err
+		}
+		var zoom struct {
+			Result struct {
+				Zoom struct {
+					Changed bool `json:"changed"`
+				} `json:"zoom"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(out), &zoom); err != nil {
+			return backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to %s", strings.Join(args, " "))
+		}
+		if !zoom.Result.Zoom.Changed || showing != to.tab.TabID {
+			continue
+		}
+		if !painted(pressWithin) {
+			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.id())
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(keyGap):
+		}
+	}
+	at.set(to)
+	return nil
+}
+
+// clientArrival bounds the wait for a launched client to be listed. The
+// engine settles a client once it has painted, by which point it has
+// connected; the bound is for one that never does.
+const clientArrival = 10 * time.Second
+
+// waitForClient waits for the tagged client to appear in `client.list`.
+func (h *Herdr) waitForClient(ctx context.Context, tag string) (clientRow, error) {
+	deadline := time.Now().Add(clientArrival)
+	for {
+		row, ok, err := h.taggedClient(ctx, tag)
+		if err != nil {
+			return clientRow{}, err
+		}
+		if ok {
+			return row, nil
+		}
+		if time.Now().After(deadline) {
+			return clientRow{}, backend.Errorf(backend.CodeUnexpected,
+				"the herdr client tagged %s did not connect within %s", tag, clientArrival)
+		}
+		select {
+		case <-ctx.Done():
+			return clientRow{}, backend.Wrapf(backend.CodeTimeout, ctx.Err(), "waiting for the herdr client tagged %s", tag)
+		case <-time.After(walkLockPoll):
+		}
+	}
+}
+
+// probeClientView answers whether the target the tagged client is on still
+// exists, reading where the client is from `client.list` (§8.10).
+//
+// The client is where this backend last put it unless the server moved it,
+// and the server moves a client for two reasons: the workspace it showed
+// closed, or somebody else moved it by its id. The first is the end of the
+// attach and the second is not, and the target this backend put it on tells
+// them apart: gone, the attach ends; still there, the client was moved, and
+// the probe follows it to the workspace it is on now.
+func (h *Herdr) probeClientView(ctx context.Context, tag string, at *bareClient) backend.State {
+	was := at.get()
+	row, listed, err := h.taggedClient(ctx, tag)
+	if err != nil {
+		return backend.StateError
+	}
+	snap, err := h.snapshot(ctx)
+	if err != nil {
+		return backend.StateError
+	}
+	if _, err := snap.resolve(was.id()); err != nil {
+		if at.get().id() != was.id() {
+			// A go moved the client while this was asked; the next
+			// probe asks about where it went.
+			return backend.StatePresent
+		}
+		return backend.StateAbsent
+	}
+	if listed && row.WorkspaceID != "" && row.WorkspaceID != was.workspace.WorkspaceID {
+		if moved, err := snap.resolve(row.WorkspaceID); err == nil {
+			at.follow(was, moved)
+		}
+	}
+	return backend.StatePresent
 }
 
 // Focus steers the server onto a target without attaching anything: the
@@ -333,6 +568,23 @@ func (c *bareClient) set(r resolved) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.at = r
+}
+
+// follow moves where the client is to r, unless a go has moved it since
+// `from` was read: the probe runs beside the go, and a row it read before
+// the go must not put the client back.
+func (c *bareClient) follow(from resolved, r resolved) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.at.id() == from.id() {
+		c.at = r
+	}
+}
+
+func (c *bareClient) get() resolved {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
 }
 
 // walk brings a bare client from the workspace it is on (`from`) onto a

@@ -2199,6 +2199,72 @@ came up on its target with no walk does not follow the server's focus
 afterwards (a marker typed into one on `w14` landed in `w14` after another
 client walked to `w0`, measured).
 
+**A server that moves one client's view is not walked.** A herdr server
+that answers `ping` with `capabilities.client_view_focus: true` takes a
+client launch flag and two socket requests that put ONE client somewhere:
+`--workspace <workspace id>` starts that client on the workspace without
+moving the server's focus or any other client, `--client-tag <tag>` names
+it, `client.list` reports each client's tag, workspace and tab, and
+`client.view.focus` moves the client a tag names, and no other, onto a
+workspace and optionally a tab. Whether the server has them is ASKED — the
+capability, read once per backend handle and forgotten when that handle
+starts or stops a server; a failed ask is not kept — and never read from
+the version, since a build with them reports the same version as one
+without. A server that does not advertise it is walked as above, and is
+never handed the flags: a herdr without them refuses to launch. The ping and
+the two client requests have no CLI verb, so they go over the API socket
+directly, one JSON line each way on a connection of their own; everything
+else still goes through the CLI.
+
+On such a server a bare attach (the session client with the operator's
+configuration is steered as before):
+
+| step | what runs |
+|---|---|
+| build | nothing on the server: no `workspace focus`, no `tab focus`, no walk lock |
+| spawn | the client with `--workspace <ws> --client-tag olympus-client-<16 hex>` (§17.1), a tag drawn per attach |
+| settle | wait for the tag in `client.list`; if it is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id`; then the zoom steps of the table above |
+| go | resolve the target; the same as settle, from where `client.list` has the client |
+| probe | `client.list` for the tag, then the presence of the target the backend last put the client on |
+
+`client.view.focus` is confirmed by its answer: the client it returns must
+be on the workspace, and the tab where one was asked, or the settle or go
+fails. The answer is not yet enough to forward what was typed after a go:
+the client addresses its input to the pane it believes it shows, and the
+server drops input for a pane the client no longer views until the repaint
+that tells the client where it is has reached it (measured: a marker
+written straight after the answer never echoed, and landed once the frame
+was waited for). So the end of that repaint's synchronized frame is waited
+for, a beat and a half at most, and a beat after it, before the call
+returns; a client that paints nothing ends the attach with an error. A zoom
+step that changed anything on the tab the client shows is followed by the
+same wait, for the same reason (measured: a marker typed straight after a zoom onto the second pane
+of a split never echoed). No key is pressed and no window title is waited
+for. A client that is already where the target is — a client launched onto
+its workspace, or a go onto where it is — is not moved again.
+
+The zoom steps stay because a zoom is the tab's own state and there is no
+zoom of one client's: a pane target still means that pane alone, and a
+workspace or tab target still means the split an earlier pane attach left
+zoomed. A zoom focuses its pane, and herdr moves its own focus with it
+(measured: a go onto a pane in `w3` moved the server's focus from `w1` to
+`w3`); no client moves with that focus on such a server (the other client
+of the two stayed where it was), so nothing here depends on it. A workspace
+target names no tab, and the client shows the tab it last showed in that
+workspace, as a person switching to it would see.
+
+The probe follows the client. The server moves a client for two reasons:
+the workspace it showed closed, or somebody moved it by its id. The target
+the backend last put it on tells them apart — gone, the attach ends; still
+there, the probe takes the workspace `client.list` reports as where the
+client is. With two bare clients on one server, the case the walk could not
+hold (herdr paints the foreground client the title of the server's focus and
+skips a title it has already sent, so a press that landed painted nothing,
+was made again, and every later go landed one workspace off), each of twelve
+alternating goes across three workspaces landed where it was asked, the
+other client stayed put, the server's focus did not move, and a marker
+typed after each go landed in the workspace the go took the client to.
+
 The pane step is a zoom rather than a focus because herdr has no pane-focus
 request, and a zoom both focuses the pane and shows it alone — which is what a
 caller attaching one pane of a split tab means. Measured: zooming a pane that
@@ -2300,10 +2366,15 @@ as defects here:
   half for the client's title and is made once more; a client that never
   answers ends the attach with an error.
 
-All three go away with a herdr request that attaches or moves ONE client
-onto a workspace; until then the walk is the only way in, and it is
-confirmed press by press so that what it cannot see is at least not
-guessed.
+A server that advertises `client_view_focus` has the requests that attach
+and move ONE client, and a bare client there is not walked (§8.10). The
+second and third go with the walk: there is no ring to shift, and no lock
+or press timeout is taken. The first is narrower. herdr documents that a
+`workspace focus` still moves every client, but `client.list` then reports
+where the client went, so a go puts it back from wherever it is and the
+probe follows it rather than guessing. On a server without the capability
+the walk is the only way in, and it is confirmed press by press so that
+what it cannot see is at least not guessed.
 
 ## 9. Views
 
@@ -3274,6 +3345,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
 | attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
+| herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view (§8.10) |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 
 The view-session prefix is load-bearing beyond cosmetics: enumerating views (§9.5)

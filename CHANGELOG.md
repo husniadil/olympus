@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Two bare herdr clients on one server each land where a go sends them.**
+  With two clients attached, herdr paints the foreground client the title of
+  the server's focus and skips a title it has already sent, so a walk press
+  that landed painted nothing, was made again, and every later go landed one
+  workspace off. On a herdr server whose `ping` advertises
+  `client_view_focus`, a bare client is now launched with `--workspace` and a
+  `--client-tag` of its own, placed and moved with the socket's
+  `client.view.focus`, and probed through `client.list`: no key is pressed, no
+  title is waited for, no walk lock is taken, and the server's focus is not
+  steered. What is typed after a go is forwarded once the client has painted
+  its new view. The capability is asked, never inferred from the version; a
+  server without it is walked exactly as before and never handed the new
+  flags. Behavior spec §8.10, §8.11, §17.1.
+
 ## [0.24.0]
 
 ### Added
