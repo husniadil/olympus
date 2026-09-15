@@ -306,6 +306,32 @@ func TestAttachReturnsTheClientsOwnExitCode(t *testing.T) {
 	}
 }
 
+// §8.3 The client is started with the size the caller gave, not handed it a
+// moment later. A client that reads its size as it starts saw 0x0 when the
+// PTY was sized after the start, and herdr's exits on that ("terminal reported
+// a zero-sized grid"): a tab that ended as it opened, on a busy machine.
+func TestAttachStartsTheClientAtTheGivenSize(t *testing.T) {
+	out, err := os.CreateTemp(t.TempDir(), "size")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sh", "-c", "stty size > "+out.Name()),
+	}
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController, Cols: 97, Rows: 31}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	got, err := os.ReadFile(out.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != "31 97" {
+		t.Errorf("the client started at %q, want the given 31 97", strings.TrimSpace(string(got)))
+	}
+}
+
 // §8.8: a client that exits on its own must still reap whatever the backend
 // created for the attach. Cleanup that only runs on the tidy path leaks forever.
 func TestASpontaneousExitStillReaps(t *testing.T) {

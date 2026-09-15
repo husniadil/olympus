@@ -19,6 +19,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **An attach client starts at its size.** The PTY was sized just after the
+  client started, so a client that reads its size as it starts could see 0x0;
+  herdr's exits on that with "terminal reported a zero-sized grid", which
+  under load ended about one attach in 120 as it opened. The size is now set
+  as the PTY is made. Behavior spec §8.3.
 - **What is typed after a bare herdr client goes onto a pane lands in that
   pane far more often.** On a server that advertises `client_view_focus`, the
   pane was zoomed after the client's view moved, and the wait for the zoom's

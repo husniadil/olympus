@@ -139,20 +139,27 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	signal.Notify(terminalGone, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(terminalGone)
 
+	// The size the client starts at, set on the PTY before the client runs.
+	// With a terminal on stdin the inherited size is the truth and wins; with
+	// a pipe there is no other source, so a caller that knows how big its
+	// consumer is has to be able to say so. Sizing the PTY after the start
+	// raced a client that reads its size as it starts: under load herdr's saw
+	// 0x0 and exited with "terminal reported a zero-sized grid" (measured, 1 in
+	// about 120 attaches with the CPU saturated).
 	child := attachment.Cmd
-	tty, err := pty.Start(child)
+	var size *pty.Winsize
+	if io.In != nil && isTerminal(io.In.Fd()) {
+		if ws, err := pty.GetsizeFull(io.In); err == nil && ws.Cols > 0 && ws.Rows > 0 {
+			size = ws
+		}
+	} else if spec.Cols > 0 && spec.Rows > 0 {
+		size = &pty.Winsize{Cols: uint16(spec.Cols), Rows: uint16(spec.Rows)}
+	}
+	tty, err := pty.StartWithSize(child, size)
 	if err != nil {
 		return 0, backend.Wrapf(backend.CodeUnexpected, err, "starting the attach client")
 	}
 	defer tty.Close()
-
-	// An explicit size applies when there is no window to inherit one from.
-	// With a terminal on stdin the inherited size is the truth and wins; with
-	// a pipe there is no other source, so a caller that knows how big its
-	// consumer is has to be able to say so.
-	if spec.Cols > 0 && spec.Rows > 0 && (io.In == nil || !isTerminal(io.In.Fd())) {
-		_ = pty.Setsize(tty, &pty.Winsize{Cols: uint16(spec.Cols), Rows: uint16(spec.Rows)})
-	}
 
 	stopResizing := startResizing(tty, io, spec.Role)
 	defer stopResizing()

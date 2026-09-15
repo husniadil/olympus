@@ -1876,6 +1876,12 @@ consumer owns its own client-side terminal state.
 
 ### 8.3 Resize protocol
 
+- **The first size** MUST be on the PTY before the client starts: the caller's
+  terminal size on a TTY stdin, else the size the caller gave. A client that
+  reads its size as it starts sees whatever the PTY holds at that instant, and
+  a PTY sized a moment after the start reads 0x0: herdr's client exits on it
+  ("terminal reported a zero-sized grid"), measured under load as about one
+  attach in 120.
 - **TTY stdin**: `SIGWINCH` is forwarded to the PTY — synced immediately on
   attach, then on every subsequent signal.
 - **Piped stdin**: no `SIGWINCH` concept exists, so an **in-band control line** on
