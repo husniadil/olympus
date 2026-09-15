@@ -70,3 +70,29 @@ func TestNonMetaKeysAreNotMistakenForOne(t *testing.T) {
 		}
 	}
 }
+
+// A key bar sends alt with a symbol or a digit the same way it sends alt with a
+// letter: ESC and then the character. Every printable ASCII character that is
+// not a letter or a space is its own key, spelled as itself.
+func TestEveryPrintableNonLetterIsAMetaSymbol(t *testing.T) {
+	for c := byte('!'); c <= '~'; c++ {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			continue
+		}
+		key := backend.Key("m-" + string(c))
+		if got := backend.MetaSymbol(key); got != c {
+			t.Errorf("MetaSymbol(%q) = %q, want %q", key, got, c)
+		}
+	}
+}
+
+func TestNonSymbolMetaKeysAreNotMistakenForOne(t *testing.T) {
+	for _, key := range []backend.Key{
+		"m-a", "m-Z", "m-", "m- ", "m-\t", "m-\x7f", "m-\x1b", "m-é", "m-ab", "m-12",
+		"m-enter", "c-1", "s-1", "1", "", "meta-1",
+	} {
+		if got := backend.MetaSymbol(key); got != 0 {
+			t.Errorf("MetaSymbol(%q) = %q, want none", key, got)
+		}
+	}
+}

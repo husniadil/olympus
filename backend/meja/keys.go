@@ -26,6 +26,9 @@ func keyName(k backend.Key) (string, bool) {
 	if letter := backend.MetaLetter(k); letter != 0 {
 		return "M-" + string(letter), true
 	}
+	if c := backend.MetaSymbol(k); c != 0 {
+		return "M-" + string(c), true
+	}
 	if n := backend.FunctionNumber(k); n != 0 {
 		return "F" + strconv.Itoa(n), true
 	}
@@ -33,25 +36,33 @@ func keyName(k backend.Key) (string, bool) {
 }
 
 var keyNames = map[backend.Key]string{
-	backend.KeyEnter:     "Enter",
-	backend.KeyEscape:    "Escape",
-	backend.KeyTab:       "Tab",
-	backend.KeyBackspace: "BSpace",
-	backend.KeySpace:     "Space",
-	backend.KeyUp:        "Up",
-	backend.KeyDown:      "Down",
-	backend.KeyLeft:      "Left",
-	backend.KeyRight:     "Right",
-	backend.KeyHome:      "Home",
-	backend.KeyEnd:       "End",
-	backend.KeyPageUp:    "PageUp",
-	backend.KeyPageDown:  "PageDown",
-	backend.KeyDelete:    "Delete",
-	backend.KeyCtrlUp:    "C-Up",
-	backend.KeyCtrlDown:  "C-Down",
-	backend.KeyCtrlRight: "C-Right",
-	backend.KeyCtrlLeft:  "C-Left",
-	backend.KeyMetaEnter: "M-Enter",
+	backend.KeyEnter:      "Enter",
+	backend.KeyEscape:     "Escape",
+	backend.KeyTab:        "Tab",
+	backend.KeyBackspace:  "BSpace",
+	backend.KeySpace:      "Space",
+	backend.KeyUp:         "Up",
+	backend.KeyDown:       "Down",
+	backend.KeyLeft:       "Left",
+	backend.KeyRight:      "Right",
+	backend.KeyHome:       "Home",
+	backend.KeyEnd:        "End",
+	backend.KeyPageUp:     "PageUp",
+	backend.KeyPageDown:   "PageDown",
+	backend.KeyDelete:     "Delete",
+	backend.KeyCtrlUp:     "C-Up",
+	backend.KeyCtrlDown:   "C-Down",
+	backend.KeyCtrlRight:  "C-Right",
+	backend.KeyCtrlLeft:   "C-Left",
+	backend.KeyMetaEnter:  "M-Enter",
+	backend.KeyShiftUp:    "S-Up",
+	backend.KeyShiftDown:  "S-Down",
+	backend.KeyShiftRight: "S-Right",
+	backend.KeyShiftLeft:  "S-Left",
+	backend.KeyMetaUp:     "M-Up",
+	backend.KeyMetaDown:   "M-Down",
+	backend.KeyMetaRight:  "M-Right",
+	backend.KeyMetaLeft:   "M-Left",
 }
 
 // keyLiterals are the keys meja's send-keys has no name for, spelled as the

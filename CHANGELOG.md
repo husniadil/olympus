@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`press` spells shift and alt with an arrow, and alt with a symbol.**
+  `s-up`, `s-down`, `s-left`, `s-right`, `m-up`, `m-down`, `m-left`,
+  `m-right`, and `m-<symbol>` for any digit or punctuation mark with alt held,
+  spelled as the character itself (`m-0`, `m-/`, `m-;`, `m-\`), on every
+  backend. Each is measured arriving as its bytes with `cat -v` wherever
+  control keys are delivered. tmux takes the `;` of `M-;` as a command
+  separator even inside a key name, so that one is sent as `M-\;`.
+  Behavior spec §4.9, §4.10.
+
 ## [0.24.1]
 
 ### Fixed

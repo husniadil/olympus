@@ -117,6 +117,9 @@ func injectionCases() []Case {
 					"c-a", "c-k", "c-o", "c-x", "c-w", "c-z", "f1", "f5", "f12",
 					"delete", "s-tab", "c-up", "c-down", "c-right", "c-left",
 					"m-a", "m-b", "m-f", "m-z", "m-enter",
+					"s-up", "s-down", "s-right", "s-left",
+					"m-up", "m-down", "m-right", "m-left",
+					"m-0", "m-9", "m-/", "m-|", "m-~", "m--", "m-\\", "m-;", "m-.", "m-,", "m-'", "m-\"",
 				} {
 					if err := e.Backend.Press(e.Ctx(), target, key); err != nil {
 						e.T.Errorf("pressing %q: %v", key, err)
@@ -124,12 +127,13 @@ func injectionCases() []Case {
 				}
 
 				// Open does not mean anything goes. The shapes are c-<letter>,
-				// m-<letter> and f<1-12>; something that merely looks like one
-				// is still the caller's mistake to fix, and a backend that
+				// m-<character> and f<1-12>; something that merely looks like
+				// one is still the caller's mistake to fix, and a backend that
 				// accepted it would be silently sending nothing.
 				for _, key := range []backend.Key{
 					"c-1", "c-", "f0", "f13", "ctrl-x",
-					"m-1", "m-", "meta-a", "m-ab", "c-home", "s-enter",
+					"m-", "meta-a", "m-ab", "m-12", "c-home", "s-enter",
+					"s-a", "s-home", "m- ", "m-\t", "m-\x7f", "m-é",
 				} {
 					if err := e.Backend.Press(e.Ctx(), target, key); err == nil {
 						e.T.Errorf("pressing %q was accepted, but it is not a key", key)
@@ -196,10 +200,11 @@ func injectionCases() []Case {
 				}
 				time.Sleep(e.budgets.Settle)
 
-				for i, c := range []struct {
+				type pressed struct {
 					key  backend.Key
 					want string
-				}{
+				}
+				keys := []pressed{
 					{"delete", "^[[3~"},
 					{"s-tab", "^[[Z"},
 					{"c-up", "^[[1;5A"},
@@ -208,7 +213,24 @@ func injectionCases() []Case {
 					{"c-left", "^[[1;5D"},
 					{"m-a", "^[a"},
 					{"m-enter", "^[^M"},
-				} {
+					{"s-up", "^[[1;2A"},
+					{"s-down", "^[[1;2B"},
+					{"s-right", "^[[1;2C"},
+					{"s-left", "^[[1;2D"},
+					{"m-up", "^[[1;3A"},
+					{"m-down", "^[[1;3B"},
+					{"m-right", "^[[1;3C"},
+					{"m-left", "^[[1;3D"},
+				}
+				// Alt with every printable character that is not a letter,
+				// each read back as ESC and the character itself.
+				for c := byte('!'); c <= '~'; c++ {
+					if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+						continue
+					}
+					keys = append(keys, pressed{backend.Key("m-" + string(c)), "^[" + string(c)})
+				}
+				for i, c := range keys {
 					mark := fmt.Sprintf("K%dK", i)
 					if err := e.Backend.Type(e.Ctx(), target, mark); err != nil {
 						e.T.Fatalf("typing the marker: %v", err)

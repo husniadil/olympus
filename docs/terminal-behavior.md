@@ -1258,6 +1258,8 @@ arrived:
 | backspace, end, page-down | delivered | — | delivered |
 | delete, s-tab, c-up/down/left/right | delivered | — | delivered |
 | m-<letter>, m-enter | delivered | — | delivered |
+| s-up/down/left/right, m-up/down/left/right | delivered | — | delivered |
+| m-<symbol> (`m-0`, `m-/`, `m-;`, …) | delivered | — | delivered |
 
 herdr delivers all of it for a structural reason worth stating, because it also
 decides how the keys are SPELLED. Its text-injection request writes the bytes it
@@ -1278,6 +1280,15 @@ the pane unencoded, so back-tab is sent that way as the bytes `ESC [ Z`, and
 arrives. A backend whose key names cannot reach a key MAY spell that key as its
 bytes through such a path, but only where the bytes are measured arriving.
 
+The modified arrows and the alt symbols arrive under their names on both:
+`S-Up` to `S-Left`, `M-Up` to `M-Left`, and `M-` with the character itself, all
+42 printable non-letters read back as `ESC` and the character (tmux 3.7c, meja
+0.0.26). None needed a literal path. tmux needed one spelling of its own: `M-;`
+ends in the `;` §4.8 is about, and tmux splits it off even inside a key name, so
+in `send-keys M-; C-j` the `C-j` is run as a command and refused. It is sent as
+`M-\;`, and arrives. meja does not split its arguments on `;` and takes `M-;` as
+it is.
+
 The zmx boundary is irregular and is deliberately NOT specified further: what a
 caller needs is that control keys cannot be relied on there, which the
 `control_keys` capability (§13) reports. Mapping the exact set would invite
@@ -1288,32 +1299,42 @@ but not saved or exited, because both are control keys. Doors MUST report this
 through the capability rather than by failing the keypress, since the keypress
 itself succeeds.
 
-### 4.10 The key vocabulary is open, in four shapes
+### 4.10 The key vocabulary is open, in five shapes
 
 A closed list of keys is the obvious design and is wrong: driving a full-screen
 program means pressing whatever it binds, and a caller who cannot spell Ctrl-X
-cannot leave nano. So `press` takes four shapes, and every backend MUST
-translate all four:
+cannot leave nano. So `press` takes five shapes, and every backend MUST
+translate all five:
 
 - a named key: `enter`, `escape`, `tab`, `s-tab` (back-tab), `backspace`,
   `delete` (forward delete), `space`, `up`, `down`, `left`, `right`, `c-up`,
-  `c-down`, `c-left`, `c-right`, `home`, `end`, `page-up`, `page-down`,
-  `m-enter`;
+  `c-down`, `c-left`, `c-right`, `s-up`, `s-down`, `s-left`, `s-right`,
+  `m-up`, `m-down`, `m-left`, `m-right`, `home`, `end`, `page-up`,
+  `page-down`, `m-enter`;
 - `c-<letter>` for any ASCII letter with control held;
 - `m-<letter>` for any ASCII letter with alt held;
+- `m-<symbol>` for any other printable ASCII character with alt held: a digit
+  or a punctuation mark, `!` to `~` less the letters;
 - `f1` to `f12`.
 
-A letter's case is a spelling, not a different key. The keys are those a
-terminal sends: `delete` is `ESC [ 3 ~`, `s-tab` is `ESC [ Z`, the control
-arrows are the xterm modified form `ESC [ 1 ; 5 A` to `D`, and alt is a prefix
-rather than a bit, so `m-a` is `ESC a` and `m-enter` is `ESC CR`. A backend that
-spells keys by name uses the multiplexer's own name for the same keypress, and
-where that name does not deliver it, §4.9 applies.
+A letter's case is a spelling, not a different key. A symbol is spelled as the
+character itself, `m-;`, `m-\`, `m-'`, with no escaping and no alias: no shell
+stands between a caller and the key, so quoting is the calling shell's business,
+and a second spelling would be a second name for one key. The keys are those a
+terminal sends: `delete` is `ESC [ 3 ~`, `s-tab` is `ESC [ Z`, the modified
+arrows are the xterm form `ESC [ 1 ; m A` to `D` with `m` 2 for shift, 3 for alt
+and 5 for control, and alt is a prefix rather than a bit, so `m-a` is `ESC a`,
+`m-/` is `ESC /` and `m-enter` is `ESC CR`. A backend that spells keys by name
+uses the multiplexer's own name for the same keypress, and where that name does
+not deliver it, §4.9 applies.
 
 Anything else is `usage`, including what merely looks like a shape: `c-1`,
-`m-1`, `m-ab`, `meta-a`, `c-home`, `f0`, `f13`. Accepting one would mean
-sending nothing and reporting success. Function keys stop at 12 because
-terminals disagree about the encoding above it.
+`m-ab`, `m-12`, `m-` followed by a space, a tab, DEL or a character past ASCII,
+`meta-a`, `s-a`, `s-home`, `c-home`, `f0`, `f13`. Accepting one would mean
+sending nothing and reporting success. Space and the control range are not
+symbols because a key bar does not send them as one: `m-enter` is the one alt
+chord of that kind with a name. Function keys stop at 12 because terminals
+disagree about the encoding above it.
 
 ---
 

@@ -10,12 +10,14 @@ import "strconv"
 // letters means a caller simply cannot press Ctrl-X, which is how you leave
 // nano — and the failure is a usage error naming a key that plainly exists.
 //
-// So four shapes are legal, and every backend translates all four:
+// So five shapes are legal, and every backend translates all five:
 //
 //   - a named key, from the constants above (enter, escape, page-up, delete,
-//     s-tab, c-up, m-enter, …)
+//     s-tab, c-up, s-up, m-up, m-enter, …)
 //   - c-<letter> for any ASCII letter: c-a … c-z
 //   - m-<letter> for any ASCII letter with alt held: m-a … m-z
+//   - m-<symbol> for any other printable ASCII character with alt held, spelled
+//     as the character itself: m-0, m-/, m-;, m-\ …
 //   - f<n> for function keys: f1 … f12
 //
 // Anything else is CodeUsage, which keeps the conformance rule that an unknown
@@ -54,6 +56,25 @@ func MetaLetter(k Key) byte {
 		return 0
 	}
 	return letter
+}
+
+// MetaSymbol reports the character of an m-<symbol> key, or 0 if the key is not
+// one: a digit or punctuation mark, any printable ASCII character that is
+// neither a letter nor a space.
+//
+// The character is spelled as itself, however hostile it is to a shell, since
+// no shell stands between a caller and the key. Space, the control range, DEL
+// and anything past ASCII are not symbols: a key bar sends alt with a single
+// printable byte, and those are either named keys already or not one keypress.
+func MetaSymbol(k Key) byte {
+	if len(k) != 3 || k[0] != 'm' || k[1] != '-' {
+		return 0
+	}
+	c := k[2]
+	if c < '!' || c > '~' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+		return 0
+	}
+	return c
 }
 
 // FunctionNumber reports the n of an f<n> key, or 0 if the key is not one.
