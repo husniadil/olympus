@@ -349,7 +349,7 @@ func (c *bareClient) set(r resolved) {
 // legacy `CSI 31 ~` went unread (measured). Every press is CONFIRMED: the
 // client paints its window title as it lands on a workspace (`host:
 // label`, measured on its own switches every time), so the title of the
-// workspace a press lands on is expected before the press, and a press
+// client paints as a press lands is expected before the press, and a press
 // that goes unanswered within a beat is made once more, then given up as
 // the walk's error. A beat between presses: two written at once were read
 // as one. Under load a press in three went unread with no confirmation
@@ -380,7 +380,7 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 				case <-time.After(keyGap):
 				}
 			}
-			seen := expect(titleMark(next))
+			seen := expect(titleMark())
 			if _, err := io.WriteString(keys, key); err != nil {
 				return backend.Wrapf(backend.CodeUnexpected, err, "walking the client to %s", to.workspace.WorkspaceID)
 			}
@@ -417,14 +417,16 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 	return nil
 }
 
-// titleMark is what the client's window title carries once it is on a
-// workspace: `<host>: <label>` for a labelled one; an unlabelled one
-// paints something else there (its directory), so any title counts.
-func titleMark(w workspaceRow) []byte {
-	if w.Label == "" {
-		return []byte("\x1b]0;")
-	}
-	return []byte(": " + w.Label + "\x07")
+// titleMark is what shows the client landed on a workspace: a window title,
+// whatever it says. The label a workspace list gives is not the name its
+// title paints: for a workspace nobody named, herdr names the list's row from
+// the directory its process is in and the title from the directory its
+// terminal last reported, and the two differ (measured: a Claude Code pane
+// listed as `agamemnon` painted `host: ~`, so every walk onto it was given up
+// as unread while the client sat on it). A press that goes unread paints no
+// title at all, so any title still tells the two apart.
+func titleMark() []byte {
+	return []byte("\x1b]0;")
 }
 
 // workspaceSteps is how many next-workspace presses (positive) or

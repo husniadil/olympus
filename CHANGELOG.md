@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A walk onto a workspace nobody named lands.** Each press waited for the
+  window title to carry the workspace's label, but herdr names an unnamed
+  workspace's list row from its process's directory and its title from the
+  directory its terminal last reported, and the two differ. The client
+  landed, the label never came, the press was made again and walked it off,
+  and the attach ended with "its workspace key went unread" (measured with a
+  Claude Code pane: three of three failed, four of four land now). Any window
+  title confirms a press. Behavior spec §8.10.
+
 ## [0.23.1]
 
 ### Fixed

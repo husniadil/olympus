@@ -2132,10 +2132,10 @@ the client moved is worse off than one told it did not.
 
 Every press of a walk, the first one's and a go's alike, is CONFIRMED by
 the client rather than assumed from a beat. The client paints its window
-title (`<host>: <label>`) as it lands on a workspace — on its own
-switches every time, measured — so the engine is asked, before the press,
-to watch the output for the title of the workspace the press lands on
-(`Expect`), and the press is made once more if that title has not come
+title as it lands on a workspace — on its own switches every time,
+measured — so the engine is asked, before the press, to watch the output
+for a window title (`Expect`), and the press is made once more if none has
+come
 within a beat and a half, then given up as the walk's error. Then the
 switch's synchronized frame (DEC 2026) is waited for to its end, and a
 beat after it, before anything else is written: the title comes at the
@@ -2145,6 +2145,13 @@ e2e under load: with a fixed beat after the press, one press in three went
 unread and the marker typed after it landed in the workspace the client
 was still on; with the title alone, the marker typed after it was lost
 one run in eight; with the frame, eight of eight landed (2026-09-13).
+Any title counts, since what it says is not the label a workspace list
+gives: for a workspace nobody named, herdr names the list's row from the
+directory its process is in and the title from the directory its terminal
+last reported, and a press onto a Claude Code pane listed as `agamemnon`
+painted `<host>: ~`, so a walk matching the label gave up on every press
+that landed (measured 2026-09-15, three of three; four of four with any
+title).
 What no walk can hold against: a `workspace focus` or `tab focus` on the
 server, from any CLI, moves every client and this backend cannot see it;
 and a workspace created or closed during a walk shifts the ring under it,
