@@ -285,7 +285,83 @@ func TestAPerClientViewGoPressesNoKey(t *testing.T) {
 // focus does not move, and what is typed after a go lands in the workspace
 // the go took the client to.
 func TestTwoPerClientViewBareClientsEachLandWhereTheyAreSent(t *testing.T) {
-	b := requireClientViewHerdr(t)
+	twoBareClientsEachLandWhereTheyAreSent(t, requireClientViewHerdr(t))
+}
+
+// §8.10, §13.2 The same, on a server selected by NAME: the client is herdr's
+// `session attach <name>` with the launch options after the name, and it
+// resolves the session under the configuration tree rather than the socket.
+// The named server is brought up under a private HOME and configuration
+// tree, never the operator's.
+func TestTwoPerClientViewBareClientsOnANamedServerEachLandWhereTheyAreSent(t *testing.T) {
+	b := namedClientViewServer(t, "n")
+	created, err := b.Create(context.Background(), backend.CreateSpec{Name: "probe"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	att, err := b.Attach(context.Background(), "probe", backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true})
+	if err != nil {
+		t.Fatalf("bare Attach(probe) on the named server: %v", err)
+	}
+	args := att.Cmd.Args
+	_ = att.Close()
+	if len(args) < 4 || args[1] != "session" || args[2] != "attach" || args[3] != "n" ||
+		flagValue(args, "--workspace") != created.ID || !strings.HasPrefix(flagValue(args, "--client-tag"), clientTagPrefix) {
+		t.Fatalf("the client is launched as %v, want [herdr session attach n --workspace %s --client-tag %s…]", args, created.ID, clientTagPrefix)
+	}
+	if v, ok := envValue(att.Cmd.Env, "HERDR_SOCKET_PATH"); ok {
+		t.Errorf("the named client carries a socket override %s", v)
+	}
+	raw(t, b, "workspace", "close", created.ID)
+	twoBareClientsEachLandWhereTheyAreSent(t, b)
+}
+
+// namedClientViewServer brings up a named herdr server (`herdr --session
+// <name> server`) under a private HOME and XDG tree, finds it by name the
+// way `--server` does, and stops it afterwards.
+func namedClientViewServer(t *testing.T, name string) *Herdr {
+	t.Helper()
+	requireClientViewHerdr(t)
+	home := shortDir(t)
+	t.Setenv("HOME", home)
+	// The configuration home is HOME itself: a deeper one puts herdr's
+	// derived client socket over the platform's path budget.
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	dir := filepath.Join(home, "herdr", "sessions", name)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("preparing %s: %v", dir, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	socket := filepath.Join(dir, "herdr.sock")
+	if err := (&Herdr{}).StartServer(ctx, backend.Server{Name: name, SocketPath: socket}); err != nil {
+		t.Fatalf("starting the named server: %v", err)
+	}
+	t.Cleanup(func() {
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer stopCancel()
+		if err := (&Herdr{}).StopServer(stopCtx, name); err != nil {
+			t.Errorf("stopping the named server %s: %v", name, err)
+		}
+	})
+	found, err := LookupServer(ctx, name)
+	if err != nil {
+		t.Fatalf("looking the named server up: %v", err)
+	}
+	if found.SocketPath != socket || !found.Running {
+		t.Fatalf("the named server is listed as %+v, want running on %s", found, socket)
+	}
+	b := New(WithServerSocket(name, found.SocketPath))
+	views, err := b.clientViews(ctx)
+	if err != nil || !views {
+		t.Fatalf("the named server does not advertise client_view_focus (%v, %v)", views, err)
+	}
+	return b
+}
+
+func twoBareClientsEachLandWhereTheyAreSent(t *testing.T, b *Herdr) {
+	t.Helper()
 	ctx := context.Background()
 	names := []string{"first", "second", "third"}
 	ids := map[string]string{}
