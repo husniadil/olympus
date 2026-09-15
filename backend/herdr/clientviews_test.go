@@ -7,27 +7,32 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/husniadil/olympus/backend"
 )
 
-// §8.10 Whether a server moves one client's view is read from the
-// capabilities its `ping` answers with, never from its version: a build that
-// carries the request reports the same version as one that does not.
+// §8.10 Whether a server moves one client's view, and whether it reports
+// when a client has applied one, is read from the capabilities its `ping`
+// answers with, never from its version: a build that carries the request
+// reports the same version as one that does not.
 func TestClientViewCapabilityIsReadFromThePong(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
 		pong string
-		want bool
+		want serverCaps
 	}{
-		{"advertised", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"health_check":true,"client_view_focus":true}}}`, true},
-		{"advertised as false", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"client_view_focus":false}}}`, false},
-		{"a server that predates it", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"health_check":true}}}`, false},
-		{"a server with no capabilities at all", `{"id":"x","result":{"type":"pong","version":"0.8.2","protocol":19}}`, false},
+		{"advertised", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"health_check":true,"client_view_focus":true}}}`, serverCaps{viewFocus: true}},
+		{"advertised as false", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"client_view_focus":false}}}`, serverCaps{}},
+		{"a server that predates it", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"health_check":true}}}`, serverCaps{}},
+		{"a server with no capabilities at all", `{"id":"x","result":{"type":"pong","version":"0.8.2","protocol":19}}`, serverCaps{}},
+		{"the view acknowledged as well", `{"id":"x","result":{"type":"pong","version":"0.9.0+agm.2","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":true}}}`, serverCaps{viewFocus: true, viewAck: true}},
+		{"the view acknowledged as false", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":false}}}`, serverCaps{viewFocus: true}},
 	}
 	for _, c := range cases {
 		got, err := parsePong(json.RawMessage(resultOf(t, c.pong)))
@@ -36,7 +41,7 @@ func TestClientViewCapabilityIsReadFromThePong(t *testing.T) {
 			continue
 		}
 		if got != c.want {
-			t.Errorf("%s: client_view_focus read as %v, want %v", c.name, got, c.want)
+			t.Errorf("%s: the capabilities read as %+v, want %+v", c.name, got, c.want)
 		}
 	}
 	if _, err := parsePong(json.RawMessage(`{"type":"workspace_list"}`)); backend.CodeOf(err) != backend.CodeUnexpected {
@@ -72,7 +77,7 @@ func newFakeAPI(t *testing.T, answer func(method string, params json.RawMessage)
 	}
 	t.Cleanup(func() { _ = l.Close() })
 	api := &fakeAPI{path: path, answer: answer, counts: map[string]*atomic.Int32{
-		"ping": {}, "client.list": {}, "client.view.focus": {},
+		"ping": {}, "client.list": {}, "client.view.focus": {}, "client.view.wait": {},
 	}}
 	go func() {
 		for {
@@ -207,5 +212,228 @@ func TestATaggedClientIsFoundInTheClientList(t *testing.T) {
 	}
 	if _, ok, err := findClient(json.RawMessage(list), "olympus-client-b"); ok || err != nil {
 		t.Errorf("a tag nobody carries was found (%v, %v)", ok, err)
+	}
+}
+
+// A viewServer is a fake herdr API holding one tagged client: where it is,
+// whether it acknowledges snapshots, and what the server advertises. It
+// answers `client.view.focus` and `client.view.wait` the way herdr does, and
+// records the params each was sent.
+type viewServer struct {
+	api     *fakeAPI
+	mu      sync.Mutex
+	focused []map[string]any
+	waited  []map[string]any
+}
+
+// sent is what `client.view.focus` and `client.view.wait` were sent so far.
+func (v *viewServer) sent() (focused, waited []map[string]any) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return append([]map[string]any(nil), v.focused...), append([]map[string]any(nil), v.waited...)
+}
+
+func newViewServer(t *testing.T, pong, client string, focus, wait func(params map[string]any) string) *viewServer {
+	t.Helper()
+	v := &viewServer{}
+	record := func(into *[]map[string]any, params json.RawMessage) map[string]any {
+		var p map[string]any
+		_ = json.Unmarshal(params, &p)
+		*into = append(*into, p)
+		return p
+	}
+	v.api = newFakeAPI(t, func(method string, params json.RawMessage) string {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		switch method {
+		case "ping":
+			return `{"id":"x","result":` + pong + `}`
+		case "client.list":
+			return `{"id":"x","result":{"type":"client_list","clients":[` + client + `]}}`
+		case "client.view.focus":
+			return focus(record(&v.focused, params))
+		case "client.view.wait":
+			return wait(record(&v.waited, params))
+		}
+		return `{"id":"x","error":{"code":"unknown_method","message":"unknown"}}`
+	})
+	return v
+}
+
+const (
+	ackingPong    = `{"type":"pong","version":"0.9.0+agm.2","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":true}}`
+	focusOnlyPong = `{"type":"pong","version":"0.9.0+agm.1","protocol":22,"capabilities":{"client_view_focus":true}}`
+)
+
+func tabTarget(ws, tab string) resolved {
+	return resolved{kind: kindTab, workspace: workspaceRow{WorkspaceID: ws}, tab: tabRow{TabID: tab}}
+}
+
+// noFrames fails the test if a frame is waited for.
+func noFrames(t *testing.T) backend.Expect {
+	return func(mark []byte) func(time.Duration) bool {
+		t.Errorf("the client's output was watched for %q on a server that reports the view applied", mark)
+		return func(time.Duration) bool { return true }
+	}
+}
+
+// framesCounted answers every wait at once and counts them.
+func framesCounted(n *atomic.Int32) backend.Expect {
+	return func(mark []byte) func(time.Duration) bool {
+		if string(mark) == frameEnd {
+			n.Add(1)
+		}
+		return func(time.Duration) bool { return true }
+	}
+}
+
+// §8.10 On a server that reports when a client has applied its view, a go
+// that moves the client asks the move to answer once the client has it
+// (`wait: true`, bounded), checks where the answer says the client is, and
+// watches nothing the client paints.
+func TestAMoveOntoAnAckingClientWaitsForTheServersAnswerNotAFrame(t *testing.T) {
+	t.Parallel()
+	v := newViewServer(t, ackingPong,
+		`{"client_id":3,"client_tag":"tag","workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","zoomed":false,"snapshot_acks":true,"view_applied":true}`,
+		func(p map[string]any) string {
+			return `{"id":"x","result":{"type":"client_view_focus","client":{"client_id":3,"client_tag":"tag","workspace_id":"w2","tab_id":"w2:t2","pane_id":"w2:p2","zoomed":false,"snapshot_acks":true,"view_applied":true}}}`
+		},
+		func(map[string]any) string { t.Error("client.view.wait was asked for a move"); return `{}` })
+	b := New(WithSocketPath(v.api.path))
+	to := tabTarget("w2", "w2:t2")
+	at := &bareClient{at: tabTarget("w1", "w1:t1")}
+	if err := b.showOnClient(context.Background(), "tag", to, at, noFrames(t)); err != nil {
+		t.Fatalf("showOnClient: %v", err)
+	}
+	focused, _ := v.sent()
+	if len(focused) != 1 {
+		t.Fatalf("client.view.focus was asked %d times, want 1", len(focused))
+	}
+	p := focused[0]
+	if p["wait"] != true || p["client_tag"] != "tag" || p["workspace_id"] != "w2" || p["tab_id"] != "w2:t2" {
+		t.Errorf("client.view.focus was sent %v, want the tag, w2, w2:t2 and wait: true", p)
+	}
+	if ms, ok := p["timeout_ms"].(float64); !ok || ms <= 0 || ms > 60000 {
+		t.Errorf("client.view.focus was sent timeout_ms %v, want a bound herdr accepts", p["timeout_ms"])
+	}
+	if at.id() != "w2:t2" {
+		t.Errorf("the client is recorded on %s, want w2:t2", at.id())
+	}
+}
+
+// §8.10 Where the client already shows the target, nothing moves it, and the
+// server is still asked to answer once the client has applied the view it
+// holds now: that covers the first placement of a client just launched, and
+// a zoom that moved the focus of the tab it shows.
+func TestAnAckingClientAlreadyOnItsTargetIsWaitedForByTheServer(t *testing.T) {
+	t.Parallel()
+	const on = `{"client_id":3,"client_tag":"tag","workspace_id":"w2","tab_id":"w2:t2","pane_id":"w2:p2","zoomed":false,"snapshot_acks":true,"view_applied":true}`
+	v := newViewServer(t, ackingPong, on,
+		func(map[string]any) string { t.Error("client.view.focus was asked with no move to make"); return `{}` },
+		func(map[string]any) string {
+			return `{"id":"x","result":{"type":"client_view_wait","client":` + on + `}}`
+		})
+	b := New(WithSocketPath(v.api.path))
+	if err := b.showOnClient(context.Background(), "tag", tabTarget("w2", "w2:t2"), &bareClient{}, noFrames(t)); err != nil {
+		t.Fatalf("showOnClient: %v", err)
+	}
+	_, waited := v.sent()
+	if len(waited) != 1 || waited[0]["client_tag"] != "tag" {
+		t.Fatalf("client.view.wait was sent %v, want once for the tag", waited)
+	}
+	if ms, ok := waited[0]["timeout_ms"].(float64); !ok || ms <= 0 || ms > 60000 {
+		t.Errorf("client.view.wait was sent timeout_ms %v, want a bound herdr accepts", waited[0]["timeout_ms"])
+	}
+}
+
+// §8.10, §8.11 A server that moves one client's view but does not report
+// when it is applied (a released herdr, or the fork before it), and a client
+// that does not acknowledge snapshots on a server that would, are confirmed
+// by the frame the client paints, as before: no wait is asked of the server.
+func TestAClientViewWithoutAcknowledgementIsConfirmedByItsFrame(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, pong, client string }{
+		{"a server without client_view_ack", focusOnlyPong,
+			`{"client_id":3,"client_tag":"tag","workspace_id":"w1","tab_id":"w1:t1"}`},
+		{"a client without snapshot_acks", ackingPong,
+			`{"client_id":3,"client_tag":"tag","workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","snapshot_acks":false,"view_applied":false}`},
+	}
+	for _, c := range cases {
+		v := newViewServer(t, c.pong, c.client,
+			func(p map[string]any) string {
+				return `{"id":"x","result":{"type":"client_view_focus","client":{"client_id":3,"client_tag":"tag","workspace_id":"w2","tab_id":"w2:t2"}}}`
+			},
+			func(map[string]any) string { t.Errorf("%s: client.view.wait was asked", c.name); return `{}` })
+		b := New(WithSocketPath(v.api.path))
+		var frames atomic.Int32
+		if err := b.showOnClient(context.Background(), "tag", tabTarget("w2", "w2:t2"), &bareClient{}, framesCounted(&frames)); err != nil {
+			t.Fatalf("%s: showOnClient: %v", c.name, err)
+		}
+		focused, _ := v.sent()
+		if len(focused) != 1 {
+			t.Fatalf("%s: client.view.focus was asked %d times, want 1", c.name, len(focused))
+		}
+		if _, ok := focused[0]["wait"]; ok {
+			t.Errorf("%s: client.view.focus was sent %v, want no wait", c.name, focused[0])
+		}
+		if frames.Load() != 1 {
+			t.Errorf("%s: the frame end was waited for %d times, want 1", c.name, frames.Load())
+		}
+	}
+}
+
+// §8.10 A client that has not applied its view by the deadline fails the go
+// as a timeout, loudly, rather than having what was typed forwarded into a
+// pane it may not address.
+func TestAnAckingClientThatDoesNotApplyItsViewFailsTheGo(t *testing.T) {
+	t.Parallel()
+	v := newViewServer(t, ackingPong,
+		`{"client_id":3,"client_tag":"tag","workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","snapshot_acks":true,"view_applied":true}`,
+		func(map[string]any) string {
+			return `{"id":"x","error":{"code":"timeout","message":"client 3 did not apply a snapshot showing its view in time"}}`
+		},
+		func(map[string]any) string { return `{}` })
+	b := New(WithSocketPath(v.api.path))
+	at := &bareClient{at: tabTarget("w1", "w1:t1")}
+	err := b.showOnClient(context.Background(), "tag", tabTarget("w2", "w2:t2"), at, noFrames(t))
+	if backend.CodeOf(err) != backend.CodeTimeout || !strings.Contains(err.Error(), "did not apply") {
+		t.Errorf("a view the client never applied is %q (%v), want %q saying so", backend.CodeOf(err), err, backend.CodeTimeout)
+	}
+	if at.id() != "w1:t1" {
+		t.Errorf("a failed go recorded the client on %s", at.id())
+	}
+}
+
+// §8.10 The client an acknowledged wait answers with must show the target:
+// its workspace, its tab where the target names one, and for a pane the pane
+// focused and its tab zoomed as the zoom step left it. Anything else fails
+// the go.
+func TestTheAcknowledgedViewMustShowTheTarget(t *testing.T) {
+	t.Parallel()
+	pane := resolved{kind: kindPane, workspace: workspaceRow{WorkspaceID: "w2"}, tab: tabRow{TabID: "w2:t2"}, pane: paneRow{PaneID: "w2:p2"}}
+	on := clientRow{WorkspaceID: "w2", TabID: "w2:t2", PaneID: "w2:p2", Zoomed: true, ViewApplied: true}
+	cases := []struct {
+		name   string
+		row    func(clientRow) clientRow
+		to     resolved
+		zoomed bool
+		want   bool
+	}{
+		{"the pane, zoomed and applied", func(r clientRow) clientRow { return r }, pane, true, true},
+		{"another workspace", func(r clientRow) clientRow { r.WorkspaceID = "w1"; return r }, pane, true, false},
+		{"another tab", func(r clientRow) clientRow { r.TabID = "w2:t1"; return r }, pane, true, false},
+		{"another pane focused", func(r clientRow) clientRow { r.PaneID = "w2:p1"; return r }, pane, true, false},
+		{"the pane not zoomed", func(r clientRow) clientRow { r.Zoomed = false; return r }, pane, true, false},
+		{"a lone pane the zoom left unzoomed", func(r clientRow) clientRow { r.Zoomed = false; return r }, pane, false, true},
+		{"zoomed where the step left the tab unzoomed", func(r clientRow) clientRow { r.Zoomed = true; return r }, pane, false, false},
+		{"not applied", func(r clientRow) clientRow { r.ViewApplied = false; return r }, pane, true, false},
+		{"a tab target shows any pane of its tab", func(r clientRow) clientRow { r.PaneID, r.Zoomed = "w2:p1", false; return r }, tabTarget("w2", "w2:t2"), true, true},
+		{"a workspace target shows any tab of it", func(r clientRow) clientRow { r.TabID = "w2:t9"; return r },
+			resolved{kind: kindWorkspace, workspace: workspaceRow{WorkspaceID: "w2"}, tab: tabRow{TabID: "w2:t2"}}, true, true},
+	}
+	for _, c := range cases {
+		if got := viewShows(c.row(on), c.to, c.zoomed); got != c.want {
+			t.Errorf("%s: viewShows = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

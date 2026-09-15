@@ -2244,7 +2244,7 @@ configuration is steered as before):
 |---|---|
 | build | the zoom steps of the table above, and nothing else on the server: no `workspace focus`, no `tab focus`, no walk lock |
 | spawn | the client with `--workspace <ws> --client-tag olympus-client-<16 hex>` (§17.1), a tag drawn per attach |
-| settle | wait for the tag in `client.list`; the zoom steps of the table above; then, if the client is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id` |
+| settle | wait for the tag in `client.list`; the zoom steps of the table above; then, if the client is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id`; then the confirmation below — the server's acknowledgement where it reports one, the client's frame where it does not |
 | go | resolve the target; the same as settle, from where `client.list` has the client |
 | probe | `client.list` for the tag, then the presence of the target the backend last put the client on |
 
@@ -2262,8 +2262,38 @@ is pressed and no window title is waited for. A client that is already where
 the target is — a client launched onto its workspace, or a go onto where it
 is — is not moved again.
 
+**A server that reports when a client has applied its view is asked, not
+watched.** A herdr server that also answers `ping` with
+`capabilities.client_view_ack: true` (asked and kept with
+`client_view_focus`, never read from the version) reports, per client in
+`client.list`, `snapshot_acks` (whether the client acknowledges the
+snapshots it applies), `pane_id` and `zoomed` (the focused pane of the tab
+it shows, and whether that tab is zoomed) and `view_applied` (whether it has
+acknowledged a snapshot carrying its current view: workspace, tab, focused
+pane and zoom — the snapshot it routes input through). It takes
+`client.view.wait`, which answers once the client has applied its current
+view, and `client.view.focus` with `wait: true`, which moves the client and
+answers once it has applied the new one. Where the server advertises it
+and the client's row says `snapshot_acks: true`, the settle and the go run
+the zoom steps and then ONE request with `timeout_ms` 5000 (herdr's own
+default): `client.view.focus` with `wait: true` where the client is not on
+the target's workspace and tab, `client.view.wait` where it is (the first
+placement of a client just launched onto its target, and a zoom that moved
+the focus of the tab the client shows). Nothing the client paints is
+watched. The client the answer carries must be applied, on the target's
+workspace, on its tab for a tab or pane target, and for a pane target have
+that pane focused and its tab zoomed as the zoom step's own answer left it
+(a lone pane is not zoomed: herdr answers `single_pane`, measured); anything
+else fails the settle or go. herdr's `timeout` fails it as `TIMEOUT`, saying
+the client did not apply its view: what was typed after the go is not
+forwarded into a pane the client may not address. The request's own
+deadline sits past the server's, so that answer is herdr's rather than a
+socket that stopped answering. A server without the capability, or a client
+that does not acknowledge snapshots, takes the frame confirmation above
+unchanged.
+
 The zoom steps run BEFORE the view moves, and at build before the client
-exists. The client addresses its input to the pane its own copy of the tab
+exists, on both confirmations. The client addresses its input to the pane its own copy of the tab
 has focused, and herdr takes input for a zoomed tab from its focused pane
 alone, so a zoom that moves the tab's focus is typed past until the client
 has it (measured: a marker typed straight after a zoom onto the second pane
@@ -2277,7 +2307,10 @@ dropped in 4 of them. Where the client already shows the target's tab
 there is no view change to carry the zoom: a zoom that moves that tab's
 focus is followed by the same frame wait, and one that leaves the focus
 where it was (the pane already focused, or a zoom-out) needs none, since
-the pane the client addresses is the one herdr takes input for.
+the pane the client addresses is the one herdr takes input for. On a server
+that acknowledges the view, the one request after the zoom steps confirms
+the zoom and the move together, since the view it waits for includes the
+focused pane and the zoom.
 
 The zoom steps stay because a zoom is the tab's own state and there is no
 zoom of one client's: a pane target still means that pane alone, and a
@@ -2412,19 +2445,30 @@ probe follows it rather than guessing. On a server without the capability
 the walk is the only way in, and it is confirmed press by press so that
 what it cannot see is at least not guessed.
 
-One limit is new on such a server: **nothing confirms the client has what
-it was sent.** herdr reports no sign that a client has applied a view or
-focus change — `client.list` gives a client's id, tag, workspace and tab as
-the server holds them, and the client acknowledges no state it is sent — so
-the end of a frame is the only sign, and a late frame the client painted
-for where it was before ends the wait as well. Input forwarded then is
-addressed to a pane the client no longer shows, and herdr drops it.
-Measured: with the zoom made first, a frame the zoom made the client paint
-for its old view ended the view change's wait before its answer had
-arrived, and the marker typed after that go was dropped. That go failed
-in 3 of 60 runs under load and in none of 60 without, where it failed in
-3 of 20 under the same load with the zoom made after. Closing it needs
-herdr to report, per client, the state it has applied.
+One limit stays on a server that does not advertise `client_view_ack`:
+**nothing confirms the client has what it was sent.** There herdr reports no
+sign that a client has applied a view or focus change — `client.list` gives
+a client's id, tag, workspace and tab as the server holds them, and the
+client acknowledges no state it is sent — so the end of a frame is the only
+sign, and a late frame the client painted for where it was before ends the
+wait as well. Input forwarded then is addressed to a pane the client no
+longer shows, and herdr drops it. Measured: with the zoom made first, a
+frame the zoom made the client paint for its old view ended the view
+change's wait before its answer had arrived, and the marker typed after
+that go was dropped. That go failed in 3 of 60 runs under load and in none
+of 60 without, where it failed in 3 of 20 under the same load with the zoom
+made after.
+
+A server that advertises `client_view_ack` closes it for a client whose row
+says `snapshot_acks: true`: the server answers only once the client has
+acknowledged a snapshot carrying its view, focused pane and zoom included
+(§8.10), so no frame is read as the sign. Measured on ten cores under
+fourteen busy loops, sixteen goes in a row between the panes of two split
+tabs, each with a marker typed straight after it (in the same tab and
+across workspaces), thirty runs each: by the frame, 3 runs dropped a marker
+(each on a go across workspaces); by the acknowledgement, none did
+(2026-09-15). What remains is a bound, not a guess: a client that has not
+applied its view within five seconds fails the go as a timeout.
 
 ## 9. Views
 

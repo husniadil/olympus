@@ -87,29 +87,47 @@ func (h *Herdr) call(ctx context.Context, method string, params any) (json.RawMe
 	return reply.Result, nil
 }
 
+// serverCaps is what a server's `ping` says it can do for one client.
+type serverCaps struct {
+	// viewFocus is `client_view_focus`: a client is launched onto a
+	// workspace with a tag, and read and moved by it.
+	viewFocus bool
+	// viewAck is `client_view_ack`: `client.list` says whether a client has
+	// applied the view it is shown, and `client.view.wait`, or
+	// `client.view.focus` with `wait`, answers once it has.
+	viewAck bool
+}
+
 // clientViews reports whether this backend's server moves one client's view
-// (`client_view_focus`), asked once per handle and kept: the answer belongs
-// to the server, which does not change what it is while it runs. A failed
-// ask is not kept, and a server this handle starts or stops forgets it.
+// (`client_view_focus`).
 func (h *Herdr) clientViews(ctx context.Context) (bool, error) {
+	caps, err := h.capabilities(ctx)
+	return caps.viewFocus, err
+}
+
+// capabilities reads the server's capabilities, asked once per handle and
+// kept: the answer belongs to the server, which does not change what it is
+// while it runs. A failed ask is not kept, and a server this handle starts or
+// stops forgets it.
+func (h *Herdr) capabilities(ctx context.Context) (serverCaps, error) {
 	h.mu.Lock()
-	known, views := h.viewsKnown, h.views
+	known, caps := h.capsKnown, h.caps
 	h.mu.Unlock()
 	if known {
-		return views, nil
+		return caps, nil
 	}
 	result, err := h.call(ctx, "ping", struct{}{})
 	if err != nil {
-		return false, err
+		return serverCaps{}, err
 	}
-	views, err = parsePong(result)
+	caps, err = parsePong(result)
 	if err != nil {
-		return false, err
+		return serverCaps{}, err
 	}
 	h.mu.Lock()
-	h.viewsKnown, h.views = true, views
+	h.capsKnown, h.caps = true, caps
 	h.mu.Unlock()
-	return views, nil
+	return caps, nil
 }
 
 // forgetCapabilities drops what was read about the server, for a handle that
@@ -118,22 +136,27 @@ func (h *Herdr) clientViews(ctx context.Context) (bool, error) {
 func (h *Herdr) forgetCapabilities() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.viewsKnown, h.views = false, false
+	h.capsKnown, h.caps = false, serverCaps{}
 }
 
-// parsePong reads `client_view_focus` out of a ping's result. A server that
-// predates the capability, or every capability, reports none: that is false.
-func parsePong(result json.RawMessage) (bool, error) {
+// parsePong reads `client_view_focus` and `client_view_ack` out of a ping's
+// result. A server that predates a capability, or every capability, reports
+// none: that is false.
+func parsePong(result json.RawMessage) (serverCaps, error) {
 	var pong struct {
 		Type         string `json:"type"`
 		Capabilities *struct {
 			ClientViewFocus bool `json:"client_view_focus"`
+			ClientViewAck   bool `json:"client_view_ack"`
 		} `json:"capabilities"`
 	}
 	if err := json.Unmarshal(result, &pong); err != nil || pong.Type != "pong" {
-		return false, backend.Errorf(backend.CodeUnexpected, "herdr answered a ping with %s", result)
+		return serverCaps{}, backend.Errorf(backend.CodeUnexpected, "herdr answered a ping with %s", result)
 	}
-	return pong.Capabilities != nil && pong.Capabilities.ClientViewFocus, nil
+	if pong.Capabilities == nil {
+		return serverCaps{}, nil
+	}
+	return serverCaps{viewFocus: pong.Capabilities.ClientViewFocus, viewAck: pong.Capabilities.ClientViewAck}, nil
 }
 
 // newClientTag draws the name one bare client is addressed by. Random rather
@@ -148,12 +171,24 @@ func newClientTag() (string, error) {
 }
 
 // A clientRow is one client in `client.list`, and the client a
-// `client.view.focus` answers with.
+// `client.view.focus` or `client.view.wait` answers with. The last four
+// fields are reported only by a server with `client_view_ack`, and read as
+// false and empty elsewhere.
 type clientRow struct {
 	ClientID    uint64 `json:"client_id"`
 	ClientTag   string `json:"client_tag"`
 	WorkspaceID string `json:"workspace_id"`
 	TabID       string `json:"tab_id"`
+	// PaneID is the focused pane of the tab the client shows, and Zoomed
+	// whether that tab is zoomed.
+	PaneID string `json:"pane_id"`
+	Zoomed bool   `json:"zoomed"`
+	// SnapshotAcks is whether the client acknowledges the snapshots it
+	// applies, without which it cannot be waited on.
+	SnapshotAcks bool `json:"snapshot_acks"`
+	// ViewApplied is whether the client has acknowledged a snapshot showing
+	// its current view, so input it sends now reaches PaneID.
+	ViewApplied bool `json:"view_applied"`
 }
 
 // findClient picks the client carrying a tag out of a `client.list` result.

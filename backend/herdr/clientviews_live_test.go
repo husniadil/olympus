@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -88,12 +89,13 @@ func startBare(t *testing.T, b *Herdr, target string) *liveClient {
 		t.Fatalf("pipe: %v", err)
 	}
 	c.in = inW
-	go func() { _, _ = io.Copy(io.Discard, outR) }()
+	tail := &outputTail{}
+	go func() { _, _ = io.Copy(tail, outR) }()
 	go func() {
 		defer close(c.done)
-		_, err := engine.Attach(ctx, att, engine.AttachIO{In: inR, Out: outW, Err: testLog{t, c.tag}}, spec, nil)
-		if err != nil {
-			t.Logf("the bare client tagged %s ended: %v", c.tag, err)
+		code, err := engine.Attach(ctx, att, engine.AttachIO{In: inR, Out: outW, Err: testLog{t, c.tag}}, spec, nil)
+		if err != nil || ctx.Err() == nil {
+			t.Logf("the bare client tagged %s ended with status %d: %v; the last it painted: %q", c.tag, code, err, tail.String())
 		}
 	}()
 	t.Cleanup(func() {
@@ -109,6 +111,29 @@ func startBare(t *testing.T, b *Herdr, target string) *liveClient {
 		_ = outR.Close()
 	})
 	return c
+}
+
+// outputTail keeps the last of what a client painted, for the log of a
+// client that ended on its own.
+type outputTail struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (o *outputTail) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.buf = append(o.buf, p...)
+	if len(o.buf) > 2048 {
+		o.buf = o.buf[len(o.buf)-2048:]
+	}
+	return len(p), nil
+}
+
+func (o *outputTail) String() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return string(o.buf)
 }
 
 func flagValue(args []string, flag string) string {
@@ -580,15 +605,31 @@ func TestAPerClientViewAttachOntoAPaneZoomsItBeforeTheClientIsSpawned(t *testing
 	}
 }
 
+// withoutViewAck makes a handle read its server as one that does not report
+// when a client has applied its view, the way a server without
+// `client_view_ack` is read, so the frame path runs against a server that
+// has it (§8.10).
+func withoutViewAck(t *testing.T, b *Herdr) {
+	t.Helper()
+	if _, err := b.capabilities(context.Background()); err != nil {
+		t.Fatalf("asking the server for its capabilities: %v", err)
+	}
+	b.mu.Lock()
+	b.caps.viewAck = false
+	b.mu.Unlock()
+}
+
 // §8.10 A go onto a pane in a tab the client does not show zooms the pane
 // before the client's view is moved, so the repaint the go waits for is the
 // one that moved the view, and the state that repaint carries already has the
 // pane focused. Waited for the other way round, the zoom's own wait was met by
 // a frame the view change painted late (measured: 17 of 20 goes under load),
 // and a marker typed after the go was dropped by the server whenever the
-// zoom's repaint had not yet reached the client (4 of those 20).
+// zoom's repaint had not yet reached the client (4 of those 20). This is the
+// frame path, a server without `client_view_ack`.
 func TestAPerClientViewGoOntoAPaneInAnotherTabZoomsBeforeTheViewMoves(t *testing.T) {
 	b := requireClientViewHerdr(t)
+	withoutViewAck(t, b)
 	ctx := context.Background()
 	for _, name := range []string{"first", "second"} {
 		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
@@ -708,4 +749,176 @@ func TestAPerClientViewProbeFollowsAClientMovedByItsID(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("closing the workspace the client was moved to did not end the attach")
 	}
+}
+
+// goAndType writes a go and a marker in one write, as a consumer's stream
+// carries them, and waits for the marker on the pane the go named; it fails
+// where the marker shows on any other pane given.
+func goAndType(t *testing.T, b *Herdr, c *liveClient, target, marker string, others ...string) {
+	t.Helper()
+	if _, err := c.in.WriteString(goControl(target) + "echo " + marker + "\r"); err != nil {
+		t.Fatalf("writing the go onto %s: %v", target, err)
+	}
+	waitScreen(t, b, target, marker)
+	for _, other := range others {
+		if other != target && screenShows(t, b, other, marker) {
+			t.Errorf("%s typed after going onto %s landed in %s", marker, target, other)
+		}
+	}
+}
+
+// §8.10 A go onto the other pane of the tab the client already shows has no
+// view change to carry it: the zoom moves the tab's focus, and what is typed
+// after the go must reach the pane the zoom focused, not the one the client
+// had focused before it was told.
+func TestAPerClientViewGoOntoAPaneInTheSameTabLandsWhatIsTyped(t *testing.T) {
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	created, err := b.Create(ctx, backend.CreateSpec{Name: "split"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	panes, err := b.Panes(ctx, "split")
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("Panes(split) = %v, %v; want one pane", panes, err)
+	}
+	left := panes[0].ID
+	right := splitRight(t, b, left)
+
+	c := startBare(t, b, "split")
+	waitClientOn(t, b, c, created.ID)
+	_, _ = c.in.WriteString("echo olympus-settled\r")
+	waitScreen(t, b, left, "olympus-settled")
+
+	goAndType(t, b, c, right, "olympus-onto-the-right", left)
+	if !zoomedOnto(t, b, right) {
+		t.Errorf("after the go onto %s its tab is not zoomed onto it", right)
+	}
+	goAndType(t, b, c, left, "olympus-back-onto-the-left", right)
+	if !zoomedOnto(t, b, left) {
+		t.Errorf("after the go onto %s its tab is not zoomed onto it", left)
+	}
+}
+
+// §8.10, §8.11 Goes in a row between the panes of two split tabs, in the same
+// tab and across workspaces, each with a marker typed straight after it:
+// every marker lands in the pane its go named. This is the shape a consumer's
+// quick tab switching takes, and the one a confirmation met by a stale frame
+// loses input in.
+func TestAPerClientViewGoesBetweenPanesInARowLandEveryMarker(t *testing.T) {
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	var panes []string
+	for _, name := range []string{"first", "second"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
+			t.Fatalf("Create(%s): %v", name, err)
+		}
+		rows, err := b.Panes(ctx, name)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("Panes(%s) = %v, %v; want one pane", name, rows, err)
+		}
+		panes = append(panes, rows[0].ID, splitRight(t, b, rows[0].ID))
+	}
+	c := startBare(t, b, "first")
+	_, _ = c.in.WriteString("echo olympus-settled\r")
+	waitScreen(t, b, panes[0], "olympus-settled")
+
+	order := []int{1, 0, 3, 2, 1, 2, 0, 3, 1, 0, 2, 3, 0, 1, 3, 2}
+	for i, p := range order {
+		goAndType(t, b, c, panes[p], fmt.Sprintf("olympus-row-%d", i), panes...)
+	}
+}
+
+// §8.10 On a server that reports when a client has applied its view, a go
+// onto a pane in another tab, and one onto the other pane of the tab it
+// shows, watch nothing the client paints: each returns once the server says
+// the client has applied a view with that pane focused and its tab zoomed.
+func TestAPerClientViewGoOnAnAckingServerReturnsOnceTheViewIsApplied(t *testing.T) {
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	if caps, err := b.capabilities(ctx); err != nil || !caps.viewAck {
+		t.Skipf("the server does not advertise client_view_ack (%+v, %v), so the acknowledged go is not being run", caps, err)
+	}
+	for _, name := range []string{"first", "second"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	second, err := b.resolve(ctx, "second")
+	if err != nil {
+		t.Fatalf("resolve(second): %v", err)
+	}
+	var tabbed struct {
+		Result struct {
+			Tab  tabRow  `json:"tab"`
+			Root paneRow `json:"root_pane"`
+		} `json:"result"`
+	}
+	out := raw(t, b, "tab", "create", "--workspace", second.workspace.WorkspaceID, "--no-focus")
+	if err := json.Unmarshal([]byte(out), &tabbed); err != nil || tabbed.Result.Tab.TabID == "" {
+		t.Fatalf("tab create answered no tab: %v\n%s", err, out)
+	}
+	left := tabbed.Result.Root.PaneID
+	right := splitRight(t, b, left)
+
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true, Cols: 120, Rows: 40}
+	att, err := b.Attach(ctx, "first", spec)
+	if err != nil {
+		t.Fatalf("bare Attach(first): %v", err)
+	}
+	inR, inW, _ := os.Pipe()
+	outR, outW, _ := os.Pipe()
+	defer func() { _ = inW.Close(); _ = inR.Close(); _ = outW.Close(); _ = outR.Close() }()
+	go func() { _, _ = io.Copy(io.Discard, outR) }()
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = engine.Attach(runCtx, att, engine.AttachIO{In: inR, Out: outW, Err: io.Discard}, spec, nil)
+	}()
+	defer func() { cancel(); <-done }()
+	tag := flagValue(att.Cmd.Args, "--client-tag")
+	_, _ = inW.WriteString("echo olympus-settled\r")
+	waitScreen(t, b, "first", "olympus-settled")
+
+	noFrame := func(mark []byte) func(time.Duration) bool {
+		t.Errorf("the go watched the client's output for %q", mark)
+		return func(time.Duration) bool { return true }
+	}
+	for _, pane := range []string{right, left} {
+		if err := att.Go(ctx, pane, io.Discard, noFrame); err != nil {
+			t.Fatalf("Go(%s): %v", pane, err)
+		}
+		row, ok, err := b.taggedClient(ctx, tag)
+		if err != nil || !ok {
+			t.Fatalf("client.list after Go(%s): %+v, %v, %v", pane, row, ok, err)
+		}
+		if row.TabID != tabbed.Result.Tab.TabID || row.PaneID != pane || !row.Zoomed || !row.ViewApplied {
+			t.Errorf("after Go(%s) returned the client is %+v, want on %s with %s focused, zoomed and applied",
+				pane, row, tabbed.Result.Tab.TabID, pane)
+		}
+	}
+}
+
+// §8.10 A bare attach onto the only pane of a workspace, and a go onto the
+// only pane of another, land what is typed: the zoom steps run for a lone
+// pane too, and the confirmation takes the view the server reports for it.
+func TestAPerClientViewAttachAndGoOntoALonePaneLandWhatIsTyped(t *testing.T) {
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	var lone []string
+	for _, name := range []string{"first", "second"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
+			t.Fatalf("Create(%s): %v", name, err)
+		}
+		rows, err := b.Panes(ctx, name)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("Panes(%s) = %v, %v; want one pane", name, rows, err)
+		}
+		lone = append(lone, rows[0].ID)
+	}
+	c := startBare(t, b, lone[0])
+	_, _ = c.in.WriteString("echo olympus-on-the-lone-pane\r")
+	waitScreen(t, b, lone[0], "olympus-on-the-lone-pane")
+	goAndType(t, b, c, lone[1], "olympus-onto-the-other-lone-pane", lone[0])
 }

@@ -324,7 +324,7 @@ func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.A
 	if err != nil {
 		return backend.Attachment{}, err
 	}
-	if _, err := h.zoomSteps(ctx, r); err != nil {
+	if _, _, err := h.zoomSteps(ctx, r); err != nil {
 		return backend.Attachment{}, err
 	}
 	cmd, env := h.sessionClientCommand(ctx, "--workspace", r.workspace.WorkspaceID, "--client-tag", tag)
@@ -370,11 +370,13 @@ func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.A
 // type into it: the client addresses what it sends to the pane it believes
 // it shows, and the server drops input for a pane the client no longer
 // views, until the repaint that tells the client where it is has reached it
-// (measured: a marker written straight after the answer never echoed). So
-// the end of that repaint's synchronized frame is waited for, and a beat
-// after it, the same as after a walk. That frame end is the only sign herdr
-// gives, and it cannot be told from a late frame the client painted for
-// where it was before (§8.11).
+// (measured: a marker written straight after the answer never echoed). A
+// server that reports when a client has applied its view is asked to answer
+// once it has, for a client that acknowledges what it applies
+// (showOnAckingClient). Elsewhere the end of that repaint's synchronized
+// frame is waited for, and a beat after it, the same as after a walk. That
+// frame end is the only sign such a server gives, and it cannot be told from
+// a late frame the client painted for where it was before (§8.11).
 //
 // The zoom steps of the steering table run on the server BEFORE the view
 // moves: the zoom is the tab's own state, there is no zoom of one client's,
@@ -399,6 +401,13 @@ func (h *Herdr) showOnClient(ctx context.Context, tag string, to resolved, at *b
 	if err != nil {
 		return err
 	}
+	caps, err := h.capabilities(ctx)
+	if err != nil {
+		return err
+	}
+	if caps.viewAck && row.SnapshotAcks {
+		return h.showOnAckingClient(ctx, tag, to, row, at)
+	}
 	moves := row.WorkspaceID != to.workspace.WorkspaceID || (tab != "" && row.TabID != tab)
 
 	// A zoom that moves the focus of the tab the client already shows has
@@ -410,7 +419,7 @@ func (h *Herdr) showOnClient(ctx context.Context, tag string, to resolved, at *b
 	if !moves && row.TabID == to.tab.TabID {
 		repainted = expect([]byte(frameEnd))
 	}
-	refocused, err := h.zoomSteps(ctx, to)
+	refocused, _, err := h.zoomSteps(ctx, to)
 	if err != nil {
 		return err
 	}
@@ -458,30 +467,112 @@ func (h *Herdr) showOnClient(ctx context.Context, tag string, to resolved, at *b
 	return nil
 }
 
+// viewAckWait bounds how long the server is asked to wait for a client to
+// apply its view: herdr's own default for the wait, well inside its limit.
+// A client that has not applied it by then fails the go rather than have
+// what was typed forwarded into a pane it may not address (§8.10).
+const viewAckWait = 5 * time.Second
+
+// showOnAckingClient is showOnClient on a server that reports when a client
+// has applied its view (`client_view_ack`), for a client that acknowledges
+// the snapshots it applies (§8.10).
+//
+// The zoom steps run first, as on the frame path, and then ONE request
+// confirms both the zoom and the move: `client.view.focus` with `wait` where
+// the client is not yet where the target is, `client.view.wait` where it
+// is. Either answers only once the client has acknowledged a snapshot
+// carrying its current view — workspace, tab, focused pane and zoom — which
+// is the snapshot the client routes what it is sent through. Nothing the
+// client paints is watched, so a late frame for where it was cannot end the
+// wait early (§8.11). The client the server answers with must show the
+// target, or the go fails.
+func (h *Herdr) showOnAckingClient(ctx context.Context, tag string, to resolved, row clientRow, at *bareClient) error {
+	_, zoomed, err := h.zoomSteps(ctx, to)
+	if err != nil {
+		return err
+	}
+	method := "client.view.wait"
+	params := map[string]any{"client_tag": tag, "timeout_ms": viewAckWait.Milliseconds()}
+	if row.WorkspaceID != to.workspace.WorkspaceID || (to.kind != kindWorkspace && row.TabID != to.tab.TabID) {
+		method = "client.view.focus"
+		params["workspace_id"] = to.workspace.WorkspaceID
+		if to.kind != kindWorkspace {
+			params["tab_id"] = to.tab.TabID
+		}
+		params["wait"] = true
+	}
+	// The request's own deadline sits past the server's, so a client that
+	// never applies the view is answered as herdr's timeout, not as a socket
+	// that stopped answering.
+	callCtx, cancel := context.WithTimeout(ctx, viewAckWait+apiCallBudget)
+	defer cancel()
+	result, err := h.call(callCtx, method, params)
+	if backend.CodeOf(err) == backend.CodeTimeout {
+		return backend.Wrapf(backend.CodeTimeout, err, "the herdr client tagged %s did not apply its view of %s within %s", tag, to.id(), viewAckWait)
+	}
+	if err != nil {
+		return err
+	}
+	var answer struct {
+		Client clientRow `json:"client"`
+	}
+	if err := json.Unmarshal(result, &answer); err != nil {
+		return backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to %s", method)
+	}
+	if !viewShows(answer.Client, to, zoomed) {
+		c := answer.Client
+		return backend.Errorf(backend.CodeUnexpected, "herdr reports the client on %s %s pane %s (zoomed %v, applied %v), not %s",
+			c.WorkspaceID, c.TabID, c.PaneID, c.Zoomed, c.ViewApplied, to.id())
+	}
+	at.set(to)
+	return nil
+}
+
+// viewShows reports whether a client whose view is applied shows a target:
+// its workspace; for a tab or pane target, its tab; for a pane target, that
+// pane focused, in a tab zoomed as the zoom step left it (`zoomed`). A lone
+// pane is not zoomed by it: herdr answers `single_pane` and leaves the tab
+// as it was (measured).
+func viewShows(c clientRow, to resolved, zoomed bool) bool {
+	if !c.ViewApplied || c.WorkspaceID != to.workspace.WorkspaceID {
+		return false
+	}
+	if to.kind == kindWorkspace {
+		return true
+	}
+	if c.TabID != to.tab.TabID {
+		return false
+	}
+	return to.kind != kindPane || (c.PaneID == to.pane.PaneID && c.Zoomed == zoomed)
+}
+
 // zoomSteps runs the zoom steps of the steering table for a target on the
-// server, and reports whether one moved the focus of the target's tab.
-func (h *Herdr) zoomSteps(ctx context.Context, to resolved) (refocused bool, err error) {
+// server, and reports whether one moved the focus of the target's tab and
+// whether the last left the tab zoomed.
+func (h *Herdr) zoomSteps(ctx context.Context, to resolved) (refocused, zoomed bool, err error) {
 	for _, args := range steeringArgs(to) {
 		if args[0] != "pane" {
 			continue
 		}
 		out, err := h.run(ctx, args...)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		var zoom struct {
 			Result struct {
 				Zoom struct {
 					FocusChanged bool `json:"focus_changed"`
+					Zoomed       bool `json:"zoomed"`
 				} `json:"zoom"`
 			} `json:"result"`
 		}
 		if err := json.Unmarshal([]byte(out), &zoom); err != nil {
-			return false, backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to %s", strings.Join(args, " "))
+			return false, false, backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to %s", strings.Join(args, " "))
 		}
 		refocused = refocused || zoom.Result.Zoom.FocusChanged
+		zoomed = zoom.Result.Zoom.Zoomed
 	}
-	return refocused, nil
+	return refocused, zoomed, nil
 }
 
 // clientArrival bounds the wait for a launched client to be listed. The

@@ -104,10 +104,10 @@ type Herdr struct {
 	// an error, which a server of its own never does: it lost the start to
 	// somebody else's server, and the one answering is not ours to claim.
 	serverExited bool
-	// viewsKnown and views are the server's `client_view_focus`
-	// capability, once asked (clientViews).
-	viewsKnown bool
-	views      bool
+	// capsKnown and caps are the server's capabilities, once asked
+	// (capabilities).
+	capsKnown bool
+	caps      serverCaps
 }
 
 // startedTheServer reports whether this handle brought the answering server up.
@@ -128,7 +128,7 @@ func (h *Herdr) noteStarted() {
 	if !h.serverExited {
 		h.started = true
 	}
-	h.viewsKnown, h.views = false, false
+	h.capsKnown, h.caps = false, serverCaps{}
 }
 
 // noteSpawning clears the record of a lost start, so a handle that lost once
@@ -866,6 +866,8 @@ func classify(err error, stdout, stderr string, args []string) error {
 		return backend.Errorf(backend.CodeSessionNotFound, "%s", message)
 	case "workspace_group_close_required":
 		return fmt.Errorf("%w: %s", errGroupCloseRequired, message)
+	case "timeout":
+		return backend.Errorf(backend.CodeTimeout, "%s", message)
 	case "invalid_key", "invalid_request", "invalid_metadata_source",
 		"invalid_metadata_token", "invalid_metadata_ttl":
 		return backend.Errorf(backend.CodeUsage, "%s", message)

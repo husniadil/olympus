@@ -31,6 +31,21 @@ All notable changes to this project are documented here. The format follows
   view change can still be a late frame, since herdr reports no sign a client
   has applied what it was sent (3 of 60 under the same load, none of 60
   without). Behavior spec §8.10, §8.11.
+- **What is typed after a bare herdr client goes onto a pane lands in that
+  pane on a server that reports when a client has applied its view.** Where
+  the server advertises `client_view_ack` and the client acknowledges the
+  snapshots it applies, a settle or go runs the zoom steps and then asks the
+  server to answer once the client has applied its view:
+  `client.view.focus` with `wait: true` for a move, `client.view.wait`
+  otherwise, a go onto another pane of the tab the client shows included.
+  The client the answer carries must show the target (workspace, tab, and
+  for a pane that pane focused, zoomed as the zoom step left it). A client
+  that has not applied it within five seconds fails the go as `TIMEOUT`
+  rather than having input forwarded. herdr's own `timeout` refusal is now
+  classified as `TIMEOUT`. Under load, sixteen goes in a row between split
+  panes dropped a marker in 3 of 30 runs by the frame and in none of 30 by
+  the acknowledgement. A server without the capability keeps the frame
+  confirmation. Behavior spec §8.10, §8.11.
 
 ## [0.24.1]
 
