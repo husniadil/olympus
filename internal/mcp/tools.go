@@ -124,7 +124,7 @@ type textParams struct {
 
 type keysParams struct {
 	Target string   `json:"target" jsonschema:"the session to address"`
-	Keys   []string `json:"keys" jsonschema:"named keys, for example enter, escape, c-c, up"`
+	Keys   []string `json:"keys" jsonschema:"named keys: enter, escape, tab, s-tab, backspace, delete, space, up, down, left, right, c-up, c-down, c-left, c-right, home, end, page-up, page-down, m-enter; c-<letter> and m-<letter> for any letter; f1 to f12"`
 }
 
 type captureParams struct {

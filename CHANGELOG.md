@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`press` spells the keys a phone key bar sends.** `delete`, `s-tab`,
+  `c-up`, `c-down`, `c-left`, `c-right`, `m-enter`, and `m-<letter>` for any
+  letter with alt held, on every backend. Each is measured arriving as its
+  bytes with `cat -v` wherever control keys are delivered. meja needed its own
+  spelling for two of them: it types tmux's `DC` and `BTab` as letters and
+  drops the shift from `S-Tab`, so forward delete is `Delete` there and back-tab
+  is written as its bytes through `send-keys -l`. Behavior spec §4.9, §4.10.
+
 ## [0.23.2]
 
 ### Fixed

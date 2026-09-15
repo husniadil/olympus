@@ -47,3 +47,26 @@ func TestFunctionKeysAreRecognisedWithinTheirRange(t *testing.T) {
 		}
 	}
 }
+
+// Alt is a prefix, not a modifier bit: a terminal sends ESC before the letter.
+// It is a shape like c-<letter> for the same reason — a readline binding such
+// as M-b or M-f is whatever letter the program chose.
+func TestTheWholeMetaRangeIsRecognised(t *testing.T) {
+	for letter := byte('a'); letter <= 'z'; letter++ {
+		key := backend.Key("m-" + string(letter))
+		if got := backend.MetaLetter(key); got != letter {
+			t.Errorf("MetaLetter(%q) = %q, want %q", key, got, letter)
+		}
+	}
+	if got := backend.MetaLetter("m-B"); got != 'b' {
+		t.Errorf("MetaLetter(\"m-B\") = %q, want 'b'", got)
+	}
+}
+
+func TestNonMetaKeysAreNotMistakenForOne(t *testing.T) {
+	for _, key := range []backend.Key{"m-1", "m-", "meta-a", "m-ab", "m--", "m-enter", "c-a", "a", ""} {
+		if got := backend.MetaLetter(key); got != 0 {
+			t.Errorf("MetaLetter(%q) = %q, want none", key, got)
+		}
+	}
+}

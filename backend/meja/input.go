@@ -236,12 +236,25 @@ func (m *Meja) Paste(ctx context.Context, target, text string) error {
 }
 
 // Press sends named keys.
+//
+// A key meja has no name for is written as its bytes with -l, and -l covers a
+// whole send-keys call, so the keys go out as runs: consecutive named keys in
+// one call, each literal in its own, in the order given.
 func (m *Meja) Press(ctx context.Context, target string, keys ...backend.Key) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	names := make([]string, 0, len(keys))
+	var calls [][]string
+	var names []string
 	for _, k := range keys {
+		if literal, ok := keyLiterals[k]; ok {
+			if len(names) > 0 {
+				calls = append(calls, append([]string{"send-keys", "-t", target}, names...))
+				names = nil
+			}
+			calls = append(calls, []string{"send-keys", "-t", target, "-l", "--", literal})
+			continue
+		}
 		name, ok := keyName(k)
 		if !ok {
 			// Raised before meja is invoked: an unknown key is the caller's
@@ -250,9 +263,16 @@ func (m *Meja) Press(ctx context.Context, target string, keys ...backend.Key) er
 		}
 		names = append(names, name)
 	}
+	if len(names) > 0 {
+		calls = append(calls, append([]string{"send-keys", "-t", target}, names...))
+	}
 	return m.withClient(ctx, target, func() error {
-		_, err := m.run(ctx, nil, append([]string{"send-keys", "-t", target}, names...)...)
-		return named(target, err)
+		for _, args := range calls {
+			if _, err := m.run(ctx, nil, args...); err != nil {
+				return named(target, err)
+			}
+		}
+		return nil
 	})
 }
 

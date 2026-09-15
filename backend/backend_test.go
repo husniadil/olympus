@@ -85,6 +85,13 @@ func TestKeySpellingsAreNeutral(t *testing.T) {
 		{"KeyCtrlD", string(backend.KeyCtrlD), "c-d"},
 		{"KeyPageUp", string(backend.KeyPageUp), "page-up"},
 		{"KeyPageDown", string(backend.KeyPageDown), "page-down"},
+		{"KeyDelete", string(backend.KeyDelete), "delete"},
+		{"KeyShiftTab", string(backend.KeyShiftTab), "s-tab"},
+		{"KeyCtrlUp", string(backend.KeyCtrlUp), "c-up"},
+		{"KeyCtrlDown", string(backend.KeyCtrlDown), "c-down"},
+		{"KeyCtrlRight", string(backend.KeyCtrlRight), "c-right"},
+		{"KeyCtrlLeft", string(backend.KeyCtrlLeft), "c-left"},
+		{"KeyMetaEnter", string(backend.KeyMetaEnter), "m-enter"},
 	}
 	for _, s := range spellings {
 		if s.got != s.want {

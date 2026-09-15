@@ -1,6 +1,7 @@
 package backendtest
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -109,19 +110,27 @@ func injectionCases() []Case {
 				// Driving a full-screen program means pressing whatever IT
 				// binds. A backend that supports only a handful of control
 				// letters cannot leave an editor, and the failure looks like a
-				// usage error naming a key that plainly exists.
+				// usage error naming a key that plainly exists. The shapes and
+				// the named keys are §4.10's.
 				target := e.StartShell()
-				for _, key := range []backend.Key{"c-a", "c-k", "c-o", "c-x", "c-w", "c-z", "f1", "f5", "f12"} {
+				for _, key := range []backend.Key{
+					"c-a", "c-k", "c-o", "c-x", "c-w", "c-z", "f1", "f5", "f12",
+					"delete", "s-tab", "c-up", "c-down", "c-right", "c-left",
+					"m-a", "m-b", "m-f", "m-z", "m-enter",
+				} {
 					if err := e.Backend.Press(e.Ctx(), target, key); err != nil {
 						e.T.Errorf("pressing %q: %v", key, err)
 					}
 				}
 
-				// Open does not mean anything goes. The shapes are c-<letter>
-				// and f<1-12>; something that merely looks like one is still
-				// the caller's mistake to fix, and a backend that accepted it
-				// would be silently sending nothing.
-				for _, key := range []backend.Key{"c-1", "c-", "f0", "f13", "ctrl-x"} {
+				// Open does not mean anything goes. The shapes are c-<letter>,
+				// m-<letter> and f<1-12>; something that merely looks like one
+				// is still the caller's mistake to fix, and a backend that
+				// accepted it would be silently sending nothing.
+				for _, key := range []backend.Key{
+					"c-1", "c-", "f0", "f13", "ctrl-x",
+					"m-1", "m-", "meta-a", "m-ab", "c-home", "s-enter",
+				} {
 					if err := e.Backend.Press(e.Ctx(), target, key); err == nil {
 						e.T.Errorf("pressing %q was accepted, but it is not a key", key)
 					} else if backend.CodeOf(err) != backend.CodeUsage {
@@ -162,6 +171,58 @@ func injectionCases() []Case {
 					e.T.Fatalf("submitting: %v", err)
 				}
 				e.WaitFor(target, "MARK^A")
+			},
+		},
+		{
+			Name: "§4.9 a backend claiming control keys delivers the escape-prefixed keys as their bytes",
+			Fn: func(e *Env) {
+				// The same evidence as above, for the keys that are more than
+				// one byte. Echo is off so what reads back is what cat
+				// received, not the line discipline's echo of it; and CR is
+				// not turned into NL, so m-enter reads back as ^[^M rather
+				// than as an ESC and a line break. The line is ended with
+				// c-j for the same reason.
+				if !e.Backend.Capabilities().ControlKeys {
+					return
+				}
+				target := e.StartShell()
+				e.Warm(target)
+
+				if err := e.Backend.Type(e.Ctx(), target, "stty -echo -icrnl; cat -v"); err != nil {
+					e.T.Fatalf("typing: %v", err)
+				}
+				if err := e.Backend.Submit(e.Ctx(), target); err != nil {
+					e.T.Fatalf("submitting: %v", err)
+				}
+				time.Sleep(e.budgets.Settle)
+
+				for i, c := range []struct {
+					key  backend.Key
+					want string
+				}{
+					{"delete", "^[[3~"},
+					{"s-tab", "^[[Z"},
+					{"c-up", "^[[1;5A"},
+					{"c-down", "^[[1;5B"},
+					{"c-right", "^[[1;5C"},
+					{"c-left", "^[[1;5D"},
+					{"m-a", "^[a"},
+					{"m-enter", "^[^M"},
+				} {
+					mark := fmt.Sprintf("K%dK", i)
+					if err := e.Backend.Type(e.Ctx(), target, mark); err != nil {
+						e.T.Fatalf("typing the marker: %v", err)
+					}
+					if err := e.Backend.Press(e.Ctx(), target, c.key, "c-j"); err != nil {
+						e.T.Fatalf("pressing %q: %v", c.key, err)
+					}
+					// Every key is read back before one is reported, so a
+					// backend that drops one shows which rather than stopping
+					// at the first.
+					if screen, ok := e.screenContains(target, mark+c.want, e.budgets.Screen); !ok {
+						e.T.Errorf("pressing %q: %q never arrived. Screen was:\n%s", c.key, mark+c.want, screen)
+					}
+				}
 			},
 		},
 		{

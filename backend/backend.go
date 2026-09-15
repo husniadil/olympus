@@ -44,6 +44,13 @@ const (
 	KeyCtrlL     Key = "c-l"
 	KeyCtrlU     Key = "c-u"
 	KeyCtrlZ     Key = "c-z"
+	KeyDelete    Key = "delete"
+	KeyShiftTab  Key = "s-tab"
+	KeyCtrlUp    Key = "c-up"
+	KeyCtrlDown  Key = "c-down"
+	KeyCtrlRight Key = "c-right"
+	KeyCtrlLeft  Key = "c-left"
+	KeyMetaEnter Key = "m-enter"
 )
 
 // A CreateSpec is a complete session creation request. Every field is explicit:

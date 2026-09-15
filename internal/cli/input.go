@@ -102,6 +102,9 @@ func (a *App) pressCmd() *cobra.Command {
 		Use:   "press <target> <key>...",
 		Short: "Press named keys",
 		Long: "Press named keys, for example enter, escape, c-c, up." +
+			"\n\nThe names are enter, escape, tab, s-tab, backspace, delete, space, up, down, left, right," +
+			" c-up, c-down, c-left, c-right, home, end, page-up, page-down and m-enter;" +
+			" c-<letter> and m-<letter> for any letter with control or alt held; and f1 to f12." +
 			"\n\nKey names are Olympus's own and are translated per backend, so the same name works everywhere." +
 			scriptsNote,
 		Args: cobra.MinimumNArgs(2),

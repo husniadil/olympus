@@ -19,6 +19,9 @@ func keyName(k backend.Key) (string, bool) {
 		// tmux writes these as C-x, and is case-insensitive about the letter.
 		return "C-" + string(letter), true
 	}
+	if letter := backend.MetaLetter(k); letter != 0 {
+		return "M-" + string(letter), true
+	}
 	if n := backend.FunctionNumber(k); n != 0 {
 		return "F" + strconv.Itoa(n), true
 	}
@@ -48,4 +51,11 @@ var keyNames = map[backend.Key]string{
 	backend.KeyCtrlL:     "C-l",
 	backend.KeyCtrlU:     "C-u",
 	backend.KeyCtrlZ:     "C-z",
+	backend.KeyDelete:    "DC",
+	backend.KeyShiftTab:  "BTab",
+	backend.KeyCtrlUp:    "C-Up",
+	backend.KeyCtrlDown:  "C-Down",
+	backend.KeyCtrlRight: "C-Right",
+	backend.KeyCtrlLeft:  "C-Left",
+	backend.KeyMetaEnter: "M-Enter",
 }

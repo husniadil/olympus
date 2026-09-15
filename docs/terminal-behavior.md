@@ -1256,6 +1256,8 @@ arrived:
 | arrows, home | delivered | **dropped** | delivered |
 | page-up, function keys | delivered | delivered | delivered |
 | backspace, end, page-down | delivered | — | delivered |
+| delete, s-tab, c-up/down/left/right | delivered | — | delivered |
+| m-<letter>, m-enter | delivered | — | delivered |
 
 herdr delivers all of it for a structural reason worth stating, because it also
 decides how the keys are SPELLED. Its text-injection request writes the bytes it
@@ -1266,6 +1268,16 @@ page-up or page-down at all, and spells the control range `ctrl+a` rather than
 `c-a` — so the naming path would have refused four of Olympus's named keys while
 the byte path delivers them.
 
+meja takes tmux's spelling for most keys and delivers the control range, but
+not all of the vocabulary under tmux's names, and the two differences were found
+the same way. Forward delete is `Delete` there; tmux's `DC` is typed as two
+letters. Back-tab has no name meja delivers: `BTab` is typed as four letters,
+and `S-Tab` is parsed and then loses its shift, so the pane reads `^I` where
+`^[[Z` was meant (meja 0.0.26). meja's `send-keys -l` writes its argument to
+the pane unencoded, so back-tab is sent that way as the bytes `ESC [ Z`, and
+arrives. A backend whose key names cannot reach a key MAY spell that key as its
+bytes through such a path, but only where the bytes are measured arriving.
+
 The zmx boundary is irregular and is deliberately NOT specified further: what a
 caller needs is that control keys cannot be relied on there, which the
 `control_keys` capability (§13) reports. Mapping the exact set would invite
@@ -1275,6 +1287,33 @@ The consequence is concrete: an editor opened on zmx can be typed into and read,
 but not saved or exited, because both are control keys. Doors MUST report this
 through the capability rather than by failing the keypress, since the keypress
 itself succeeds.
+
+### 4.10 The key vocabulary is open, in four shapes
+
+A closed list of keys is the obvious design and is wrong: driving a full-screen
+program means pressing whatever it binds, and a caller who cannot spell Ctrl-X
+cannot leave nano. So `press` takes four shapes, and every backend MUST
+translate all four:
+
+- a named key: `enter`, `escape`, `tab`, `s-tab` (back-tab), `backspace`,
+  `delete` (forward delete), `space`, `up`, `down`, `left`, `right`, `c-up`,
+  `c-down`, `c-left`, `c-right`, `home`, `end`, `page-up`, `page-down`,
+  `m-enter`;
+- `c-<letter>` for any ASCII letter with control held;
+- `m-<letter>` for any ASCII letter with alt held;
+- `f1` to `f12`.
+
+A letter's case is a spelling, not a different key. The keys are those a
+terminal sends: `delete` is `ESC [ 3 ~`, `s-tab` is `ESC [ Z`, the control
+arrows are the xterm modified form `ESC [ 1 ; 5 A` to `D`, and alt is a prefix
+rather than a bit, so `m-a` is `ESC a` and `m-enter` is `ESC CR`. A backend that
+spells keys by name uses the multiplexer's own name for the same keypress, and
+where that name does not deliver it, §4.9 applies.
+
+Anything else is `usage`, including what merely looks like a shape: `c-1`,
+`m-1`, `m-ab`, `meta-a`, `c-home`, `f0`, `f13`. Accepting one would mean
+sending nothing and reporting success. Function keys stop at 12 because
+terminals disagree about the encoding above it.
 
 ---
 

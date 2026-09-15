@@ -32,6 +32,9 @@ func keySequence(k backend.Key) (string, bool) {
 	if letter := backend.ControlLetter(k); letter != 0 {
 		return string([]byte{letter - 'a' + 1}), true
 	}
+	if letter := backend.MetaLetter(k); letter != 0 {
+		return string([]byte{0x1b, letter}), true
+	}
 	if n := backend.FunctionNumber(k); n != 0 {
 		return functionSequence(n), true
 	}
@@ -86,4 +89,11 @@ var keySequences = map[backend.Key]string{
 	backend.KeyCtrlL:     "\x0c",
 	backend.KeyCtrlU:     "\x15",
 	backend.KeyCtrlZ:     "\x1a",
+	backend.KeyDelete:    "\x1b[3~",
+	backend.KeyShiftTab:  "\x1b[Z",
+	backend.KeyCtrlUp:    "\x1b[1;5A",
+	backend.KeyCtrlDown:  "\x1b[1;5B",
+	backend.KeyCtrlRight: "\x1b[1;5C",
+	backend.KeyCtrlLeft:  "\x1b[1;5D",
+	backend.KeyMetaEnter: "\x1b\r",
 }
