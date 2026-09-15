@@ -156,6 +156,14 @@ type AttachSpec struct {
 	// a client that keeps its own text selection is not handed the wheel and
 	// the click. Consumed above this interface with BareView.
 	BareNoMouse bool
+	// ClientTag names the client a bare attach launches, instead of a
+	// generated tag, on a server that moves one client's view (§8.10). A
+	// caller that has to ask where its client is (§13.5) needs to know its
+	// name, and an interactive attach has no channel to report one back. It
+	// is CheckClientTag's shape, and usage wherever no tagged client is
+	// launched: any backend but herdr, an attach that is not bare, and a
+	// server that does not move one client's view.
+	ClientTag string
 }
 
 // An Attachment is what to run in order to be attached, not something already

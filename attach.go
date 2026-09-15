@@ -89,6 +89,19 @@ func BareWithoutMouse() AttachOption {
 	return func(s *backend.AttachSpec) { s.BareNoMouse = true }
 }
 
+// BareClientTag names the client a bare attach launches on herdr, rather than
+// letting Olympus generate a tag. A caller that asks where its client is
+// while the attach runs — Clients with WithClientTag — needs its name, and an
+// attach, being interactive, has no channel to report one back. The tag is
+// one to 128 bytes with no control character, and it takes a herdr server
+// that advertises `client_view_focus`, the only one that launches a client
+// with a tag (behavior §8.10). Anything else — another backend, an attach
+// that is not bare, a server without the capability, a malformed tag — is
+// refused as usage before a client exists.
+func BareClientTag(tag string) AttachOption {
+	return func(s *backend.AttachSpec) { s.ClientTag = tag }
+}
+
 // splitBareTarget separates `<session>:<window>` for a bare attach on tmux. The
 // first colon is the split: tmux rewrites a colon out of any session name it is
 // given (measured: `new-session -s a:b` creates `a_b`), so a session name never
@@ -124,6 +137,19 @@ func (s *Session) Attach(ctx context.Context, in, out *os.File, errOut *os.File,
 		// then drives would otherwise drive nothing, silently.
 		return 0, backend.Errorf(backend.CodeUsage,
 			"a view name and mouse setting apply to a bare attach on tmux only, which is the one that creates a view")
+	}
+	if spec.ClientTag != "" {
+		// Only a bare attach on herdr launches a tagged client. Refused
+		// rather than ignored: a caller that then asks where its client is
+		// would look for a name nobody carries. Whether the server can take
+		// one is the backend's to ask.
+		if !spec.Bare || s.ol.Backend() != backend.Herdr {
+			return 0, backend.Errorf(backend.CodeUsage,
+				"a client tag names the client a bare attach launches on herdr; the %s backend launches none here", s.ol.Backend())
+		}
+		if err := backend.CheckClientTag(spec.ClientTag); err != nil {
+			return 0, err
+		}
 	}
 	if spec.Bare {
 		switch s.ol.Backend() {

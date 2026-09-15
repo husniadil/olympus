@@ -72,7 +72,14 @@ type liveClient struct {
 
 func startBare(t *testing.T, b *Herdr, target string) *liveClient {
 	t.Helper()
-	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true, Cols: 120, Rows: 40}
+	return startBareTagged(t, b, target, "")
+}
+
+// startBareTagged is startBare with the client's tag chosen by the caller;
+// an empty tag leaves it to the backend.
+func startBareTagged(t *testing.T, b *Herdr, target, tag string) *liveClient {
+	t.Helper()
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true, Cols: 120, Rows: 40, ClientTag: tag}
 	ctx, cancel := context.WithCancel(context.Background())
 	att, err := b.Attach(ctx, target, spec)
 	if err != nil {
@@ -921,4 +928,99 @@ func TestAPerClientViewAttachAndGoOntoALonePaneLandWhatIsTyped(t *testing.T) {
 	_, _ = c.in.WriteString("echo olympus-on-the-lone-pane\r")
 	waitScreen(t, b, lone[0], "olympus-on-the-lone-pane")
 	goAndType(t, b, c, lone[1], "olympus-onto-the-other-lone-pane", lone[0])
+}
+
+// isolateHome moves HOME and the XDG configuration and state homes into a
+// directory the test owns, so a client or server that reads them never reads
+// or writes the operator's own (§2.9).
+func isolateHome(t *testing.T) {
+	t.Helper()
+	home := shortDir(t)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+}
+
+// waitListed waits for the client carrying a tag to be listed in a way
+// `ok` accepts, and fails with the last listing otherwise.
+func waitListed(t *testing.T, b *Herdr, tag string, ok func(backend.Client) bool) backend.Client {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var rows []backend.Client
+	for time.Now().Before(deadline) {
+		var err error
+		rows, err = b.Clients(context.Background())
+		if err != nil {
+			t.Fatalf("Clients: %v", err)
+		}
+		for _, row := range rows {
+			if row.Tag == tag && ok(row) {
+				return row
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("no client tagged %s was listed as expected; the listing: %+v", tag, rows)
+	return backend.Client{}
+}
+
+// §8.10, §13.5 A caller names its own bare client, and the listing reports
+// which workspace, tab and pane that client shows, including a pane focused
+// on the server after the client came up: the client does not move, the
+// focused pane of the tab it shows does, and the row follows it.
+func TestAClientTaggedByTheCallerIsListedWithThePaneItShows(t *testing.T) {
+	isolateHome(t)
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	created, err := b.Create(ctx, backend.CreateSpec{Name: "split"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	panes, err := b.Panes(ctx, "split")
+	if err != nil || len(panes) != 1 {
+		t.Fatalf("Panes(split) = %v, %v; want one pane", panes, err)
+	}
+	left := panes[0].ID
+	right := splitRight(t, b, left)
+	snap, err := b.snapshot(ctx)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	row, found := snap.paneByID(left)
+	if !found {
+		t.Fatalf("the snapshot has no pane %s", left)
+	}
+	tab := row.TabID
+
+	const tag = "browser-1 of the caller"
+	c := startBareTagged(t, b, "split", tag)
+	if c.tag != tag {
+		t.Fatalf("the client is launched with --client-tag %q, want %q", c.tag, tag)
+	}
+	shown := waitListed(t, b, tag, func(r backend.Client) bool {
+		return r.PaneID == left && r.ViewApplied != nil && *r.ViewApplied
+	})
+	if shown.SessionID != created.ID || shown.WindowID != tab || shown.ID == "" {
+		t.Errorf("the client is listed as %+v, want id set, on %s, %s", shown, created.ID, tab)
+	}
+	if shown.Zoomed == nil || *shown.Zoomed {
+		t.Errorf("the client's tab is listed as zoomed %v, want reported and false", shown.Zoomed)
+	}
+
+	raw(t, b, "pane", "focus", "--pane", left, "--direction", "right")
+	moved := waitListed(t, b, tag, func(r backend.Client) bool { return r.PaneID == right })
+	if moved.SessionID != created.ID || moved.WindowID != tab || moved.ID != shown.ID {
+		t.Errorf("after the pane focus the client is listed as %+v, want client %s still on %s, %s", moved, shown.ID, created.ID, tab)
+	}
+
+	// The same move made the way a person makes it: the client's own
+	// focus-pane-left key, behind the default prefix, spelled the way the
+	// client reads keys once it has asked for the kitty protocol.
+	if _, err := c.in.WriteString("\x1b[98;5u" + "h"); err != nil {
+		t.Fatalf("pressing the client's own pane key: %v", err)
+	}
+	back := waitListed(t, b, tag, func(r backend.Client) bool { return r.PaneID == left })
+	if back.SessionID != created.ID || back.WindowID != tab || back.ID != shown.ID {
+		t.Errorf("after the client's own pane key the client is listed as %+v, want client %s still on %s, %s", back, shown.ID, created.ID, tab)
+	}
 }

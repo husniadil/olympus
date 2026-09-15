@@ -493,6 +493,7 @@ func TestTheToolNamesMatchTheSpecTable(t *testing.T) {
 		"list_servers",
 		"start_server",
 		"stop_server",
+		"list_clients",
 		"list_agents",
 		"list_kinds",
 		"version",

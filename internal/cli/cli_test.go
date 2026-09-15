@@ -669,6 +669,7 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 		{"view", "focus", name, "--col", "0", "--row", "0"},
 		{"server-env", "PATH"},
 		{"status", name},
+		{"clients"},
 	} {
 		got := on(args...)
 		if got.code == 0 {

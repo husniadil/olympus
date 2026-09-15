@@ -248,3 +248,22 @@ func TestResolutionReasonSpellings(t *testing.T) {
 func TestStartedMarshalsToTheSpecShape(t *testing.T) {
 	assertJSON(t, olympus.Started{CommandID: "OLY_S_a1b2"}, `{"command_id":"OLY_S_a1b2"}`)
 }
+
+// §5 "Client row": `{ "id": "7", "tag": "browser-1", "session_id": "w2",
+// "window_id": "w2:t3", "pane_id": "w2:p4", "zoomed": true, "view_applied": true }`.
+func TestClientMarshalsToTheSpecShape(t *testing.T) {
+	yes := true
+	assertJSON(t, backend.Client{ID: "7", Tag: "browser-1", SessionID: "w2", WindowID: "w2:t3", PaneID: "w2:p4", Zoomed: &yes, ViewApplied: &yes},
+		`{"id":"7","tag":"browser-1","session_id":"w2","window_id":"w2:t3","pane_id":"w2:p4","zoomed":true,"view_applied":true}`)
+}
+
+// §5: what the server does not report is omitted, never a fake false or an
+// empty string — `zoomed` and `view_applied` false are answers, and a server
+// that cannot give them must not be read as giving them.
+func TestAClientRowOmitsWhatTheServerDidNotReport(t *testing.T) {
+	no := false
+	assertJSON(t, backend.Client{ID: "4", SessionID: "w5", WindowID: "w5:t1"},
+		`{"id":"4","session_id":"w5","window_id":"w5:t1"}`)
+	assertJSON(t, backend.Client{ID: "4", PaneID: "w5:p1", Zoomed: &no, ViewApplied: &no},
+		`{"id":"4","pane_id":"w5:p1","zoomed":false,"view_applied":false}`)
+}

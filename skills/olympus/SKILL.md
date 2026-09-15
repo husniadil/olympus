@@ -85,18 +85,18 @@ From inside: `olympus self` says which session this process is in, and `olympus 
 
 ### Hand the terminal to the user
 
-`olympus attach <name>` gives the user the live session. Do not call it from automation; it needs a terminal and returns the multiplexer client's exit code, not the session's. On tmux, `attach <name>:<window> --bare` shows one window as a plain pane through a throwaway view, without moving the session's other clients; `view create <name> --window <w>` makes the same view and keeps it.
+`olympus attach <name>` gives the user the live session. Do not call it from automation; it needs a terminal and returns the multiplexer client's exit code, not the session's. On a herdr server that advertises `client_view_focus`, `attach <target> --bare --client-tag <tag>` names the client, and `olympus clients --tag <tag> --json` then says which workspace (`session_id`), tab (`window_id`) and pane (`pane_id`) it shows, including a pane the user focused with the client's own keys; `olympus clients` lists every client. Elsewhere `clients` exits 7 (unsupported). On tmux, `attach <name>:<window> --bare` shows one window as a plain pane through a throwaway view, without moving the session's other clients; `view create <name> --window <w>` makes the same view and keeps it.
 
 ## MCP
 
-If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 31 of them:
+If `olympus mcp` is configured as an MCP server, the tools are the same operations under the same names with underscores. All 34 of them:
 
 - Sessions: `start_session`, `new_session`, `list_sessions`, `session_info`, `session_status`, `focus_session`, `rename_session`, `stop_session`, `self`, `list_panes`
 - Input: `type_text`, `send_text`, `press_keys`, `paste_text`
 - Reading: `screen`, `wait_for`
 - Running: `run_command`, `start_run`, `poll_run`, `exit_status`
 - Views: `create_view`, `scroll_view`, `focus_view`, `list_views`
-- Servers: `list_servers`, `stop_server` (select one by name with `OLYMPUS_SERVER`)
+- Servers: `list_servers`, `start_server`, `stop_server` (select one by name with `OLYMPUS_SERVER`), `list_clients` (what each client on the server shows)
 - Agents: `list_agents`, `list_kinds` (the vocabulary the names come from)
 - Diagnostics: `server_env`, `capabilities`, `doctor`, `version`
 

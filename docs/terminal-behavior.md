@@ -2249,7 +2249,7 @@ configuration is steered as before):
 | step | what runs |
 |---|---|
 | build | the zoom steps of the table above, and nothing else on the server: no `workspace focus`, no `tab focus`, no walk lock |
-| spawn | the client with `--workspace <ws> --client-tag olympus-client-<16 hex>` (§17.1), a tag drawn per attach |
+| spawn | the client with `--workspace <ws> --client-tag <tag>`: the caller's tag where the attach names one (§13.5), else `olympus-client-<16 hex>` (§17.1), a tag drawn per attach |
 | settle | wait for the tag in `client.list`; the zoom steps of the table above; then, if the client is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id`; then the confirmation below — the server's acknowledgement where it reports one, the client's frame where it does not |
 | go | resolve the target; the same as settle, from where `client.list` has the client |
 | probe | `client.list` for the tag, then the presence of the target the backend last put the client on |
@@ -3164,6 +3164,61 @@ A backend whose server has no independent existence answers unsupported: tmux
 and zmx come up with their first session and have nothing to start on their
 own.
 
+### 13.5 Which client shows what is the server's to report
+
+A caller holding one client per person — a web terminal with one bare attach
+per browser — has to answer "which session, window and pane is this person's
+client showing now". It cannot answer from what it asked for: a person moves
+the client with its own keys (a pane focused inside a split, a zoom), and on a
+server whose clients each keep their own view nothing else holds the answer.
+So the listing is the SERVER'S report, read when asked, and Olympus MUST NOT
+answer it from the targets its own attaches were given, which describe where a
+client was put, not where it is.
+
+The listing, `clients`, is one row per client the server reports, in the
+server's order: its `id`, its `tag` where it was launched with one, the
+`session_id`, `window_id` and `pane_id` it shows (the focused pane of the
+window it shows, which is where what it sends goes), `zoomed` (that window
+shows the pane alone) and `view_applied` (the client has applied the view the
+server holds for it, so what it sends now reaches that pane). A field the
+server does not report MUST be omitted, never answered false or empty:
+`zoomed: false` and `view_applied: false` are answers, and a server that
+cannot give them must not be read as giving them.
+
+On herdr a session is a workspace and a window is a tab (§3.6), and only a
+server that advertises `client_view_focus` reports where each client is, over
+`client.list` (§8.10). Its rows carry `pane_id` and `zoomed` only where it also
+advertises `client_view_ack`, and `view_applied` only for a client there whose
+row says `snapshot_acks: true`. Measured against such a server: a bare client
+launched onto a split tab is listed on the tab's focused pane, and after a
+`pane focus` on the server moves that tab's focus to the other pane, the same
+client is listed on the other pane, on the same workspace and tab; and after
+the client's own focus-pane key (the prefix, then `h`, written to the client
+in the kitty spelling it reads keys in) it is listed back on the first. A server
+that does not advertise the capability cannot say, and the listing is
+UNSUPPORTED there, as it is on every other backend: an empty list would claim
+there are no clients. No server running is an empty list (§3.3).
+
+The capability is asked, never inferred from the version, and it is not a
+field of `capabilities` (§13): those are static facts of a backend, and this is
+a fact of one running server, which two servers on one backend answer
+differently. The listing itself is the probe.
+
+A tag filter answers the one client carrying it, as a listing of one, and a
+tag no client carries is SESSION_NOT_FOUND: a caller asking where its own
+client is must tell "not there" from "there". A tag is what the server holds
+it to — one to 128 bytes of UTF-8 with no control character — and one outside
+that is USAGE before the server is asked (§12).
+
+A caller names its client with the attach's client tag (`--client-tag`,
+§8.10), since an interactive attach has no channel to report a generated name
+back. The tag MUST be refused as USAGE wherever no tagged client is launched —
+any backend but herdr, an attach that is not bare, and a herdr server that does
+not advertise `client_view_focus` — rather than dropped, because a caller that
+then asks where its client is would look for a name nobody carries. herdr does
+not hold tags unique, so two attaches given one tag are two clients the filter
+cannot tell apart; which tag is whose is the caller's to keep.
+
 ## 14. Exit-marker inspection
 
 Parsing a caller-supplied completion echo out of a session that outlives its
@@ -3445,7 +3500,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
 | attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
-| herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view (§8.10) |
+| herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view, where the caller names no tag of its own (§8.10, §13.5) |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 
 The view-session prefix is load-bearing beyond cosmetics: enumerating views (§9.5)

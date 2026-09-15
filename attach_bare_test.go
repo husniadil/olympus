@@ -221,3 +221,30 @@ func TestABareAttachOnTmuxOpensAViewPinnedToTheWindow(t *testing.T) {
 		t.Errorf("a refused bare attach left a view behind: %+v", views)
 	}
 }
+
+// §8.10, §13.5 A client tag names the client a bare attach launches on herdr,
+// and nothing else launches a tagged client: another backend, an attach that
+// is not bare, and a tag herdr would refuse are each usage, refused before
+// anything runs, rather than a tag a caller then looks for and never finds.
+func TestAClientTagIsUsageOutsideABareHerdrAttach(t *testing.T) {
+	cases := []struct {
+		name string
+		be   backend.Name
+		opts []AttachOption
+	}{
+		{"bare on tmux", backend.Tmux, []AttachOption{AsBare(), BareClientTag("mine")}},
+		{"plain on tmux", backend.Tmux, []AttachOption{BareClientTag("mine")}},
+		{"bare on zmx", backend.Zmx, []AttachOption{AsBare(), BareClientTag("mine")}},
+		{"session client on herdr", backend.Herdr, []AttachOption{WithSessionClient(), BareClientTag("mine")}},
+		{"plain on herdr", backend.Herdr, []AttachOption{BareClientTag("mine")}},
+		{"a control character on herdr", backend.Herdr, []AttachOption{AsBare(), BareClientTag("a\x1bb")}},
+		{"129 bytes on herdr", backend.Herdr, []AttachOption{AsBare(), BareClientTag(strings.Repeat("t", 129))}},
+	}
+	for _, c := range cases {
+		ol := fakeOlympus(&fakeBackend{caps: backend.Capabilities{Backend: c.be}})
+		_, err := ol.OpenSessionName("whatever").Attach(context.Background(), nil, nil, nil, c.opts...)
+		if backend.CodeOf(err) != backend.CodeUsage {
+			t.Errorf("%s: %q, want %q (err %v)", c.name, backend.CodeOf(err), backend.CodeUsage, err)
+		}
+	}
+}

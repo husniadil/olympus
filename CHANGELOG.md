@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`clients` lists the clients on a server and what each shows.** One row
+  per client: `id`, `tag`, and the `session_id`, `window_id` and `pane_id` it
+  is on (on herdr a workspace, a tab and that tab's focused pane), with
+  `zoomed` and `view_applied` where the server reports them and omitted where
+  it does not. It answers which workspace, tab and pane a person's client
+  shows now, including a pane they focused with the client's own keys.
+  `--tag <tag>` narrows it to one client, and no client carrying the tag is
+  `SESSION_NOT_FOUND`. Only a herdr server that advertises
+  `client_view_focus` can say; every other backend and server is
+  `UNSUPPORTED`. The MCP tool is `list_clients` (`tag`), the Go method
+  `Olympus.Clients` with `WithClientTag`. API §1, §5; behavior spec §13.5.
+- **`attach --bare --client-tag <tag>` launches the client with the caller's
+  tag.** On a herdr server that advertises `client_view_focus`, a bare client
+  was always launched with a tag Olympus drew, which an interactive attach
+  has no way to report back; now a caller can name it and find it with
+  `clients --tag`. The tag is 1 to 128 bytes with no control characters.
+  It is refused as `USAGE` without `--bare`, on any other backend, and on a
+  herdr server without `client_view_focus`, rather than dropped. Go:
+  `BareClientTag`. API §1; behavior spec §8.10, §13.5, §17.1.
+
 ## [0.25.0]
 
 ### Added

@@ -53,6 +53,7 @@ same operation.
 | list servers | `servers` | `list_servers` | `Servers` |
 | start a server | `servers start` | `start_server` | `StartServer` |
 | stop a server | `servers stop` | `stop_server` | `StopServer` |
+| list the clients on a server, and what each shows | `clients` | `list_clients` | `Clients` |
 | list agents in panes | `agents` | `list_agents` | `Agents` |
 | list the agent vocabulary | `kinds` | `list_kinds` | `Kinds` (a package-level function) |
 | what this backend can do | `capabilities` | `capabilities` | `Capabilities` |
@@ -87,6 +88,7 @@ ignored (behavior spec §8.7, §8.9):
 | `--client` | `WithSessionClient` | the multiplexer's own session client (sidebar, tabs, selection, scroll, copy), steered onto the target first: a workspace is focused, a tab is focused within it, a pane is zoomed within its tab (§8.10). With `--server` it attaches that named session; otherwise the server on the resolved socket | herdr only |
 | `--bare` | `AsBare` | a plain pane, no chrome: herdr's session client with its chrome hidden (implies `--client`), or on tmux a throwaway view onto the session, killed when the attach ends; target may be `<session>:<window>`. On a herdr server that advertises `client_view_focus` the client is launched onto the target's workspace and moved by a tag of its own, and the server's focus is not steered (§8.10) | herdr, tmux |
 | `--view` | `BareViewName` | with `--bare` on tmux, the view's name — it must begin with `olympus-view-` (§17.1) — so a caller can `view scroll` and `view focus` it while attached; an attach has no channel to report a generated name back | tmux; usage elsewhere |
+| `--client-tag` | `BareClientTag` | with `--bare` on a herdr server that advertises `client_view_focus`, the tag the client is launched with instead of a generated one — 1 to 128 bytes, no control characters — so a caller can find it with `clients --tag` while attached (§5 "Client row", behavior §13.5); an attach has no channel to report a generated tag back | herdr; usage elsewhere, without `--bare`, and on a herdr server without `client_view_focus` |
 | `--no-mouse` | `BareWithoutMouse` | with `--bare` on tmux, create the view without mouse reporting, for a client that keeps its own selection and scrolls through `view scroll` | tmux; usage elsewhere |
 | `--cols`, `--rows` | `AttachSize` | initial size when stdin is not a terminal | all |
 
@@ -119,7 +121,7 @@ requires it, because the server it would take down without one is a guess.
 
 Every operation addressing a session takes it as the first positional argument.
 No operation takes the target as a flag. Operations addressing nothing (`ls`,
-`kinds`, `doctor`, `version`, `mcp`) take no positional.
+`clients`, `kinds`, `doctor`, `version`, `mcp`) take no positional.
 
 Session names are ordinary positionals, so no verb name is reserved as a session
 name — see §1.1.
@@ -611,6 +613,41 @@ that session was running (behavior §13.4).
 ```
 
 `outcome` is `gone` (it was not running) or `killed`; both are successes.
+
+**Client row** (`clients`):
+
+```json
+{ "id": "7", "tag": "browser-1", "session_id": "w2", "window_id": "w2:t3",
+  "pane_id": "w2:p4", "zoomed": true, "view_applied": true }
+```
+
+One row per client attached to the server, in the server's order: which
+session, window and pane each client shows right now, including a pane a
+person focused with the client's own keys (behavior §13.5). `id` is the
+server's own number for the client, as a string. `tag` is the name it was
+launched with — the caller's own, from `attach --bare --client-tag`, or the
+`olympus-client-<16 hex>` a bare attach draws otherwise — and is omitted for a
+client launched with none. On herdr `session_id` is the workspace, `window_id`
+the tab and `pane_id` the focused pane of that tab, which is where what the
+client sends goes; each is a target every other verb takes. `zoomed` is
+whether that tab shows the pane alone, and `view_applied` whether the client
+has applied the view the server holds for it, so that what it sends now
+reaches `pane_id`.
+
+A field the server does not report is omitted, never false or empty: `pane_id`
+and `zoomed` come only from a herdr server that also advertises
+`client_view_ack`, and `view_applied` only for a client there that
+acknowledges what it applies. The ids are omitted for a client that has no
+view yet.
+
+`clients` takes `--tag <tag>`, `list_clients` takes `tag`, and Go takes
+`WithClientTag`: the listing narrowed to the one client carrying it, still an
+array. No client carrying it is `SESSION_NOT_FOUND`; a tag outside 1 to 128
+bytes or carrying a control character is `USAGE`. Only a herdr server that
+advertises `client_view_focus` can say where each client is, and every other
+backend and server is `UNSUPPORTED`, not `[]`. It is not a field of
+`capabilities`, which reports static facts of a backend rather than of one
+running server: the listing is the probe. No server running is `[]`.
 
 **Agent row** (`agents`):
 

@@ -437,3 +437,121 @@ func TestTheAcknowledgedViewMustShowTheTarget(t *testing.T) {
 		}
 	}
 }
+
+// §13.5 Every client `client.list` reports becomes a row, in the server's
+// order, in Olympus's names: a workspace is a session, a tab a window. Where
+// the server reports when a client has applied its view, a row carries the
+// pane, the zoom and, for a client that acknowledges snapshots, whether the
+// view is applied; where it does not, those are omitted rather than false,
+// since false would claim an answer the server never gave.
+func TestTheClientListIsReadIntoRows(t *testing.T) {
+	t.Parallel()
+	const list = `{"type":"client_list","clients":[` +
+		`{"client_id":1,"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","zoomed":false,"snapshot_acks":false,"view_applied":false},` +
+		`{"client_id":7,"client_tag":"browser-1","workspace_id":"w2","tab_id":"w2:t3","pane_id":"w2:p4","zoomed":true,"snapshot_acks":true,"revision":9,"view_revision":8,"applied_revision":9,"view_applied":true},` +
+		`{"client_id":9,"client_tag":"early","snapshot_acks":true,"view_applied":false}]}`
+	yes, no := true, false
+
+	acked, err := clientsOf(json.RawMessage(list), true)
+	if err != nil {
+		t.Fatalf("clientsOf: %v", err)
+	}
+	want := []backend.Client{
+		{ID: "1", SessionID: "w1", WindowID: "w1:t1", PaneID: "w1:p1", Zoomed: &no},
+		{ID: "7", Tag: "browser-1", SessionID: "w2", WindowID: "w2:t3", PaneID: "w2:p4", Zoomed: &yes, ViewApplied: &yes},
+		{ID: "9", Tag: "early", ViewApplied: &no},
+	}
+	assertClients(t, "with client_view_ack", acked, want)
+
+	const focusOnly = `{"type":"client_list","clients":[{"client_id":4,"client_tag":"t","workspace_id":"w5","tab_id":"w5:t1"}]}`
+	plain, err := clientsOf(json.RawMessage(focusOnly), false)
+	if err != nil {
+		t.Fatalf("clientsOf: %v", err)
+	}
+	assertClients(t, "without client_view_ack", plain, []backend.Client{{ID: "4", Tag: "t", SessionID: "w5", WindowID: "w5:t1"}})
+
+	empty, err := clientsOf(json.RawMessage(`{"type":"client_list","clients":[]}`), true)
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Errorf("an empty client list is %#v, %v; want an empty, non-nil slice", empty, err)
+	}
+	if _, err := clientsOf(json.RawMessage(`{"clients":"nope"}`), true); backend.CodeOf(err) != backend.CodeUnexpected {
+		t.Errorf("an unreadable client list is %q, want %q", backend.CodeOf(err), backend.CodeUnexpected)
+	}
+}
+
+func assertClients(t *testing.T, name string, got, want []backend.Client) {
+	t.Helper()
+	g, _ := json.Marshal(got)
+	w, _ := json.Marshal(want)
+	if string(g) != string(w) {
+		t.Errorf("%s: the rows are\n\t%s\nwant\n\t%s", name, g, w)
+	}
+}
+
+// §13.5 The listing is the server's: a server that advertises
+// `client_view_focus` is asked `client.list`; one that does not cannot say
+// which client shows what, and is UNSUPPORTED rather than an empty list, which
+// would claim there are no clients.
+func TestClientsAreListedOnlyWhereTheServerAdvertisesThem(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	const client = `{"client_id":2,"client_tag":"mine","workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p2","zoomed":false,"snapshot_acks":true,"view_applied":true}`
+
+	v := newViewServer(t, ackingPong, client, nil, nil)
+	rows, err := New(WithSocketPath(v.api.path)).Clients(ctx)
+	if err != nil || len(rows) != 1 || rows[0].Tag != "mine" || rows[0].PaneID != "w1:p2" || rows[0].ViewApplied == nil || !*rows[0].ViewApplied {
+		t.Errorf("Clients on an advertising server = %+v, %v; want the one tagged client on w1:p2, applied", rows, err)
+	}
+
+	plain := newViewServer(t, `{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"health_check":true}}`, client, nil, nil)
+	_, err = New(WithSocketPath(plain.api.path)).Clients(ctx)
+	if backend.CodeOf(err) != backend.CodeUnsupported {
+		t.Errorf("Clients on a server without client_view_focus is %q (%v), want %q", backend.CodeOf(err), err, backend.CodeUnsupported)
+	}
+	if n := plain.api.counts["client.list"].Load(); n != 0 {
+		t.Errorf("a server without the capability was asked client.list %d times", n)
+	}
+}
+
+// §3.3, §12.3 No server running is an empty listing, not an error: there is
+// no client to find, and nothing went wrong asking.
+func TestClientsWithNoServerRunningIsAnEmptyList(t *testing.T) {
+	t.Parallel()
+	rows, err := New(WithSocketPath(filepath.Join(shortDir(t), "none.sock"))).Clients(context.Background())
+	if err != nil || rows == nil || len(rows) != 0 {
+		t.Errorf("Clients with no server = %#v, %v; want an empty, non-nil list", rows, err)
+	}
+}
+
+// §8.10, §13.5 A caller-chosen client tag is refused as usage wherever it
+// cannot name the client: a tag herdr would refuse, an attach that is not
+// bare (the only one launched with a tag), and a server that does not
+// advertise `client_view_focus`, which launches no client with a tag at all.
+// Each is refused before the target is resolved and before anything runs, so
+// a fake socket with no CLI behind it is enough to answer.
+func TestACallerClientTagIsUsageWhereItCannotNameTheClient(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	bare := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true, ClientTag: "mine"}
+
+	plain := newViewServer(t, `{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{}}`, ``, nil, nil)
+	if _, err := New(WithSocketPath(plain.api.path)).Attach(ctx, "w1", bare); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("a client tag on a server without client_view_focus is %q (%v), want %q", backend.CodeOf(err), err, backend.CodeUsage)
+	}
+
+	v := newViewServer(t, ackingPong, ``, nil, nil)
+	b := New(WithSocketPath(v.api.path))
+	invalid := bare
+	invalid.ClientTag = "line\nbreak"
+	if _, err := b.Attach(ctx, "w1", invalid); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("a client tag with a control character is %q (%v), want %q", backend.CodeOf(err), err, backend.CodeUsage)
+	}
+	for _, spec := range []backend.AttachSpec{
+		{Role: backend.RoleController, Supersede: true, SessionClient: true, ClientTag: "mine"},
+		{Role: backend.RoleController, Supersede: true, ClientTag: "mine"},
+	} {
+		if _, err := b.Attach(ctx, "w1", spec); backend.CodeOf(err) != backend.CodeUsage {
+			t.Errorf("a client tag on an attach that is not bare (%+v) is %q (%v), want %q", spec, backend.CodeOf(err), err, backend.CodeUsage)
+		}
+	}
+}

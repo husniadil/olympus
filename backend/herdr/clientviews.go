@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
@@ -215,4 +217,70 @@ func (h *Herdr) taggedClient(ctx context.Context, tag string) (clientRow, bool, 
 		return clientRow{}, false, err
 	}
 	return findClient(result, tag)
+}
+
+// Clients lists the clients attached to this backend's server, and what each
+// shows (§13.5). Only a server that advertises `client_view_focus` reports
+// per client where it is; one that does not is unsupported, since an empty
+// list would claim it has no clients. No server running is an empty list
+// (§3.3): there is nothing to find, and nothing went wrong asking.
+func (h *Herdr) Clients(ctx context.Context) ([]backend.Client, error) {
+	caps, err := h.capabilities(ctx)
+	if err != nil {
+		if noServerAt(err) {
+			return []backend.Client{}, nil
+		}
+		return nil, err
+	}
+	if !caps.viewFocus {
+		return nil, backend.Errorf(backend.CodeUnsupported,
+			"this herdr server does not advertise client_view_focus, so it cannot say which client shows what")
+	}
+	result, err := h.call(ctx, "client.list", struct{}{})
+	if err != nil {
+		if noServerAt(err) {
+			return []backend.Client{}, nil
+		}
+		return nil, err
+	}
+	return clientsOf(result, caps.viewAck)
+}
+
+// noServerAt reports whether a request failed because nothing is listening
+// on the socket: no socket file, or one a stopped server left behind.
+func noServerAt(err error) bool {
+	return errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)
+}
+
+// clientsOf reads a `client.list` result into rows. The pane and the zoom are
+// reported only by a server with `client_view_ack`, and whether the view is
+// applied only for a client there that acknowledges what it applies;
+// elsewhere they are left unset rather than read as false.
+func clientsOf(result json.RawMessage, viewAck bool) ([]backend.Client, error) {
+	var list struct {
+		Clients []clientRow `json:"clients"`
+	}
+	if err := json.Unmarshal(result, &list); err != nil {
+		return nil, backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr client list")
+	}
+	rows := make([]backend.Client, 0, len(list.Clients))
+	for _, c := range list.Clients {
+		row := backend.Client{
+			ID:        strconv.FormatUint(c.ClientID, 10),
+			Tag:       c.ClientTag,
+			SessionID: c.WorkspaceID,
+			WindowID:  c.TabID,
+			PaneID:    c.PaneID,
+		}
+		if viewAck && c.PaneID != "" {
+			zoomed := c.Zoomed
+			row.Zoomed = &zoomed
+		}
+		if viewAck && c.SnapshotAcks {
+			applied := c.ViewApplied
+			row.ViewApplied = &applied
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }

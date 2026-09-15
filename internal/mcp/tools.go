@@ -44,6 +44,7 @@ var ToolNames = []string{
 	"list_servers",
 	"start_server",
 	"stop_server",
+	"list_clients",
 	"list_agents",
 	"list_kinds",
 	"capabilities",
@@ -251,6 +252,10 @@ type envParams struct {
 }
 
 type emptyParams struct{}
+
+type clientsParams struct {
+	Tag string `json:"tag,omitempty" jsonschema:"only the client carrying this tag, the one a bare attach was given with --client-tag; not found when no client carries it"`
+}
 
 type agentsParams struct {
 	Last bool `json:"last,omitempty" jsonschema:"also read the one line each agent last said (or the question a blocked one waits on); costs one capture per row"`
@@ -638,6 +643,19 @@ func register(s *sdk.Server) {
 		func(ctx context.Context, ol *olympus.Olympus, in serverParams) (olympus.StoppedServer, []olympus.Warning, error) {
 			stopped, err := ol.StopServer(ctx, in.Name)
 			return stopped, nil, err
+		})
+
+	addTool(s, "list_clients", "List the clients attached to the server and what each shows: its id and tag, the session, window and pane it is on (on herdr a workspace, a tab and a pane, each a target), whether that window is zoomed, and whether the client has applied its view. It answers which workspace, tab and pane a person's client is on right now, including a pane they focused with the client's own keys. Give tag for the one client carrying it; none carrying it is SESSION_NOT_FOUND. Only a herdr server that advertises client_view_focus reports this; every other backend and server is UNSUPPORTED. zoomed and view_applied are omitted where the server does not report them.",
+		func(ctx context.Context, ol *olympus.Olympus, in clientsParams) ([]backend.Client, []olympus.Warning, error) {
+			var opts []olympus.ClientsOption
+			if in.Tag != "" {
+				opts = append(opts, olympus.WithClientTag(in.Tag))
+			}
+			clients, err := ol.Clients(ctx, opts...)
+			if clients == nil {
+				clients = []backend.Client{}
+			}
+			return clients, nil, err
 		})
 
 	addTool(s, "list_agents", "List the coding agents running in panes: which pane, which agent, its status (working, idle, blocked) and its title where the backend detects agents itself. Every backend answers; a row found by command has its status read off the pane's screen (status_source: screen), and a screen no rule recognises is unknown. Ask for last to also get the line each agent said, which is what tells you WHAT a blocked one is waiting on.",

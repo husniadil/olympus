@@ -115,6 +115,20 @@ func (h *Herdr) Attach(ctx context.Context, target string, spec backend.AttachSp
 			"herdr has no read-only terminal client, so a viewer attach cannot be made passive")
 	}
 
+	// A tag names the client a bare attach launches on a server that moves
+	// one client's view, and no other attach launches a tagged client, so
+	// one given anywhere else is refused rather than dropped: a caller that
+	// then asks where its client is would look for a name nobody carries.
+	if spec.ClientTag != "" {
+		if err := backend.CheckClientTag(spec.ClientTag); err != nil {
+			return backend.Attachment{}, err
+		}
+		if !spec.Bare {
+			return backend.Attachment{}, backend.Errorf(backend.CodeUsage,
+				"a client tag names the client a bare attach launches; this attach is not bare")
+		}
+	}
+
 	if spec.SessionClient {
 		return h.attachSessionClient(ctx, target, spec)
 	}
@@ -181,6 +195,18 @@ func (h *Herdr) Attach(ctx context.Context, target string, spec backend.AttachSp
 // viewer attach is already refused above; an explicit opt-out of supersession
 // is reported as unhonored rather than silently dropped.
 func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec backend.AttachSpec) (backend.Attachment, error) {
+	// Asked before the target is resolved, so a tag this server can never
+	// launch a client with is usage whatever the target is.
+	if spec.ClientTag != "" {
+		views, err := h.clientViews(ctx)
+		if err != nil {
+			return backend.Attachment{}, err
+		}
+		if !views {
+			return backend.Attachment{}, backend.Errorf(backend.CodeUsage,
+				"a client tag needs a herdr server that advertises client_view_focus; this one launches no client with a tag")
+		}
+	}
 	r, err := h.resolve(ctx, target)
 	if err != nil {
 		return backend.Attachment{}, err
@@ -308,8 +334,9 @@ func (h *Herdr) sessionClientCommand(ctx context.Context, args ...string) (*exec
 // attachClientView runs a bare client on a server that moves one client's
 // view (`client_view_focus`, §8.10). The client is launched onto the
 // target's workspace with `--workspace`, which moves neither the server's
-// focus nor any other client, and named with `--client-tag`, a tag of its
-// own; from then on it is addressed by that tag and nothing else.
+// focus nor any other client, and named with `--client-tag`: the caller's
+// tag where the spec carries one, a tag of its own otherwise. From then on
+// it is addressed by that tag and nothing else.
 //
 // No key is pressed and no title is waited for, and no walk lock is taken:
 // nothing here reads the server's focus, so there is nothing for another
@@ -320,9 +347,12 @@ func (h *Herdr) sessionClientCommand(ctx context.Context, args ...string) (*exec
 // target's tab where the target names one; a go zooms and moves it the same
 // way, and the probe reads where `client.list` has it.
 func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.AttachSpec) (backend.Attachment, error) {
-	tag, err := newClientTag()
-	if err != nil {
-		return backend.Attachment{}, err
+	tag := spec.ClientTag
+	if tag == "" {
+		var err error
+		if tag, err = newClientTag(); err != nil {
+			return backend.Attachment{}, err
+		}
 	}
 	if _, _, err := h.zoomSteps(ctx, r); err != nil {
 		return backend.Attachment{}, err
