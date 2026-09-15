@@ -907,6 +907,69 @@ func TestAPerClientViewGoOnAnAckingServerReturnsOnceTheViewIsApplied(t *testing.
 	}
 }
 
+// §8.10 A focus puts the client on a pane's tab with that pane focused and the
+// tab not zoomed, moving no other client, and leaves the client on the tab.
+func TestAPerClientViewFocusFocusesAPaneUnzoomedOnItsTab(t *testing.T) {
+	b := requireClientViewHerdr(t)
+	ctx := context.Background()
+	if caps, err := b.capabilities(ctx); err != nil || !caps.viewPane {
+		t.Skipf("the server does not advertise client_view_pane (%+v, %v), so the pane focus is not being run", caps, err)
+	}
+	for _, name := range []string{"first", "second"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	second, err := b.resolve(ctx, "second")
+	if err != nil {
+		t.Fatalf("resolve(second): %v", err)
+	}
+	left := second.pane.PaneID
+	right := splitRight(t, b, left)
+
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true, Cols: 120, Rows: 40}
+	att, err := b.Attach(ctx, "first", spec)
+	if err != nil {
+		t.Fatalf("bare Attach(first): %v", err)
+	}
+	inR, inW, _ := os.Pipe()
+	outR, outW, _ := os.Pipe()
+	defer func() { _ = inW.Close(); _ = inR.Close(); _ = outW.Close(); _ = outR.Close() }()
+	go func() { _, _ = io.Copy(io.Discard, outR) }()
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = engine.Attach(runCtx, att, engine.AttachIO{In: inR, Out: outW, Err: io.Discard}, spec, nil)
+	}()
+	defer func() { cancel(); <-done }()
+	tag := flagValue(att.Cmd.Args, "--client-tag")
+	_, _ = inW.WriteString("echo olympus-settled\r")
+	waitScreen(t, b, "first", "olympus-settled")
+
+	// A go onto the right pane zooms it, which the focus must take off.
+	if err := att.Go(ctx, right, io.Discard, func([]byte) func(time.Duration) bool {
+		return func(time.Duration) bool { return true }
+	}); err != nil {
+		t.Fatalf("Go(%s): %v", right, err)
+	}
+	if err := att.Focus(ctx, left, io.Discard, func([]byte) func(time.Duration) bool {
+		return func(time.Duration) bool { return true }
+	}); err != nil {
+		t.Fatalf("Focus(%s): %v", left, err)
+	}
+	row, ok, err := b.taggedClient(ctx, tag)
+	if err != nil || !ok {
+		t.Fatalf("client.list after Focus: %+v, %v, %v", row, ok, err)
+	}
+	if row.TabID != second.tab.TabID || row.PaneID != left || row.Zoomed {
+		t.Errorf("after Focus(%s) the client is %+v, want on %s with %s focused and not zoomed", left, row, second.tab.TabID, left)
+	}
+	if err := att.Focus(ctx, second.tab.TabID, io.Discard, nil); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("a focus onto a tab answered %v, want %s", err, backend.CodeUsage)
+	}
+}
+
 // §8.10 A bare attach onto the only pane of a workspace, and a go onto the
 // only pane of another, land what is typed: the zoom steps run for a lone
 // pane too, and the confirmation takes the view the server reports for it.

@@ -383,6 +383,13 @@ func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.A
 			}
 			return h.showOnClient(ctx, tag, to, at, expect)
 		},
+		Focus: func(ctx context.Context, target string, _ io.Writer, expect backend.Expect) error {
+			to, err := h.resolve(ctx, target)
+			if err != nil {
+				return err
+			}
+			return h.focusOnClient(ctx, tag, to, at, expect)
+		},
 	}
 	if !spec.Supersede {
 		att.Notices = append(att.Notices, keepOthersNotice)
@@ -555,6 +562,93 @@ func (h *Herdr) showOnAckingClient(ctx context.Context, tag string, to resolved,
 			c.WorkspaceID, c.TabID, c.PaneID, c.Zoomed, c.ViewApplied, to.id())
 	}
 	at.set(to)
+	return nil
+}
+
+// focusOnClient focuses a pane for the tagged client as a click on it would:
+// the client is put on the pane's tab, the tab is not zoomed, and the pane is
+// the tab's focused one (§8.10). It needs a server with `client_view_pane`,
+// since the pane is focused by the same `client.view.focus` that moves the
+// client: the server's own `pane focus` moves the server's focus, which is
+// every other client's too.
+//
+// A zoom left on the tab is taken off first, on the server, for the reason the
+// zoom steps run before a go's move: the zoom is the tab's state, and the view
+// the client is waited for must be built from a tab already unzoomed. The
+// client is then waited for the way a go waits for it: its acknowledgement
+// where it gives one, else the end of the frame the move paints.
+//
+// Afterwards the client is on the TAB, not the pane: the probe reads that tab,
+// so closing the pane leaves the attach on the tab it was on.
+func (h *Herdr) focusOnClient(ctx context.Context, tag string, to resolved, at *bareClient, expect backend.Expect) error {
+	if to.kind != kindPane || to.pane.PaneID == "" {
+		return backend.Errorf(backend.CodeUsage, "focus takes a pane, not %s", to.id())
+	}
+	caps, err := h.capabilities(ctx)
+	if err != nil {
+		return err
+	}
+	if !caps.viewPane {
+		return backend.Errorf(backend.CodeUnsupported, "this herdr server does not focus a pane for one client (client_view_pane)")
+	}
+	row, err := h.waitForClient(ctx, tag)
+	if err != nil {
+		return err
+	}
+	if to.zoomed {
+		if _, err := h.run(ctx, "pane", "zoom", "--pane", to.pane.PaneID, "--off"); err != nil {
+			return err
+		}
+	}
+	acking := caps.viewAck && row.SnapshotAcks
+	params := map[string]any{
+		"client_tag":   tag,
+		"workspace_id": to.workspace.WorkspaceID,
+		"tab_id":       to.tab.TabID,
+		"pane_id":      to.pane.PaneID,
+	}
+	var painted func(time.Duration) bool
+	if acking {
+		params["wait"] = true
+		params["timeout_ms"] = viewAckWait.Milliseconds()
+	} else {
+		painted = expect([]byte(frameEnd))
+	}
+	callCtx, cancel := context.WithTimeout(ctx, viewAckWait+apiCallBudget)
+	defer cancel()
+	result, err := h.call(callCtx, "client.view.focus", params)
+	if backend.CodeOf(err) == backend.CodeTimeout {
+		return backend.Wrapf(backend.CodeTimeout, err, "the herdr client tagged %s did not apply its view of %s within %s", tag, to.id(), viewAckWait)
+	}
+	if err != nil {
+		return err
+	}
+	var answer struct {
+		Client clientRow `json:"client"`
+	}
+	if err := json.Unmarshal(result, &answer); err != nil {
+		return backend.Wrapf(backend.CodeUnexpected, err, "reading the herdr answer to client.view.focus")
+	}
+	c := answer.Client
+	if c.WorkspaceID != to.workspace.WorkspaceID || c.TabID != to.tab.TabID || c.PaneID != to.pane.PaneID || c.Zoomed || (acking && !c.ViewApplied) {
+		return backend.Errorf(backend.CodeUnexpected, "herdr reports the client on %s %s pane %s (zoomed %v, applied %v), not %s focused",
+			c.WorkspaceID, c.TabID, c.PaneID, c.Zoomed, c.ViewApplied, to.id())
+	}
+	if painted != nil {
+		if !painted(pressWithin) {
+			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.id())
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(keyGap):
+		}
+	}
+	tab := to
+	tab.kind = kindTab
+	tab.pane = paneRow{}
+	tab.zoomed = false
+	at.set(tab)
 	return nil
 }
 

@@ -33,6 +33,7 @@ func TestClientViewCapabilityIsReadFromThePong(t *testing.T) {
 		{"a server with no capabilities at all", `{"id":"x","result":{"type":"pong","version":"0.8.2","protocol":19}}`, serverCaps{}},
 		{"the view acknowledged as well", `{"id":"x","result":{"type":"pong","version":"0.9.0+agm.2","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":true}}}`, serverCaps{viewFocus: true, viewAck: true}},
 		{"the view acknowledged as false", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":false}}}`, serverCaps{viewFocus: true}},
+		{"a pane focused for one client", `{"id":"x","result":{"type":"pong","version":"0.9.0+agm.3","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":true,"client_view_pane":true}}}`, serverCaps{viewFocus: true, viewAck: true, viewPane: true}},
 	}
 	for _, c := range cases {
 		got, err := parsePong(json.RawMessage(resultOf(t, c.pong)))

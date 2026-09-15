@@ -678,6 +678,52 @@ func TestAGoFailureEndsTheAttach(t *testing.T) {
 	_ = w.Close()
 }
 
+// §8.10 A focus control runs in the stream's order as a go does, and one the
+// backend cannot honour is dropped and said, with the bytes around it kept.
+func TestAFocusControlRunsInOrderAndAnUnsupportedOneIsDropped(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "seen")
+	in, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer in.Close()
+	var mu sync.Mutex
+	var focused []string
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sh", "-c", "stty raw -echo; printf painted; dd bs=1 count=5 of="+seen+" 2>/dev/null; sleep 0.3"),
+		Focus: func(_ context.Context, target string, keys io.Writer, _ backend.Expect) error {
+			mu.Lock()
+			focused = append(focused, target)
+			mu.Unlock()
+			if target == "w9:p9" {
+				return backend.Errorf(backend.CodeUnsupported, "no pane focus here")
+			}
+			_, err := keys.Write([]byte("F"))
+			return err
+		},
+	}
+	errOut := &strings.Builder{}
+	if _, err := w.WriteString("a\x1b]olympus;focus;w2:p1\x07b\x1b]olympus;focus;w9:p9\x07cd"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{In: in, Out: discard(t), Err: errOut}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	_ = w.Close()
+	if got, _ := os.ReadFile(seen); string(got) != "aFbcd" {
+		t.Errorf("the client read %q, want the bytes with the focus in its place", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(focused, ",") != "w2:p1,w9:p9" {
+		t.Errorf("focused %v, want w2:p1 then w9:p9", focused)
+	}
+	if !strings.Contains(errOut.String(), "focus ignored") {
+		t.Errorf("the operator was not told of the dropped focus: %q", errOut.String())
+	}
+}
+
 // §8.10 An attach that cannot be moved drops a go and says so, and the
 // bytes around it still reach the client.
 func TestAGoOnAnUnmovableAttachIsIgnored(t *testing.T) {

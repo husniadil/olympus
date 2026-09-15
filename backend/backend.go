@@ -221,6 +221,15 @@ type Attachment struct {
 	// was made for. An error ends the attach as a failed Settle does. Nil
 	// means the client cannot be moved, and a go is ignored.
 	Go func(ctx context.Context, target string, keys io.Writer, expect Expect) error
+	// Focus, when set, puts the live client on a pane's tab with that pane
+	// focused and the tab not zoomed, as a click on the pane would leave it:
+	// a caller asks for it with the in-band `focus` control (§8.3, §8.10).
+	// The client stays on the tab rather than the pane, so the attach does
+	// not end when that pane does. An UNSUPPORTED error is dropped and said
+	// on stderr, as a go on an attach that cannot be moved is; any other
+	// error ends the attach as a failed go does. Nil means no pane can be
+	// focused this way, and a focus is ignored.
+	Focus func(ctx context.Context, target string, keys io.Writer, expect Expect) error
 }
 
 // An Expect registers interest in a sequence the client will write — the

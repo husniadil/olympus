@@ -1914,6 +1914,20 @@ consumer owns its own client-side terminal state.
   dropped and stderr says so; the bytes around it still reach the session.
   A go that fails ends the attach with its error (§8.10).
 
+  A third control focuses a pane the way a click on it does, where the
+  client can be moved:
+
+  ```
+  \x1b]olympus;focus;<pane>\x07
+  ```
+
+  It puts the client on the pane's tab with that pane focused and the tab
+  not zoomed, in the stream's order as a go is. A target that is not a pane
+  ends the attach as `USAGE`. Where the attach cannot focus a pane this way
+  (an attach that cannot be moved, or a herdr server without
+  `client_view_pane`) the control is dropped and stderr says so; any other
+  failure ends the attach as a failed go does (§8.10).
+
 ### 8.4 Attach supersedes prior clients by default
 
 A new attach takes over from prior clients on every backend, mirroring what
@@ -2297,6 +2311,24 @@ deadline sits past the server's, so that answer is herdr's rather than a
 socket that stopped answering. A server without the capability, or a client
 that does not acknowledge snapshots, takes the frame confirmation above
 unchanged.
+
+**A pane is focused for one client without a zoom.** A herdr server that
+also answers `ping` with `capabilities.client_view_pane: true` takes
+`pane_id` in `client.view.focus`: the client is moved onto that pane's tab
+and the tab's focused pane becomes that one, the tab's zoom left as it was.
+The focus control (§8.3) uses it and nothing else: the server's own
+`pane focus` moves the server's focus, which is every other client's too. A
+zoom on the tab is taken off first with `pane zoom --off`, before the view
+moves, for the reason the zoom steps run first on a go. The call carries
+`wait: true` and `timeout_ms` 5000 where the server advertises
+`client_view_ack` and the client acknowledges snapshots, and otherwise the
+end of the move's synchronized frame is waited for, as for a go. The client
+the answer carries must be on the pane's workspace and tab, with that pane
+focused, not zoomed, and applied where it was waited for; anything else
+fails the focus. Afterwards the attach is on the pane's TAB, so a pane
+closed later leaves the client where it is rather than ending the attach.
+A server without `client_view_pane` is `UNSUPPORTED`, which the control
+drops.
 
 The zoom steps run BEFORE the view moves, and at build before the client
 exists, on both confirmations. The client addresses its input to the pane its own copy of the tab
@@ -3500,6 +3532,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
 | attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
+| attach focus control | `\x1b]olympus;focus;<pane>\x07` | §8.3, §8.10 |
 | herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view, where the caller names no tag of its own (§8.10, §13.5) |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 

@@ -59,7 +59,8 @@ const resetSequence = "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l" + // mouse 
 // The in-band controls a caller whose stdin is not a terminal can put in the
 // stream (behavior §8.3, §17.1): `resize;<cols>;<rows>` sizes the PTY, and
 // `go;<target>` moves a client that can be moved (Attachment.Go) onto
-// another target on its server. Each is stripped before the stream reaches
+// another target on its server, and `focus;<pane>` focuses a pane on its tab
+// without zooming it (Attachment.Focus). Each is stripped before the stream reaches
 // the session.
 const (
 	controlPrefix = "\x1b]olympus;"
@@ -67,6 +68,7 @@ const (
 	resizePrefix  = controlPrefix + "resize;"
 	resizeSuffix  = controlSuffix
 	goVerb        = "go"
+	focusVerb     = "focus"
 	// controlMost bounds how long a control may run before an unterminated
 	// one is taken for ordinary bytes and forwarded: a target name is short.
 	controlMost = 512
@@ -358,7 +360,25 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 				settleFailed <- err
 			}
 		}
-		forwardInput(io.In, tty, settled, exited, move)
+		focus := func(target string) {
+			if attachment.Focus == nil {
+				if io.Err != nil {
+					_, _ = fmt.Fprintln(io.Err, "olympus: this attach cannot focus a pane; focus ignored")
+				}
+				return
+			}
+			err := attachment.Focus(ctx, target, tty, watch.expect)
+			if backend.CodeOf(err) == backend.CodeUnsupported {
+				if io.Err != nil {
+					_, _ = fmt.Fprintf(io.Err, "olympus: %v; focus ignored\n", err)
+				}
+				return
+			}
+			if err != nil {
+				settleFailed <- err
+			}
+		}
+		forwardInput(io.In, tty, settled, exited, move, focus)
 	}()
 
 	err = child.Wait()
@@ -403,7 +423,7 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 // the client has settled on its target, and a move runs HERE, in the stream's
 // own order: bytes before it went before, bytes after it wait until the
 // client is on the new target, so nothing typed lands mid-walk (§8.10).
-func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, move func(target string)) {
+func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, move, focus func(target string)) {
 	if in == nil {
 		return
 	}
@@ -450,6 +470,10 @@ func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, move
 					case goVerb:
 						if payload != "" {
 							move(payload)
+						}
+					case focusVerb:
+						if payload != "" {
+							focus(payload)
 						}
 					}
 					input = after

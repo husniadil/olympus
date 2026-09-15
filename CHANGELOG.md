@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **An attach focuses a pane without zooming it.** The in-band control
+  `\x1b]olympus;focus;<pane>\x07` puts a bare herdr client on the pane's
+  tab with that pane focused and the tab not zoomed, as a click on the pane
+  leaves it, where a go onto a pane zooms it. It needs a herdr server that
+  advertises `client_view_pane` (the fork's `0.9.0+agm.3`), and moves no
+  other client and not the server's focus. A focus the attach cannot honour
+  is dropped and said on stderr; a target that is not a pane ends the attach
+  as `USAGE`. Go: `Attachment.Focus`. Behavior spec §8.3, §8.10.
+
 ## [0.26.0]
 
 ### Added

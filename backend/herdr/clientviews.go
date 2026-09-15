@@ -98,6 +98,9 @@ type serverCaps struct {
 	// applied the view it is shown, and `client.view.wait`, or
 	// `client.view.focus` with `wait`, answers once it has.
 	viewAck bool
+	// viewPane is `client_view_pane`: `client.view.focus` takes a pane and
+	// focuses it on its tab for that client, without zooming it.
+	viewPane bool
 }
 
 // clientViews reports whether this backend's server moves one client's view
@@ -150,6 +153,7 @@ func parsePong(result json.RawMessage) (serverCaps, error) {
 		Capabilities *struct {
 			ClientViewFocus bool `json:"client_view_focus"`
 			ClientViewAck   bool `json:"client_view_ack"`
+			ClientViewPane  bool `json:"client_view_pane"`
 		} `json:"capabilities"`
 	}
 	if err := json.Unmarshal(result, &pong); err != nil || pong.Type != "pong" {
@@ -158,7 +162,11 @@ func parsePong(result json.RawMessage) (serverCaps, error) {
 	if pong.Capabilities == nil {
 		return serverCaps{}, nil
 	}
-	return serverCaps{viewFocus: pong.Capabilities.ClientViewFocus, viewAck: pong.Capabilities.ClientViewAck}, nil
+	return serverCaps{
+		viewFocus: pong.Capabilities.ClientViewFocus,
+		viewAck:   pong.Capabilities.ClientViewAck,
+		viewPane:  pong.Capabilities.ClientViewPane,
+	}, nil
 }
 
 // newClientTag draws the name one bare client is addressed by. Random rather
