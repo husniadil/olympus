@@ -6,16 +6,23 @@ way that stays invisible until it costs a bug.
 
 **Read this before touching a backend.** Implementations MUST satisfy every
 `MUST`/`MUST NOT` below. The conformance suite (`backend/backendtest`) enforces
-the rules observable through the `Backend` interface; the rest are enforced by
+the rules observable through the `Backend` interface. The rest are enforced by
 each backend's own tests and marked *(backend-local)*.
 
-Reference versions: **tmux 3.3+** (floor — `allow-passthrough` landed there;
-developed against 3.7b), **zmx 0.6.0**, **meja 0.0.25** and **herdr 0.8.2**.
-Platform: macOS and Linux only. The default backend is **zmx**; §0 covers
-resolution, fallback, and the case where no backend is installed.
+| Backend | Floor | Note |
+|---|---|---|
+| zmx | 0.6.0 | the default; the reference version, support is best-effort |
+| tmux | 3.3 | `allow-passthrough` landed there |
+| meja | 0.0.25 | the oldest version measured |
+| herdr | 0.8.2 | the version every measurement was taken against |
 
-**How to read it.** At 2200 lines this is not read front to back, and the
-sections are not all the same kind of thing:
+Platform: macOS and Linux only. §0 covers resolution, fallback, and the case
+where no backend is installed.
+
+## How to read it
+
+This document is not read front to back, and its sections are not all the same
+kind of thing:
 
 | Sections | What they are | Who needs them |
 |---|---|---|
@@ -23,22 +30,21 @@ sections are not all the same kind of thing:
 | §15 | The MCP door | Anyone touching `internal/mcp` |
 | §16–§17 | Testing requirements, reserved identifiers, isolation, defaults | Anyone writing tests, or choosing a default |
 
-Splitting the last three out into their own document was considered and
-rejected: they cite twenty different sections of §0–§14 between them, seventy-odd
-code comments cite them back, and the result would be two documents pointing at
-each other rather than one contract and one appendix. They are not a separable
-layer — they are the same contract seen from the door's side.
+§15–§17 stay in this document because they cite §0–§14 throughout: they are the
+same contract seen from the door's side.
 
 New here and implementing a backend? [`adding-a-backend.md`](adding-a-backend.md)
 is the route, and it names which sections matter at which step.
 
-Terminology:
+## Terminology
 
-- **backend** — a multiplexer implementation (tmux, zmx).
-- **session** — a named, addressable terminal owned by a backend.
-- **target** — the string a caller uses to address a session.
-- **door** — a public entry point (Go API, CLI, MCP server).
-- **consumer** — whatever is driving Olympus.
+| Term | Meaning |
+|---|---|
+| backend | a multiplexer implementation: zmx, tmux, meja or herdr |
+| session | a named, addressable terminal owned by a backend |
+| target | the string a caller uses to address a session |
+| door | a public entry point: Go API, CLI, MCP server |
+| consumer | whatever is driving Olympus |
 
 ---
 
@@ -47,31 +53,38 @@ Terminology:
 Nothing below matters until a backend has been chosen and proven to exist. Both
 halves are contract, because both are the first thing a new user hits.
 
-Four backends are supported: **zmx**, the default; **tmux**, the fallback;
-**meja**; and **herdr**, each of the last two answering only when it is the last
-one standing. That order is load-bearing rather than alphabetical — sessions are
-backend-scoped and never migrate, so a backend that displaced another would move
-a caller's sessions to one they never chose. Each new arrival therefore goes on
-the END: every host that resolved to one backend before it shipped must keep
-resolving to the same one after.
+Four backends are supported, in this preference order: **zmx** (the default),
+**tmux**, **meja**, **herdr**. The later ones answer only when every earlier one
+is missing.
+
+#### Why this order
+
+Sessions are backend-scoped and never migrate. A backend that displaced another
+in the order would move a caller's sessions to one they never chose. Each new
+backend therefore goes on the END: every host that resolved to one backend
+before it shipped keeps resolving to the same one after.
 
 ### 0.1 Resolution order
 
 The backend resolves from the first of these that is set:
 
-1. An explicit selection — CLI flag, library option, or MCP parameter.
+1. An explicit selection: CLI flag, library option, or MCP parameter.
 2. The `OLYMPUS_BACKEND` environment variable.
 3. **The default: `zmx`.**
 
 An unknown backend name MUST be a usage-class error (exit 2), never
-unexpected-class. The caller advertised a closed set of legal values and one
-corrected argument fixes it, whereas unexpected-class tells a machine consumer
-"retrying will not help" — the opposite of the truth.
+unexpected-class.
+
+#### Why
+
+The caller was offered a closed set of legal values, and one corrected argument
+fixes it. Unexpected-class tells a machine consumer "retrying will not help",
+which is the opposite of the truth.
 
 ### 0.2 Availability preflight
 
 Before the first backend invocation, Olympus MUST verify the backend's binary is
-on `PATH` — a single lookup, no subprocess, on every code path.
+on `PATH`. This is a single lookup, no subprocess, on every code path.
 
 A missing binary MUST surface as a backend-unavailable error whose message names
 the binary, says it was not found on `PATH`, and gives the install command for
@@ -81,69 +94,87 @@ contract violation: it tells a first-time user nothing about what Olympus needs.
 **Installed is not reachable.** The preflight proves only that the binary exists.
 A zmx daemon that will not answer, or an unreachable tmux server, is discovered
 at call time and surfaces as the same error class from there. The preflight makes
-the *common* failure cheap and legible; it does not guarantee the backend works.
+the *common* failure cheap and legible. It does not guarantee the backend works.
 
 ### 0.3 Fallback applies to the default only
 
-- **Not explicitly selected** (resolved via the default): if `zmx` is unavailable
-  and another supported backend is present, fall back to it, in the order `zmx`,
-  `tmux`, `meja`. Refusing to start on a host with a working multiplexer
-  installed is hostile for no gain.
-- **Explicitly selected** (flag or environment): **no fallback, ever.** An
-  explicit choice that cannot be honored MUST fail loudly. Silently running
-  somewhere the caller did not ask for is worse than failing.
+| How the backend was chosen | Behavior when it is unavailable |
+|---|---|
+| Not selected (the default) | fall back to the next installed backend, in the order `zmx`, `tmux`, `meja`, `herdr` |
+| Explicitly selected (flag, option, parameter or environment) | **no fallback, ever.** It MUST fail loudly |
+
+#### Why
+
+Refusing to start on a host with a working multiplexer installed is hostile for
+no gain. But silently running somewhere the caller did not ask for is worse than
+failing, so an explicit choice is never second-guessed.
 
 ### 0.4 A fallback MUST be disclosed
 
 Sessions are **backend-scoped**: they never migrate and never merge, and a
-session created on one backend is invisible from the other. A silent fallback
-would therefore let a user create sessions, change their installed tooling, and
-find those sessions apparently vanished with nothing explaining why.
+session created on one backend is invisible from the others.
 
-The **resolved** backend — not the requested one — MUST be observable:
+The **resolved** backend, not the requested one, MUST be observable:
 
 - present in every structured output envelope;
 - shown in human-readable listing output;
 - reported by the diagnostic (§0.6) along with *why* it was chosen.
 
 When a listing comes back empty, the door MUST name the resolved backend it was
-empty *on*: an empty list that should not be empty is exactly when a user needs
-to learn that backends are scoped. It does not go on to ask the other installed
-backends whether one of them holds the missing sessions — that would put a
-subprocess per installed backend on the cheapest read there is, against §0.2 —
-so the disclosure says where the answer came from, not where the sessions went.
+empty *on*. It does not ask the other installed backends whether one of them
+holds the missing sessions. The disclosure says where the answer came from, not
+where the sessions went.
+
+#### Why
+
+A silent fallback would let a user create sessions, change their installed
+tooling, and find those sessions apparently vanished with nothing explaining
+why. An empty list that should not be empty is exactly when a user needs to
+learn that backends are scoped.
+
+Asking every other backend would put a subprocess per installed backend on the
+cheapest read there is, against §0.2.
 
 ### 0.5 Version floors
 
-- **tmux ≥ 3.3** (`allow-passthrough`).
-- **zmx 0.6.0** is the reference version; support is best-effort.
-- **meja 0.0.25** is the floor (§2.10 says why it is not raised to 0.0.26).
-- **herdr 0.8.2** is the version every measurement behind that backend was taken
-  against: the verbs it drives, the error codes it classifies, the raw-byte
-  injection its key vocabulary rests on, and the terminal-id timestamp its
-  `created_at` is derived from (§3.4). Support below it is best-effort because
-  nothing was checked there.
+| Backend | Floor | What the floor means |
+|---|---|---|
+| tmux | 3.3 | `allow-passthrough` |
+| zmx | 0.6.0 | the reference version; support is best-effort |
+| meja | 0.0.25 | the oldest version measured; §2.10 says why it is not raised to 0.0.26 |
+| herdr | 0.8.2 | every measurement behind the backend was taken here |
+
+For herdr those measurements are the verbs it drives, the error codes it
+classifies, the raw-byte injection its key vocabulary rests on, and the
+terminal-id timestamp its `created_at` is derived from (§3.4). Support below it
+is best-effort because nothing was checked there.
 
 A below-floor backend MUST be reported by name and version rather than allowed to
-fail later in a way that looks like an Olympus bug. A version probe costs a
-subprocess, so it is **not** part of §0.2's hot-path preflight: run it in the
-diagnostic, and at the specific call sites where a below-floor version would
-misbehave silently rather than error.
+fail later in a way that looks like an Olympus bug.
+
+A version probe costs a subprocess, so it is **not** part of §0.2's hot-path
+preflight. It runs in the diagnostic, and at the specific call sites where a
+below-floor version would misbehave silently rather than error.
 
 ### 0.6 The diagnostic is part of the contract
 
 Olympus MUST ship a first-class diagnostic that reports, without side effects:
-which backends are installed and at what version, which one resolves right now
-and by which rule, whether any is below its floor, the socket or directory in use
-(§17.2), install commands for whatever is missing, and a **capability matrix**
-for every installed backend.
 
-The matrix is not decoration. The backends differ substantially (§13), the
-default is the less capable of the two, and a user needs one place that says so
-rather than discovering it one unsupported error at a time.
+- which backends are installed and at what version;
+- which one resolves right now, and by which rule;
+- whether any is below its floor;
+- the socket or directory in use (§17.2);
+- install commands for whatever is missing;
+- a **capability matrix** for every installed backend.
 
 This is what turns "it does not work on my machine" into one command's output,
 and it is what every error in §0.2 and §0.3 points at.
+
+#### Why the capability matrix
+
+The backends differ substantially (§13), and the default zmx is not the most
+capable of them. A user needs one place that says so rather than discovering it
+one unsupported error at a time.
 
 ### 0.7 No backend installed
 
@@ -152,26 +183,23 @@ It states that Olympus drives an existing terminal multiplexer and does not embe
 one, gives the install command for each supported backend on the host platform,
 and points at the diagnostic.
 
-Olympus MUST NOT degrade to a non-multiplexer PTY here. Detach, reattach, and
-durable sessions are the whole product; a mode quietly lacking them would fail
-later, further from the cause.
+Olympus MUST NOT degrade to a non-multiplexer PTY here.
+
+#### Why
+
+Detach, reattach, and durable sessions are the whole product. A mode quietly
+lacking them would fail later, further from the cause.
 
 ### 0.8 Degraded operations MUST announce themselves
 
-A warning belongs to the GAP, not to the backend that first had it. Where two
-backends share a capability's false value they MUST both warn: a caller reacts
-to the gap, and it does not become smaller on a different backend. Listing the
-warnings for one and not the other is how a second backend's identical
-limitation becomes invisible.
-
 Some operations succeed on the resolved backend while meaning materially less
-than they do on the other. These are not errors — they return something real —
-but a caller unaware of the difference draws a wrong conclusion from a successful
+than they do on another. They are not errors, since they return something real.
+But a caller unaware of the difference draws a wrong conclusion from a successful
 result.
 
 A degrading operation MUST say so once: on stderr for the CLI (never stdout,
 which is the data channel), and through the result for structured doors. Known
-cases, and the backends they belong to:
+cases:
 
 | Operation | Backends | What silently differs |
 |---|---|---|
@@ -193,18 +221,29 @@ cases, and the backends they belong to:
 
 Contrast with §12's `UNSUPPORTED`, which covers an operation the backend has **no
 concept of** and which returns nothing at all. Degradation returns a real answer
-with a narrower meaning; failing these outright would make the default backend
-refuse work it can genuinely do.
+with a narrower meaning. Failing these outright would make the default backend
+refuse work it can do.
 
-Announce once per operation, never once per row — a warning per listed pane is
+#### A warning belongs to the gap, not to the backend
+
+Where two backends share a capability's false value they MUST both warn. A
+caller reacts to the gap, and the gap is no smaller on a different backend.
+Warning for one and not the other is how a second backend's identical limitation
+becomes invisible.
+
+#### Once per operation
+
+Announce once per operation, never once per row. A warning per listed pane is
 noise that trains users to ignore it.
 
-**A ceiling is disclosed CONDITIONALLY, unlike everything else in this table.** A
-backend that ignores a request warns about it every time, because every answer
-is narrower than what was asked for. A backend that honours the request up to a
-limit warns only when the request exceeded the limit: below it nothing is
-narrower, and announcing anyway would be both noise and untrue. The two look
-alike in a capability matrix and are opposite at the call.
+#### A ceiling is disclosed conditionally
+
+A backend that ignores a request warns every time, because every answer is
+narrower than what was asked for. A backend that honours the request up to a
+limit warns only when the request exceeded the limit.
+
+Below the limit nothing is narrower, and announcing anyway would be noise and
+untrue. The two look alike in a capability matrix and are opposite at the call.
 
 ---
 
@@ -230,83 +269,100 @@ Every session Olympus creates MUST be spawned with a sanitized environment:
 This applies to **every** spawn path: explicit creation, idempotent ensure, and
 throwaway sessions.
 
-**`TERM` is forced** because a host running inside tmux or screen inherits a
-screen-family `TERM`. A shell such as zsh, seeing a screen-family terminal, emits
-its window title as the screen sequence `ESC k <title> ESC \`. A consumer that
-does not interpret that sequence renders it as literal text, leaking every
-command name into the pane's visible output.
+The `LANG` default MUST be read at call time, never cached at process start.
 
-**`LANG` is defaulted** because processes started by launchd have no `LANG` at
-all, degrading output to the C/ASCII locale and mangling every non-ASCII byte.
-The default MUST be read at call time, never cached at process start.
+This applies to Olympus's own TESTS as much as to a spawn. The suite is
+routinely run from inside one of the sessions it describes, so a case that reads
+these variables MUST clear them rather than inherit the machine's.
 
-**Multiplexer identity is stripped** because an inherited `TMUX` makes tmux treat
-the new client as a nested session, changing its behavior including locale
-handling. An inherited `ZMX_SESSION` is worse: `zmx attach <name> <argv>` with it
-set does **not** create or attach `<name>` — it switches the *current* session's
-daemon, yanking that session's leader client over to `<name>`. Running from
-inside a zmx session without this strip hijacks a live session.
+#### Why `TERM` is forced
 
-The herdr variables are two different hazards under one rule. `HERDR_SESSION`
-and the two socket variables RETARGET: they select which server a herdr command
-addresses, the way `ZMX_SESSION` does for zmx. `HERDR_PANE_ID` and its siblings
-IDENTIFY: they are how a process inside a herdr pane learns where it is, so a
-session created on any backend from inside one would inherit them and then
-answer "I am in a herdr pane" when asked its own address — sending another
-program's reply to somebody else's terminal, which is precisely what §13.1's
-status exists to make reliable.
+A host running inside tmux or screen inherits a screen-family `TERM`. A shell
+such as zsh, seeing a screen-family terminal, emits its window title as the
+screen sequence `ESC k <title> ESC \`. A consumer that does not interpret that
+sequence renders it as literal text, leaking every command name into the pane's
+visible output.
 
-This applies to Olympus's own TESTS as much as to a spawn: the suite is
-routinely run from inside one of the sessions it describes, so a case that
-reads these variables MUST clear them rather than inherit the machine's.
+#### Why `LANG` is defaulted
+
+Processes started by launchd have no `LANG` at all. Output degrades to the
+C/ASCII locale and every non-ASCII byte is mangled.
+
+#### Why multiplexer identity is stripped
+
+An inherited `TMUX` makes tmux treat the new client as a nested session,
+changing its behavior including locale handling.
+
+An inherited `ZMX_SESSION` is worse. `zmx attach <name> <argv>` with it set does
+**not** create or attach `<name>`. It switches the *current* session's daemon,
+yanking that session's leader client over to `<name>`. Running from inside a zmx
+session without this strip hijacks a live session.
+
+#### Why the herdr variables are stripped
+
+They are two different hazards under one rule:
+
+- `HERDR_SESSION` and the two socket variables RETARGET. They select which
+  server a herdr command addresses, the way `ZMX_SESSION` does for zmx.
+- `HERDR_PANE_ID` and its siblings IDENTIFY. They are how a process inside a
+  herdr pane learns where it is. A session created on any backend from inside
+  one would inherit them and answer "I am in a herdr pane" when asked its own
+  address. That sends another program's reply to somebody else's terminal,
+  which is what §13.1's status exists to make reliable.
 
 ### 1.2 The tmux server's global environment is a second leak
 
 Setting `cmd.Env` on the tmux client Olympus execs is **not sufficient**. A new
 tmux session's environment is seeded from the *server's* global environment,
-fixed when the server booted — so if another process booted the server on this
+fixed when the server booted. If another process booted the server on this
 socket, sessions Olympus creates inherit that dirty environment regardless.
 
 `new-session` MUST therefore also pass the sanitized values per-session via
-`-e VAR=VAL` (tmux ≥ 3.2, below our floor). Passing `-e ZMX_SESSION=` —
-set-to-empty, not omitted — yields an empty value in the pane even against a
+`-e VAR=VAL` (tmux 3.2, below the floor). Passing `-e ZMX_SESSION=`, set to
+empty rather than omitted, yields an empty value in the pane even against a
 server whose global environment carries a poisoned one.
 
 *(backend-local)* tmux re-sets `TMUX`, `TMUX_PANE` and forces `TERM` inside its
-own panes regardless of what we pass, so the tmux backend's *observable*
-guarantees are the `ZMX_*` strip and the `LANG` default only. Assert exactly that
-subset; asserting the rest produces a test that passes for the wrong reason. The
-full guarantee holds on zmx and on any non-multiplexer path.
+own panes regardless of what is passed. The tmux backend's *observable*
+guarantees are therefore the `ZMX_*` strip and the `LANG` default only. Assert
+exactly that subset: asserting the rest produces a test that passes for the
+wrong reason. The full guarantee holds on zmx and on any non-multiplexer path.
 
 ### 1.3 Attach environment
 
 The attach client builds its own environment rather than reusing §1.1's, because
-an interactive attach MUST inherit the operator's real `TERM` — forcing
+an interactive attach MUST inherit the operator's real `TERM`. Forcing
 `xterm-256color` would misrepresent the terminal the human is sitting at.
 
 It MUST strip `TMUX`, `TMUX_PANE`, `ZMX_SESSION`, and `ZMX_SESSION_PREFIX`, and
-MUST default `LANG` per §1.1. On herdr it MUST also strip `HERDR_ENV`, the
-nesting marker herdr sets inside its own panes: the session client refuses to
-start with it set ("nested herdr is disabled"), so a caller driving Olympus from
-inside a herdr pane could never open one. The marker decides nothing about which
-server is attached — the socket override or the session name already does.
+MUST default `LANG` per §1.1. On herdr it MUST also strip `HERDR_ENV`.
 
-`ZMX_SESSION` is worse here than on the spawn path: `zmx attach <name>` launched
-from inside a zmx session **ignores `<name>` entirely** and fails with
+#### Why `ZMX_SESSION`
+
+It is worse here than on the spawn path. `zmx attach <name>` launched from inside
+a zmx session **ignores `<name>` entirely** and fails with
 `session "<ambient>" does not exist`, where `<ambient>` is whatever
-`ZMX_SESSION` held. It does not degrade — it silently retargets. Any consumer
+`ZMX_SESSION` held. It does not degrade, it silently retargets. Any consumer
 running inside a zmx session hits this on every attach.
+
+#### Why `HERDR_ENV`
+
+`HERDR_ENV` is the nesting marker herdr sets inside its own panes. The session
+client refuses to start with it set ("nested herdr is disabled"), so a caller
+driving Olympus from inside a herdr pane could never open one. The marker
+decides nothing about which server is attached: the socket override or the
+session name already does.
 
 ### 1.4 The tmux attach client needs `-u`
 
-Without `-u`, the *client itself* — not the pane's programs — sanitizes every
+Without `-u`, the *client itself*, not the pane's programs, sanitizes every
 non-ASCII byte to `_` before those bytes reach the consumer. The pane is fine;
 the stream is not.
 
-This is additional to §1.1's `LANG` default: `LANG` is a belt for the programs
-inside the pane, `-u` is for the client. The defect hides during manual testing
-from inside tmux, because the inherited `TMUX` that §1.3 strips also flips the
-client to UTF-8.
+This is additional to §1.1's `LANG` default: `LANG` is for the programs inside
+the pane, `-u` is for the client. The defect hides during manual testing from
+inside tmux, because the inherited `TMUX` that §1.3 strips also flips the client
+to UTF-8.
 
 ---
 
@@ -317,41 +373,47 @@ client to UTF-8.
 Creation takes a required, backend-unique name, plus optional working directory,
 initial size, and command. An empty command means the user's default shell.
 
-A command is not universally available: a backend whose panes run a program its
+A command is not universally available. A backend whose panes run a program its
 own configuration chooses refuses one outright rather than typing it (§2.3.1),
 and declares `spawn_command` false so a caller can branch before asking.
 
-Initial size on zmx is accepted for interface conformance and **ignored** — zmx
+Initial size on zmx is accepted for interface conformance and **ignored**. zmx
 has no spawn-time sizing concept, and the PTY is sized entirely by whatever
 client attaches later. Do not paper over this.
 
-**A session that finishes before creation returns is not a failure.** Without
-`remain-on-exit` (§2.7) a session takes itself down when its command exits, so a
-fast-exiting command is routinely gone by the time the confirming listing runs.
-Creation MUST NOT report that as an error — an ordinary short command would look
-like Olympus broke. It returns the row it can honestly give: named, outcome
+#### A session that finishes before creation returns is not a failure
+
+Without `remain-on-exit` (§2.7) a session takes itself down when its command
+exits, so a fast-exiting command is routinely gone by the time the confirming
+listing runs.
+
+Creation MUST NOT report that as an error, or an ordinary short command would
+look like Olympus broke. It returns the row it can honestly give: named, outcome
 `created`, liveness `gone`. The caller learns both that it was created and that
 it is already over.
 
 ### 2.2 tmux option ordering: chain, never a second call
 
 Options applying to a new tmux session MUST be chained into the *same*
-`new-session` invocation using tmux's `;` in-process separator — never issued as
+`new-session` invocation using tmux's `;` in-process separator, never issued as
 a separate `set-option` call afterwards.
+
+**Chain order matters**: `remain-on-exit` first (pin the corpse), then
+`allow-passthrough`. On any failure of the chained line, the session MUST be
+killed best-effort so a half-configured session never leaks.
+
+#### Why
 
 A fast-exiting command tears its window down before a second tmux invocation can
 run, which then fails with `no such window`. Symptoms of getting this wrong:
 
-- `remain-on-exit` set separately does nothing for the fastest-failing commands —
+- `remain-on-exit` set separately does nothing for the fastest-failing commands,
   exactly the ones a caller most wants a corpse to inspect.
 - `allow-passthrough` set separately makes successful spawns return a backend
   error, because the pane died before the second invocation ran.
 
-**Chain order matters**: `remain-on-exit` first (pin the corpse), then
-`allow-passthrough`. The reverse lets an instantly-exiting pane vanish between
-the two chained commands before the corpse flag lands. On any failure of the
-chained line, the session MUST be killed best-effort so a half-configured session
-never leaks.
+The reverse chain order lets an instantly-exiting pane vanish between the two
+chained commands before the corpse flag lands.
 
 This race fails *intermittently*, so a single green test run does not prove it
 fixed.
@@ -361,55 +423,66 @@ fixed.
 Spawning on zmx MUST use `zmx attach <name> <argv>`, which execs `argv` as the
 session process with nothing typed.
 
+#### Why
+
 `zmx run <name> <cmd>` *types* `<cmd>` into a login shell, echoing the command
-text into scrollback. tmux hides this behind alt-screen redraw; zmx's native
+text into scrollback. tmux hides this behind alt-screen redraw. zmx's native
 scrollback shows it, putting the spawn command line into the session's own
 output.
 
 ### 2.3.1 A backend that cannot spawn a command MUST refuse it, not type it
 
 Not every multiplexer lets a caller choose a session's process. herdr's panes
-run whatever its own configuration names — the `[terminal] default_shell` of a
-server-wide config file — and neither its workspace-creation nor its
-pane-splitting request carries an argv. There is nowhere for `CreateSpec.Command`
-to go.
+run whatever its own configuration names: the `[terminal] default_shell` of a
+server-wide config file. Neither its workspace-creation nor its pane-splitting
+request carries an argv, so there is nowhere for `CreateSpec.Command` to go.
 
 Such a backend MUST reject a non-empty command with an unsupported-class error,
-before any invocation, and MUST declare `spawn_command` false (§13). Typing the
-argv instead is the failure §2.3 exists to prevent, not a smaller version of it:
-the command line lands in the session's own output, and every argument carrying
-a shell metacharacter is reinterpreted by a shell that was never supposed to see
-it.
+before any invocation, and MUST declare `spawn_command` false (§13).
 
-The workaround belongs to the CALLER, not to the backend, because only the
-caller knows whether either cost matters: start a shell, then drive the program
-from inside it. The conformance suite does exactly that for the cases that need
-a program on screen rather than the exec-versus-typed distinction itself, using
-`exec <argv>` so the session's process still ends up being the program.
+#### Why not type it
 
-The consequence for §2.8.1 is that the two session shapes converge: a program a
-shell `exec`s inherits an ordinary `SIGINT` disposition rather than `SIG_IGN`, so
-where zmx's exec-spawned sessions cannot be interrupted at all, herdr's can.
+Typing the argv is the failure §2.3 exists to prevent, not a smaller version of
+it. The command line lands in the session's own output, and every argument
+carrying a shell metacharacter is reinterpreted by a shell that was never
+supposed to see it.
+
+#### The workaround belongs to the caller
+
+Only the caller knows whether either cost matters: start a shell, then drive the
+program from inside it. The conformance suite does that for the cases that need
+a program on screen rather than the exec-versus-typed distinction itself. It
+uses `exec <argv>` so the session's process still ends up being the program.
+
+The consequence for §2.8.1 is that the two session shapes converge. A program a
+shell `exec`s inherits an ordinary `SIGINT` disposition rather than `SIG_IGN`,
+so where zmx's exec-spawned sessions cannot be interrupted at all, herdr's can.
 Outcomes are still declared per backend and per shape.
 
 ### 2.4 zmx spawn is asynchronous, and the client's exit means nothing
 
-1. **An early attach-client exit during spawn is NOT a failure signal.** With
-   stdin ignored, the client hits EOF and exits as soon as it has forked the
-   daemon — routinely *before* the session appears in `zmx list`. The daemon is a
-   separate, longer-lived process. The only correct check is polling `zmx list`
-   to a deadline, ignoring the client's exit entirely.
+**An early attach-client exit during spawn is NOT a failure signal.** With stdin
+ignored, the client hits EOF and exits as soon as it has forked the daemon,
+routinely *before* the session appears in `zmx list`. The daemon is a separate,
+longer-lived process. The only correct check is polling `zmx list` to a
+deadline, ignoring the client's exit entirely.
 
-2. **The registration deadline is 15 seconds**, env-overridable and read at call
-   time. Three seconds is too short: on a loaded host the daemon registers the
-   session *after* a tight deadline, so the caller reports failure and races a
-   deadline-triggered kill against the daemon's own session creation — producing
-   a live but completely untracked orphan process. 15s makes that false negative
-   rare while bounding a genuine failure (bad argv, no daemon) to seconds.
+**The registration deadline is 15 seconds**, overridable by
+`OLYMPUS_ZMX_REGISTRATION_TIMEOUT` and read at call time.
+
+#### Why 15 seconds
+
+Three seconds is too short. On a loaded host the daemon registers the session
+*after* a tight deadline, so the caller reports failure and races a
+deadline-triggered kill against the daemon's own session creation. The result is
+a live but untracked orphan process.
+
+15s makes that false negative rare while bounding a genuine failure (bad argv,
+no daemon) to seconds.
 
 ### 2.5 zmx session names have a socket-path budget
 
-The daemon places a session's socket at `<dir>/<name>` — bare name, no suffix.
+The daemon places a session's socket at `<dir>/<name>`: bare name, no suffix.
 `<dir>` is `ZMX_DIR` when set, otherwise `$TMPDIR/zmx-<uid>`. The rule is:
 
 ```
@@ -420,105 +493,133 @@ len(dir) + 1 + len(name) <= 103
 
 Names exceeding this MUST be rejected up front with a usage-class error, before
 any zmx invocation, naming the computed path, its length, and the budget.
-Validation MUST live in the backend's `New`, so every path reaching it — create,
-ensure, throwaway run session — inherits the rejection without duplication.
-
-Without the check the failure is misleading rather than silent: zmx errors
-loudly, but the spawn path deliberately ignores the spawn command's exit code
-(`zmx run <name> -d` exits non-zero even on success), falls through to the 15s
-registration poll, and times out into a backend-unavailable error that never
-mentions the real cause.
+Validation MUST live in the backend's `New`, so every path reaching it (create,
+ensure, throwaway run session) inherits the rejection without duplication.
 
 Resolving the socket directory for *validation* differs from resolving it for
-daemon selection: the daemon-selection path returns bare `$TMPDIR`, which
-under-counts the budget by the `zmx-<uid>` component. Validation needs its own
-resolution.
+daemon selection. The daemon-selection path returns bare `$TMPDIR`, which
+under-counts the budget by the `zmx-<uid>` component, so validation needs its
+own resolution.
+
+#### Why
+
+Without the check the failure is misleading rather than silent. zmx errors
+loudly, but the spawn path deliberately ignores the spawn command's exit code
+(`zmx run <name> -d` exits non-zero even on success). It falls through to the
+15s registration poll and times out into a backend-unavailable error that never
+mentions the real cause.
 
 ### 2.6 Idempotent ensure
 
 Ensure makes a named session exist and be alive, reporting which of three things
 happened:
 
-- **alive → reused.** Options other than the name are ignored; the existing
-  session is returned as-is.
-- **present but dead → reaped.** Kill, then recreate with the given options.
-- **absent → created.** Plain create.
-
-**The reaped branch is unreachable on both shipped backends** — tmux sessions
-created without `remain-on-exit` take their session with them when the pane
-exits, and zmx auto-reaps immediately, so a finished session is indistinguishable
-from an absent one and yields *created*. The conformance suite MUST assert this
-explicitly, so a future backend that starts leaving dead rows surfaces here
-instead of silently changing behavior.
-
-Ensure itself does no locking. The **caller** holds the per-session write lock;
-that is what turns two concurrent ensures of one name into a deterministic
-outcome instead of a race. With locking disabled, both can observe "absent" and
-both create, and the loser's outcome is backend-defined.
+| State found | Outcome | Action |
+|---|---|---|
+| alive | `reused` | options other than the name are ignored; the existing session is returned as-is |
+| present but dead | `reaped` | kill, then recreate with the given options |
+| absent | `created` | plain create |
 
 Options apply on the create path only, and are **not retroactive** on a reused
 session (§2.7).
 
+#### The reaped branch is unreachable without a corpse
+
+A backend that leaves no dead row makes a finished session indistinguishable
+from an absent one, so it yields `created`. tmux sessions created without
+`remain-on-exit` take their session with them when the pane exits, and zmx
+auto-reaps immediately. The conformance suite MUST assert this explicitly, so a
+backend that starts leaving dead rows surfaces there instead of silently
+changing behavior.
+
+#### Locking belongs to the caller
+
+Ensure itself does no locking. The **caller** holds the per-session write lock,
+which turns two concurrent ensures of one name into a deterministic outcome
+instead of a race. With locking disabled, both can observe "absent" and both
+create, and the loser's outcome is backend-defined.
+
 ### 2.7 `remain-on-exit` is tmux-only and write-only
 
-On zmx it MUST fail with an unsupported-class error immediately, before any zmx
-invocation: zmx has no corpse concept, since the daemon reaps finished sessions
-itself.
+On every backend except tmux it MUST fail with an unsupported-class error
+immediately, before any backend invocation. zmx, meja and herdr have no corpse
+concept: zmx's daemon reaps finished sessions itself, and a herdr pane whose
+process exits is closed.
 
 The rejection MUST happen in ensure *before* branching on session state, not only
-inside create. Otherwise the contract becomes state-dependent: a fresh name
-correctly rejects via the create path, but an already-alive session takes the
-reuse branch, never reaches create, and silently accepts and ignores the flag.
+inside create.
 
 On tmux the flag is observable only through the corpse it eventually leaves.
 There is no way to read it off a live session and no way to change it on one. A
-live session created with the flag reuses like any other; the flag becomes
+live session created with the flag reuses like any other. The flag becomes
 visible only once the tracked command exits and leaves a dead row for a *later*
 ensure to reap.
 
+#### Why ensure checks first
+
+Otherwise the contract becomes state-dependent. A fresh name correctly rejects
+via the create path, but an already-alive session takes the reuse branch, never
+reaches create, and silently accepts and ignores the flag.
+
 ### 2.8 Graceful kill
 
-A decision engine with injectable operations (send interrupt, probe, force kill,
-sleep) so it can be unit-tested without a backend:
+Graceful kill is a decision engine with injectable operations (send interrupt,
+probe, force kill, sleep), so it can be unit-tested without a backend:
 
-1. **Probe first.** An initial "gone" means the session was *already* absent →
-   outcome `gone`, zero interrupts sent. Probing first is what makes `gone` mean
-   "was already gone" rather than "died at some point": a gone observed only
-   *after* interrupts is `graceful` instead, and without the initial probe the
-   two are indistinguishable.
+1. **Probe first.** An initial "gone" means the session was *already* absent:
+   outcome `gone`, zero interrupts sent.
 2. Send N interrupts up front, with a gap between presses (none before the first,
    none after the last).
-3. Poll presence until the session dies → `graceful`, or the timeout elapses →
-   force kill → `killed`.
+3. Poll presence until the session dies (`graceful`), or the timeout elapses,
+   then force kill (`killed`).
 
-The timeout bounds the **poll phase only**; total wall time is
-`presses*gap + timeout`. Defaults: 1 press, 150ms gap, 150ms poll, 2s timeout.
+The timeout bounds the **poll phase only**. Total wall time is
+`presses*gap + timeout`.
 
-All three outcomes are success; a transport error from any operation propagates
+| Setting | Default |
+|---|---|
+| presses | 1 |
+| gap | 150ms |
+| poll | 150ms |
+| timeout | 2s |
+
+All three outcomes are success. A transport error from any operation propagates
 as an ordinary error instead. Interrupt and force-kill MUST both tolerate a
-not-found error as success-shaped, since a session dying between the probe and
-the call already means the desired state holds.
+not-found error as success-shaped.
+
+#### Why probe first
+
+Probing first is what makes `gone` mean "was already gone" rather than "died at
+some point". A gone observed only *after* interrupts is `graceful` instead, and
+without the initial probe the two are indistinguishable.
+
+#### Why not-found is success
+
+A session dying between the probe and the call already means the desired state
+holds.
 
 ### 2.8.1 Interrupting on zmx
 
 On tmux, `C-c` reaches the foreground process group normally and none of this
 applies. On zmx, writing `0x03` into the session interrupts nothing, for **two
-independent reasons** — conflating them leads to the wrong fix:
+independent reasons**. Conflating them leads to the wrong fix.
 
-**Cause 1 — zmx's send path does not generate a terminal SIGINT.** A foreground
-job with an ordinary default disposition (a `sleep` started by the session's own
-interactive shell) survives `zmx send <target> $'\x03'` indefinitely, yet dies
-immediately from `kill -INT -<foreground pgid>`. The process was willing to die;
-the terminal path never produced a signal.
+#### Cause 1: zmx's send path does not generate a terminal SIGINT
 
-**Cause 2 — an exec-spawned session process inherits `SIGINT` as `SIG_IGN`.** A
-session spawned as `zmx attach <name> sh -c 'trap "echo GOT" INT; …'` never fires
-the trap, because a signal ignored on entry cannot be trapped or reset. For such
-a process `kill -INT -<pgid>` returns success and the process survives, while
-`kill -TERM -<pgid>` kills it instantly. Nothing can interrupt it with `SIGINT` —
-not the terminal, not the OS.
+A foreground job with an ordinary default disposition (a `sleep` started by the
+session's own interactive shell) survives `zmx send <target> $'\x03'`
+indefinitely, yet dies immediately from `kill -INT -<foreground pgid>`. The
+process was willing to die; the terminal path never produced a signal.
 
-Required behavior on zmx:
+#### Cause 2: an exec-spawned session process inherits SIGINT as SIG_IGN
+
+A session spawned as `zmx attach <name> sh -c 'trap "echo GOT" INT; …'` never
+fires the trap, because a signal ignored on entry cannot be trapped or reset.
+For such a process `kill -INT -<pgid>` returns success and the process survives,
+while `kill -TERM -<pgid>` kills it instantly. Nothing can interrupt it with
+`SIGINT`: not the terminal, not the OS.
+
+#### Required behavior on zmx
 
 - Olympus MUST NOT use the terminal `0x03` path to interrupt. It does not
   generate a signal even against a target that would happily die.
@@ -526,89 +627,88 @@ Required behavior on zmx:
   process group**, derived from the leader pid zmx's listing reports and that
   process's controlling-tty `tpgid`. A `tpgid` equal to the leader's own process
   group means the session is at its prompt with no foreground job.
-- **A session running a shell** — the default and common case — then behaves
+- **A session running a shell**, the default and common case, then behaves
   exactly as on tmux.
 - **A session exec'd directly onto a non-shell argv** hits cause 2, and no
   interrupt is possible. Graceful kill MUST fall through to force-kill, which
   works. This is a property of how zmx spawns, not something Olympus can route
   around at kill time.
 
+The conformance suite MUST assert outcomes **per backend and per session shape**
+rather than papering over the difference with one expectation: shell-backed
+sessions graceful on both, exec-spawned argv sessions graceful on tmux and
+force-killed on zmx.
+
+#### Not done: an exec shim
+
 Resetting `SIGINT` to `SIG_DFL` immediately before `exec` would fix cause 2, but
-requires an exec shim between zmx and the target argv. Out of scope for v1;
+requires an exec shim between zmx and the target argv. It is out of scope, and
 recorded so it is not re-derived.
-
-The conformance suite MUST assert outcomes **per backend and per session shape** —
-shell-backed sessions graceful on both, exec-spawned argv sessions graceful on
-tmux and force-killed on zmx — rather than papering over the difference with one
-expectation.
-
-### 2.11 Renaming
-
-A target MAY be given a new name in place, and the name is then what listings
-and every client show and what the target answers to. It is a capability,
-`rename` (§13): zmx and meja fix a session's name at creation, so a caller has
-to know before asking.
-
-The target reaches the backend as given, as §8.10's focus does, because the
-point is the level below the session that §10.1's resolution would discard:
-
-- **herdr** renames the level the target names — a workspace, a tab or a pane
-  — each of which carries its own label. The new label is held to the same
-  rule as a created session's name (§10): one spelled like an id would shadow
-  the id.
-- **tmux** renames a session, a `<session>:<window>`, or sets a pane's title
-  from a pane id. A session name carrying a colon is refused as `USAGE`
-  rather than handed to tmux, which would rewrite the colon to an underscore
-  (§8.9) and leave the caller addressing a name that does not exist.
-
-Presence is gated through the resolved session first, so a target naming
-nothing is `SESSION_NOT_FOUND`; an empty name is `USAGE`.
 
 ### 2.9 Test isolation is a hard requirement
 
-Tests MUST NEVER touch the operator's live default server.
+Tests MUST NEVER touch the operator's live default server. Session-name
+namespacing alone is not sufficient on any backend.
 
-- **tmux**: use a private socket per test process. A PATH inside a directory the
-  test owns is preferred over a NAME: killing a server does not unlink its
-  socket, so named sockets accumulate in the directory shared with the
-  operator's own servers, while a path disappears with its directory.
-- **zmx**: there is no socket flag at all. Sessions are global to one daemon per
-  user, and the daemon's socket directory resolves from environment with priority
-  `ZMX_DIR` > `XDG_RUNTIME_DIR` > `TMPDIR`. Session-name namespacing alone does
-  **not** protect the operator: however carefully named, every test session still
-  lands on that one shared daemon, and test churn there destabilizes real live
-  attach clients. Tests MUST set `ZMX_DIR` to a private temporary directory — for
-  the backend instance *and* for every raw `zmx` verification or cleanup call.
+| Backend | Isolation |
+|---|---|
+| tmux | a private socket PATH per test process, inside a directory the test owns |
+| zmx | `ZMX_DIR` set to a private temporary directory |
+| meja | a socket PATH (`-S`), never a profile name (`-L`) |
+| herdr | a private socket path, with the configuration and state directories moved with it |
+
+#### tmux
+
+A path is preferred over a NAME. Killing a server does not unlink its socket, so
+named sockets accumulate in the directory shared with the operator's own
+servers, while a path disappears with its directory.
 
 A shared external server addressed by a bare literal name is a real collision
 surface: two processes pointing at the same tmux socket name can crash the same
 underlying server out from under each other.
 
-- **meja**: use a socket PATH (`-S`), never a profile name (`-L`). meja stores a
-  server's session RECOVERY FILES beside its socket, so a named profile would
-  leave persisted test sessions in the operator's own store, to reappear on
-  their next restore. A path takes the recovery store with it.
+#### zmx
 
-- **herdr**: a private socket path is necessary and **not sufficient**, and this
-  is the sharpest version of the trap the two entries above describe. herdr
-  keeps the unnamed session's persisted layout — the workspaces and tabs a
-  restore brings back — in its CONFIGURATION directory rather than beside its
-  socket, and that directory is chosen from the environment
-  (`XDG_CONFIG_HOME`, else `$HOME/.config/herdr`) with no reference to which
-  socket is in use. A second server on a private socket therefore overwrites
-  `~/.config/herdr/session.json` while touching none of the operator's live
-  sessions, which is a way to destroy their saved work that no amount of care
-  about session names would catch.
+zmx has no socket flag at all. Sessions are global to one daemon per user, and
+the daemon's socket directory resolves from environment with priority
+`ZMX_DIR` > `XDG_RUNTIME_DIR` > `TMPDIR`.
 
-  The configuration and state directories MUST therefore move WITH the socket,
-  and the pairing MUST be derived rather than separately configurable: a caller
-  who moved one and not the other is back to the case above, and would have no
-  way of knowing.
+However carefully named, every test session still lands on that one shared
+daemon, and test churn there destabilizes real live attach clients. Tests MUST
+set `ZMX_DIR` to a private temporary directory, for the backend instance *and*
+for every raw `zmx` verification or cleanup call.
 
-  Two further consequences of the same fact, both good. A server on a moved
-  configuration directory reads no `config.toml` of the operator's, so unlike
-  tmux (§17.5) a private socket here IS a private configuration. And there is no
-  socket-name form to get wrong, because herdr addresses a server by path only.
+#### meja
+
+meja stores a server's session RECOVERY FILES beside its socket. A named profile
+would leave persisted test sessions in the operator's own store, to reappear on
+their next restore. A path takes the recovery store with it.
+
+#### herdr
+
+A private socket path is necessary and **not sufficient**. herdr keeps the
+unnamed session's persisted layout (the workspaces and tabs a restore brings
+back) in its CONFIGURATION directory rather than beside its socket. That
+directory is chosen from the environment (`XDG_CONFIG_HOME`, else
+`$HOME/.config/herdr`) with no reference to which socket is in use.
+
+A second server on a private socket therefore overwrites
+`~/.config/herdr/session.json` while touching none of the operator's live
+sessions. That destroys their saved work in a way no care about session names
+would catch.
+
+The configuration and state directories MUST therefore move WITH the socket, and
+the pairing MUST be derived rather than separately configurable. A caller who
+moved one and not the other is back to the case above, and would have no way of
+knowing.
+
+Two further consequences of the same fact, both good:
+
+- A server on a moved configuration directory reads no `config.toml` of the
+  operator's. Unlike tmux (§17.5), a private socket here IS a private
+  configuration.
+- There is no socket-name form to get wrong, because herdr addresses a server by
+  path only.
 
 #### 2.9.1 Driving a server Olympus did not start
 
@@ -617,94 +717,148 @@ mode, not a degraded one: a box's own headless herdr, or an operator's, holding
 panes that other tools created. It is the case the backend exists for, and the
 rules are all about restraint.
 
-- **A server that answers is never started, restarted or reconfigured.** The
-  create path probes first and, finding one, uses it. Managed configuration
-  (§17.5) MUST NOT be written for it: that server was booted against a
-  directory of somebody else's and would never read the file, so writing one
-  would be a claim rather than a change.
-- **Only the handle that started a server may stop it.** Stopping takes every
-  pane on the server down, including every one the caller never mentioned, so a
-  request to stop a server this handle did not start MUST be refused as
-  `CONFLICT` rather than obeyed.
-- **Ownership is RECORDED, never inferred**, for the reason §17.5 already gives
-  about tmux: nothing observable distinguishes a server Olympus booted from one
-  it found, and a server started by an earlier Olympus process is not this
-  handle's either. The fact is written down when the server is started and read
-  back from there — and deliberately not written for a server selected by NAME,
-  which Olympus may start but never owns (§13.2), so the refusal above applies
-  to it as it does to one Olympus never touched.
-- **The configuration directory follows ownership for the ATTACH client, and
-  only for it.** Every other verb this backend runs is a JSON request over the
-  socket and reads no configuration; the attach client loads it and takes its
-  mouse capture, scroll lines, focus-redraw, host-cursor, sound and paste-key
-  settings from there (`src/client/mod.rs:1225-1234`, reached from
-  `run_terminal_attach` at `src/client/mod.rs:940-947`). So an attach onto a
-  server this handle started uses this backend's own directory, and an attach
-  onto anybody else's uses the ambient one — otherwise a human attaching to
-  their own terminal would find it configured like a fresh install.
+##### A server that answers is never started, restarted or reconfigured
+
+The create path probes first and, finding one, uses it. Managed configuration
+(§17.5) MUST NOT be written for it. That server was booted against somebody
+else's directory and would never read the file, so writing one would be a claim
+rather than a change.
+
+##### Only the handle that started a server may stop it
+
+Stopping takes every pane on the server down, including every one the caller
+never mentioned. A request to stop a server this handle did not start MUST be
+refused as `CONFLICT` rather than obeyed.
+
+##### Ownership is recorded, never inferred
+
+Nothing observable distinguishes a server Olympus booted from one it found
+(§17.5 gives the same reason for tmux), and a server started by an earlier
+Olympus process is not this handle's either. The fact is written down when the
+server is started and read back from there.
+
+It is deliberately not written for a server selected by NAME, which Olympus may
+start but never owns (§13.2). The refusal above applies to such a server as it
+does to one Olympus never touched.
+
+##### The configuration directory follows ownership for the attach client only
+
+Every other verb this backend runs is a JSON request over the socket and reads
+no configuration. The attach client loads it and takes its mouse capture, scroll
+lines, focus-redraw, host-cursor, sound and paste-key settings from there
+(`src/client/mod.rs:1225-1234`, reached from `run_terminal_attach` at
+`src/client/mod.rs:940-947`).
+
+So an attach onto a server this handle started uses this backend's own
+directory, and an attach onto anybody else's uses the ambient one. Otherwise a
+human attaching to their own terminal would find it configured like a fresh
+install.
 
 ### 2.10 meja routes input through a client
 
-**How much of this applies depends on the meja version**, and both answers are
-in support (§0.5 floors meja at 0.0.25). Measured on both:
+**How much of this applies depends on the meja version**, and both versions are
+supported (§0.5 floors meja at 0.0.25). Measured on both:
 
 | on a session with NO client attached | 0.0.25 | 0.0.26 |
 | --- | --- | --- |
-| `send-keys` — literal, named key, control key | refused | delivered |
+| `send-keys`: literal, named key, control key | refused | delivered |
 | `set-buffer` | accepted | accepted |
 | `paste-buffer` | refused | delivered |
 | `send-keys -X` (copy mode) | refused | **refused** |
 | listing, capture | accepted | accepted |
 
-Through 0.0.25 meja refuses every input command on a clientless session —
+Through 0.0.25 meja refuses every input command on a clientless session.
 `send-keys` and `paste-buffer` both answer `command requires an attached
 client`, even when given an explicit `-t`. That is a structural difference from
 tmux and zmx, which take input from any caller.
 
-From 0.0.26 it is not: ordinary input is routed straight to the pane, and the
-refusal narrows to copy mode alone, which answers `send-keys -X requires an
-attached client`. Delivery was confirmed by capture, not by exit status — a
-zero exit says the command was accepted, not that the keys arrived.
+From 0.0.26 ordinary input is routed straight to the pane, and the refusal
+narrows to copy mode alone, which answers `send-keys -X requires an attached
+client`. Delivery was confirmed by capture, not by exit status: a zero exit says
+the command was accepted, not that the keys arrived.
 
 Observation never needed a client on either.
 
-Olympus therefore attaches a **transient headless client** only when an
-injection is refused, which on 0.0.26 is never for ordinary input. It MUST NOT
-hold a durable one: a CLI process runs once and exits, so there is nowhere to
-keep it, and a process that outlived the command to hold it would be the daemon
-§6.7 rules out. Measured cost of attach-inject-detach: 68ms cold, 23ms warm.
-
-The rules below did NOT follow from the refusal and are not weakened by its
-narrowing: the sizing rule governs any client Olympus attaches, and `Follow`
+The rules below do not depend on the refusal and are not weakened by its
+narrowing. The sizing rule governs any client Olympus attaches, and `Follow`
 still attaches one on every version.
 
-The operation MUST be attempted first, and the client created only if it
-refuses. A session a human is already sitting in has a client, and joining it
-with a second one is not free — see the size rule below. The retry after
-attaching MUST poll the OPERATION rather than a status field: the question is
-whether the command works yet, and asking it directly cannot disagree with
-itself.
+#### A transient client, only on refusal
 
-**A transient client MUST be sized to the session's current geometry.** meja
-sizes a session to its SMALLEST client and does NOT restore the size when that
-client leaves. Measured: a human attached at 200x50 gives a 200x49 pane; a
+Olympus attaches a **transient headless client** only when an injection is
+refused, which on 0.0.26 is never for ordinary input. It MUST NOT hold a durable
+one. Measured cost of attach-inject-detach: 68ms cold, 23ms warm.
+
+The operation MUST be attempted first, and the client created only if it
+refuses. The retry after attaching MUST poll the OPERATION rather than a status
+field.
+
+##### Why
+
+A CLI process runs once and exits, so there is nowhere to keep a durable client.
+A process that outlived the command to hold one would be the daemon §6.7 rules
+out.
+
+A session a human is already sitting in has a client, and joining it with a
+second one is not free (see the size rule below). The retry polls the operation
+because the question is whether the command works yet, and asking it directly
+cannot disagree with itself.
+
+#### A transient client MUST be sized to the session's current geometry
+
+The request is the pane's current width and its height **plus one row**. meja
+reserves one row for its status bar and subtracts it from every client, so this
+measures as leaving the geometry untouched.
+
+##### Why
+
+meja sizes a session to its SMALLEST client and does NOT restore the size when
+that client leaves. Measured: a human attached at 200x50 gives a 200x49 pane; a
 client attaching at 80x24 shrinks it to 80x23, and it stays there after that
-client exits. A driving client of the wrong size therefore reshapes somebody
-else's terminal, silently and permanently. The correct request is the pane's
-current width and its height **plus one row** — meja reserves one row for its
-status bar and subtracts it from every client — which measures as leaving the
-geometry untouched.
+client exits. A driving client of the wrong size reshapes somebody else's
+terminal, silently and permanently.
+
+#### A refusal is not absence
 
 `command requires an attached client` MUST NOT be collapsed into absence. It
 shares an error class with an unreachable server but means the opposite of
 missing: the session is there, and the client Olympus needed was not.
 
-**Following needs no output tap, because a client is one.** meja has no
-`pipe-pane` equivalent, but everything a session renders is written to every
-attached client, so a headless client whose PTY is handed back is a copy of the
-stream rather than a reconstruction of it. Polling a capture instead would be a
-different thing under the same name: it drops whatever is overwritten between
-two reads, and a follow that silently loses output is worse than none.
+#### Following needs no output tap
+
+meja has no `pipe-pane` equivalent, but everything a session renders is written
+to every attached client. A headless client whose PTY is handed back is a copy
+of the stream rather than a reconstruction of it.
+
+Polling a capture instead would be a different thing under the same name. It
+drops whatever is overwritten between two reads, and a follow that silently
+loses output is worse than none.
+
+### 2.11 Renaming
+
+A target MAY be given a new name in place. The name is then what listings and
+every client show and what the target answers to.
+
+It is a capability, `rename` (§13), true on tmux and herdr. zmx and meja fix a
+session's name at creation, so a caller has to know before asking.
+
+The target reaches the backend as given, as §8.10's focus does, because the
+point is the level below the session that §10.1's resolution would discard:
+
+| Backend | What is renamed |
+|---|---|
+| herdr | the level the target names: a workspace, a tab or a pane, each of which carries its own label |
+| tmux | a session, a `<session>:<window>`, or a pane's title from a pane id |
+
+On herdr the new label is held to the same rule as a created session's name
+(§10): one spelled like an id would shadow the id.
+
+On tmux a session name carrying a colon is refused as `USAGE` rather than handed
+to tmux. tmux would rewrite the colon to an underscore (§8.9) and leave the
+caller addressing a name that does not exist.
+
+Presence is gated through the resolved session first, so a target naming nothing
+is `SESSION_NOT_FOUND`. An empty name is `USAGE`.
 
 ---
 
@@ -716,15 +870,15 @@ two reads, and a follow that silently loses output is worse than none.
 
 - It lacks the `clients` column, so attachment state cannot be computed.
 - It **silently omits rows** for any session daemon that fails an internal
-  1-second probe — including a live-but-busy daemon under heavy PTY output, not
-  only a dead one. Using it for a liveness snapshot makes a merely slow session
-  look gone and gets it wrongly reaped.
+  1-second probe. That includes a live-but-busy daemon under heavy PTY output,
+  not only a dead one. Using it for a liveness snapshot makes a merely slow
+  session look gone and gets it wrongly reaped.
 
 The long (default, tab-separated `key=value`) form keeps those rows, tagged with
 an `err` field.
 
 zmx has no separate session-id concept: the identity IS the name. Session ID MUST
-equal session name — never the OS pid, which changes when a named session
+equal session name, never the OS pid, which changes when a named session
 restarts.
 
 ### 3.2 Liveness is tri-state, and the backend owns the classification
@@ -733,11 +887,14 @@ Every listed session and pane row MUST carry a liveness classification produced
 **by the backend**, so consumers never parse backend-specific error strings to
 make a reap decision:
 
-- **`present`** — a live session the backend vouches for.
-- **`gone`** — positive evidence of death. Safe to finalize and reap.
-- **`unknown`** — the row exists but could not be confirmed this pass.
-  Indeterminate; consumers MUST treat it as present for reap purposes. Never
-  finalize on doubt.
+| Liveness | Meaning |
+|---|---|
+| `present` | a live session the backend vouches for |
+| `gone` | positive evidence of death; safe to finalize and reap |
+| `unknown` | the row exists but could not be confirmed this pass |
+
+`unknown` is indeterminate, and consumers MUST treat it as present for reap
+purposes. Never finalize on doubt.
 
 | Backend | Condition | Liveness |
 |---|---|---|
@@ -745,136 +902,174 @@ make a reap decision:
 | zmx | no `err` field | `present` |
 | zmx | `err=ConnectionRefused` | `gone` |
 | zmx | any other `err` (e.g. `Timeout`) | `unknown` |
+| meja | any listed row | `present` |
 | herdr | any listed row | `present` |
 
 `err=ConnectionRefused` is the *only* definitive death signal: zmx itself already
 deleted the stale socket this pass.
 
-Leaving this classification consumer-side is how it gets lost — a listing that
-synthesizes every row as alive gives consumers no `gone` signal at all, and dead
-rows survive reconciliation forever.
-
 A tmux corpse (`remain-on-exit`) stays `present` with the dead flag set. Liveness
 and deadness are different questions.
+
+#### Why the backend classifies
+
+Leaving this classification consumer-side is how it gets lost. A listing that
+synthesizes every row as alive gives consumers no `gone` signal at all, and dead
+rows survive reconciliation forever.
 
 ### 3.3 "No server running" is an empty list, not an error
 
 There is nothing to find; nothing went wrong asking.
 
-**A listing is eventually consistent after a kill.** zmx keeps reporting a
-just-killed session for a fraction of a second while it tears the socket down,
-and reports it with `err=Unexpected` — which §3.2 classifies as `unknown`, not
-`gone`. That is the tri-state working as designed: the row is genuinely
-indeterminate during that window, and a consumer that reaped on it would be
-finalizing on doubt. Nothing may require the row to have vanished the instant a
-kill returns; what is required is that the listing converges.
+#### A listing is eventually consistent after a kill
+
+zmx keeps reporting a just-killed session for a fraction of a second while it
+tears the socket down, and reports it with `err=Unexpected`. §3.2 classifies
+that as `unknown`, not `gone`.
+
+That is the tri-state working as designed: the row is indeterminate during that
+window, and a consumer that reaped on it would be finalizing on doubt. Nothing
+may require the row to have vanished the instant a kill returns. What is
+required is that the listing converges.
 
 ### 3.4 Pane metadata divergences
 
-These fields exist on every backend with genuinely different meanings, and MUST
-be documented at every door rather than reported as equivalent.
+These fields exist on every backend with different meanings, and MUST be
+documented at every door rather than reported as equivalent.
+
+#### herdr's levels
 
 **On herdr a session is a WORKSPACE, a window is a TAB, and a pane is a pane.**
 The mapping, the three target shapes and what every verb does at each level are
-specified once, in §3.6, and every door cites it rather than restating it. What
-belongs here is the field-level consequence: a pane row's `session_name` is its
-workspace's name (the label, else the id), `session_id` is the workspace id, and
-`window_index` is the tab's number — a public number, so the tenth tab is
-`w1:tA` and its panes report 10.
+specified once, in §3.6, and every door cites it rather than restating it.
 
-**`created_at` on herdr is derived from the pane's terminal id**, because herdr
-exposes no creation time anywhere in its API. The id is allocated as the
-microseconds since the epoch in hex followed by a counter, so the leading
-thirteen hex digits are the timestamp — a split that holds from 2001 until well
-past 2300. This is a deliberate trade against a `ps` call per listed pane for the
-shell's process start time: it costs nothing, and if the id's shape ever moves it
-yields an implausible epoch that fails §3.4's conformance case loudly rather than
-a plausible wrong one.
+The field-level consequence: a pane row's `session_name` is its workspace's name
+(the label, else the id), `session_id` is the workspace id, and `window_index`
+is the tab's number. It is a public number, so the tenth tab is `w1:tA` and its
+panes report 10.
 
-**`created_at` is session-granular on tmux and zmx**, for different reasons.
-tmux has no per-pane birth time: `#{pane_start_time}` and `#{pane_created}` do
+#### `created_at`
+
+| Backend | Source | Granularity |
+|---|---|---|
+| tmux | `#{session_created}` | session |
+| zmx | the listing's `created` field | session |
+| herdr | the pane's terminal id | pane |
+
+tmux has no per-pane birth time. `#{pane_start_time}` and `#{pane_created}` do
 not exist and expand to the empty string *with exit 0*, so trusting a wrong
-format variable yields a silently zeroed column rather than an error. The only
-usable birth time is `#{session_created}`. zmx has a real per-row `created` field,
-read directly.
+format variable yields a silently zeroed column rather than an error.
+
+herdr exposes no creation time anywhere in its API. Its terminal id is allocated
+as the microseconds since the epoch in hex followed by a counter, so the leading
+thirteen hex digits are the timestamp. That split holds from 2001 until well past
+2300.
+
+##### Why the terminal id on herdr
+
+The alternative is a `ps` call per listed pane for the shell's process start
+time. The id costs nothing, and if its shape ever moves it yields an implausible
+epoch that fails §3.4's conformance case loudly rather than a plausible wrong
+one.
+
+#### `pid`
 
 **`pid` is 0 where the backend does not report one.** It is the pane's own
-process — tmux's `#{pane_pid}`, the `pid=` field of zmx's listing — and the
-root the agent listing walks (§3.7). meja's format has no such variable and
-herdr's snapshot carries no process id, so their rows omit it; a caller on
-those backends gets the foreground-command match and nothing deeper.
+process (tmux's `#{pane_pid}`, the `pid=` field of zmx's listing) and the root
+the agent listing walks (§3.7).
+
+meja's format has no such variable and herdr's snapshot carries no process id,
+so their rows omit it. A caller on those backends gets the foreground-command
+match and nothing deeper.
+
+#### `focused`
 
 **The session listing's `focused` flag says what every client is showing, and
-only where that is one thing.** herdr's server has one focused workspace and
-reports it on every version. Below 0.9.0 every session client on that server
-displays it, which is what makes it worth reporting to a consumer steering
-clients (§8.10): a client whose target is not the focused workspace is showing
-something the caller did not ask for, and the flag is how that is told. From
-0.9.0 each client keeps whatever it was last steered onto, so the server's
-focus says where the NEXT client will land rather than what the running ones
-display. Measured 2026-09-10 with two clients on one server and
-`ui.window_title = "{workspace}"` naming what each showed: on 0.8.2 focusing a
-third workspace moved both clients onto it, on 0.9.0 it moved the foreground
-client alone and left the other where it was.
+only where that is one thing.**
 
-So the flag is set on NO row from 0.9.0, rather than on a row that would answer
-a different question. A consumer reads the absence of the flag across a listing
-as "this backend cannot say", never as "the focus is elsewhere" — the wire
-shape is the same one every backend without a shared focus produces. This is
-the one place a herdr version decides behavior instead of a request being made
-and its refusal read (§12), because herdr publishes nothing to ask: both builds
-report one focus through the same field, and the per-client view lives behind
-the client protocol where no API request reaches it.
+herdr's server has one focused workspace and reports it on every version:
 
-A consequence: **pane id is not unique across rows** once a grouped view exists,
-because a base session and its views share the same underlying window and pane,
-so a full pane listing reports the same pane id for every group member. Consumers
-needing one row per logical session MUST dedupe by pane id, keeping the earliest
-`created_at` (the base, not a later view).
+| herdr | What the server's focus means | `focused` |
+|---|---|---|
+| below 0.9.0 | the workspace every session client on that server displays | set on that row |
+| 0.9.0 and later | where the NEXT client will land; each running client keeps whatever it was last steered onto | set on no row |
 
-**`current_path`** is live on tmux (`#{pane_current_path}` tracks `cd` in real
-time) and **static on zmx** (`start_dir`, captured at session creation and never
-updated). Reading zmx's value as a live tracker reports the original directory
-forever.
+Below 0.9.0 the flag is what a consumer steering clients (§8.10) needs: a client
+whose target is not the focused workspace is showing something the caller did
+not ask for.
 
-**`current_command`** is the foreground process's binary name on tmux — live,
-tracking whatever has taken over the pane. On zmx it is not live: a listing row
-for an exec-spawned session carries `cmd=<spawn argv>`, and a row for a bare
-shell session carries no such field. So on zmx this reports the **spawn** command
-statically, exactly as `current_path` reports the spawn directory.
+Measured with two clients on one server and `ui.window_title = "{workspace}"`
+naming what each showed: on 0.8.2 focusing a third workspace moved both clients
+onto it, on 0.9.0 it moved the foreground client alone and left the other where
+it was.
+
+A consumer reads the absence of the flag across a listing as "this backend
+cannot say", never as "the focus is elsewhere". The wire shape is the same one
+every backend without a shared focus produces.
+
+##### Why from 0.9.0 the flag is absent rather than set
+
+Set, it would answer a different question under the same name.
+
+This is the one place a herdr version decides behavior instead of a request
+being made and its refusal read (§12). herdr publishes nothing to ask: both
+builds report one focus through the same field, and the per-client view lives
+behind the client protocol where no API request reaches it.
+
+#### Pane id is not unique across rows
+
+Once a grouped view exists, a base session and its views share the same
+underlying window and pane. A full pane listing reports the same pane id for
+every group member.
+
+Consumers needing one row per logical session MUST dedupe by pane id, keeping the
+earliest `created_at` (the base, not a later view).
+
+#### `current_path` and `current_command`
+
+| Backend | `current_path` | `current_command` |
+|---|---|---|
+| tmux | live: `#{pane_current_path}` tracks `cd` | live: the foreground process's binary name |
+| zmx | static: `start_dir`, captured at creation | static: `cmd=<spawn argv>` for an exec-spawned session, absent for a bare shell |
+| herdr | live: the foreground process's own directory | live, but for a TARGETED listing only |
+
+Reading zmx's `current_path` as a live tracker reports the original directory
+forever. zmx's `current_command` reports the **spawn** command statically, as
+`current_path` reports the spawn directory.
 
 Liveness-by-command heuristics ("has a real command taken over from the shell?")
 therefore work on tmux only. A consumer MUST NOT read a non-empty value on zmx as
 evidence that the command is still running.
 
-On herdr both fields are LIVE, and one of them is conditional. `current_path` is
-the foreground process's own directory and follows a `cd`. `current_command` is
-the live foreground process too, but it is a second request per row, and the
-whole-server pane listing is the cheapest read there is — so it is populated
-for a TARGETED listing only, and a whole-server listing leaves it empty rather
-than putting a subprocess per pane on every caller who asked what exists.
+On herdr `current_command` is a second request per row, and the whole-server pane
+listing is the cheapest read there is. A whole-server listing leaves it empty
+rather than putting a subprocess per pane on every caller who asked what exists.
 Disclosed as a degraded operation (§0.8).
 
+#### `attached` on herdr
+
 **`attached` is always false on herdr.** Its socket API reports no per-terminal
-client count, so the field is a declaration rather than an observation, and a
+client count, so the field is a declaration rather than an observation. A
 consumer MUST NOT read false as evidence that nobody is attached.
 
 ### 3.5 Presence probe is tri-state and fails closed
 
-Probe answers `present` / `absent` / `error`, deliberately distinct from
-listing's binary shape where "no server running" flattens into an empty list —
+Probe answers `present` / `absent` / `error`. This is deliberately distinct from
+listing's binary shape, where "no server running" flattens into an empty list
 indistinguishable from "server up, session absent".
 
-The rationale is reconciliation safety: a caller polling across a flaky backend
-needs "definitely gone" and "could not ask" to be different answers, so it
-neither wrongly recreates nor wrongly gives up.
-
-A named target that has never existed is `absent` on both backends **even with no
-server running** — `tmux has-session` and `zmx list` against a truly absent name
-each report a clean not-found, not a connection failure. The `error` arm is
-reserved for genuinely unreachable backends.
+A named target that has never existed is `absent` **even with no server
+running**. `tmux has-session` and `zmx list` against a truly absent name each
+report a clean not-found, not a connection failure. The `error` arm is reserved
+for unreachable backends.
 
 Probe MUST NOT return a transport error; backend failure is the `error` state.
+
+#### Why
+
+Reconciliation safety. A caller polling across a flaky backend needs "definitely
+gone" and "could not ask" to be different answers, so it neither wrongly
+recreates nor wrongly gives up.
 
 ### 3.6 herdr: workspace › tab › pane
 
@@ -885,41 +1080,50 @@ hierarchy maps onto Olympus's the way tmux's does:
 |---|---|---|---|
 | session | workspace | `w5` | its label where it has one, else its id |
 | window | tab | `w5:t2` | `window_index` is the tab's number |
-| pane | pane | `w5:p3` | — |
+| pane | pane | `w5:p3` | none |
 
 Every number is a herdr public number (§10), so the shapes MUST accept letters:
 the tenth workspace is `wA`, the tenth tab of it `wA:tA`.
 
-An earlier revision made every PANE a session, named by its pane label or its
-pane id. That made `ls` on a real herdr a flat list of panes with no workspace
-in sight, `stop` on a "session" close one pane of a workspace, and a caller who
-wanted the workspace — the thing a human sees in the sidebar and the thing a
-fleet tool creates per worker — unable to name it at all. The mapping above is
-what herdr's own vocabulary means, and it is uniform with tmux's, which is why
-it replaced the flat one.
+#### Why not a session per pane
 
-**Naming.** A workspace is named by its label, and by its id where the label is
-empty. herdr labels a workspace from its directory when nobody names it —
-measured: `~` for the home directory, `tmp` for `/tmp` — so an unlabelled
-workspace is one somebody emptied (`workspace rename w4 ""`), and the far more
-common shape is several workspaces carrying the SAME label because they were
-opened in one directory. A label is therefore not unique. Resolution prefers an
-exact id and otherwise takes the lowest-numbered match, which is stable across
-calls; a caller who needs to be exact addresses by id, and every session row
-carries the id beside the name so a listing hands out both. Creation refuses a
-name shaped like any id in the hierarchy (§10), because a workspace with an
-empty label is NAMED by its id and a label of that shape would make one name
-address two workspaces.
+Making every PANE a session made `ls` on a real herdr a flat list of panes with
+no workspace in sight, and `stop` on a "session" closed one pane of a workspace.
+A caller who wanted the workspace (the thing a human sees in the sidebar and the
+thing a fleet tool creates per worker) could not name it at all. The mapping
+above is what herdr's own vocabulary means, and it is uniform with tmux's.
 
-**Three target shapes.** A target's spelling says which level it addresses: a
-pane id is a pane, a tab id is a tab, and anything else is a workspace — by id
-or by label. A verb aimed at a workspace or a tab acts on the pane that level is
-SHOWING: the focused pane of the tab, and for a workspace the focused pane of
-its active tab. Which pane that is comes from the server's own layout rows —
-not from a pane row's `focused` flag, which is focus within the tab and stays
-set on a tab the workspace is no longer showing (measured). Every read that
-resolves a target takes ONE request, `herdr api snapshot`, which carries all
-three levels at one moment; walking `workspace list`, `tab list` and
+#### Naming
+
+A workspace is named by its label, and by its id where the label is empty.
+
+herdr labels a workspace from its directory when nobody names it (measured: `~`
+for the home directory, `tmp` for `/tmp`). An unlabelled workspace is one
+somebody emptied (`workspace rename w4 ""`). The far more common shape is several
+workspaces carrying the SAME label because they were opened in one directory, so
+a label is not unique.
+
+- Resolution prefers an exact id and otherwise takes the lowest-numbered match,
+  which is stable across calls.
+- A caller who needs to be exact addresses by id. Every session row carries the
+  id beside the name, so a listing hands out both.
+- Creation refuses a name shaped like any id in the hierarchy (§10). A workspace
+  with an empty label is NAMED by its id, and a label of that shape would make
+  one name address two workspaces.
+
+#### Three target shapes
+
+A target's spelling says which level it addresses: a pane id is a pane, a tab id
+is a tab, and anything else is a workspace, by id or by label.
+
+A verb aimed at a workspace or a tab acts on the pane that level is SHOWING: the
+focused pane of the tab, and for a workspace the focused pane of its active tab.
+Which pane that is comes from the server's own layout rows. It does not come from
+a pane row's `focused` flag, which is focus within the tab and stays set on a tab
+the workspace is no longer showing (measured).
+
+Every read that resolves a target takes ONE request, `herdr api snapshot`, which
+carries all three levels at one moment. Walking `workspace list`, `tab list` and
 `pane list` would read three moments of a server that changes between them.
 
 | verb | workspace (`w5`, label) | tab (`w5:t2`) | pane (`w5:p3`) |
@@ -932,194 +1136,294 @@ three levels at one moment; walking `workspace list`, `tab list` and
 | probe | present if the workspace exists | if the tab exists | if the pane exists |
 | stop, kill | `workspace close`: every tab and pane | `tab close`: every pane in it | `pane close` |
 | status | the workspace's own metadata | the pane the tab shows | the pane's own metadata |
-| self | the workspace's name | — | — |
+| self | the workspace's name | none | none |
 
-Stopping closes at the level named rather than closing the resolved pane, because
-closing the focused pane of a workspace that has two would leave the workspace
-standing with the other — a session told to stop that did not. Closing the only
-pane of a workspace closes the tab and the workspace with it (measured), so a
-pane-addressed stop of a single-pane session still leaves nothing behind.
+#### Stopping closes at the level named
 
-**A workspace with linked worktree workspaces beside it takes the group with
-it.** herdr refuses a plain `workspace close` on such a workspace with
+Closing the resolved pane instead would be wrong: closing the focused pane of a
+workspace that has two would leave the workspace standing with the other, a
+session told to stop that did not.
+
+Closing the only pane of a workspace closes the tab and the workspace with it
+(measured), so a pane-addressed stop of a single-pane session still leaves
+nothing behind.
+
+#### A workspace with linked worktree workspaces takes the group with it
+
+herdr refuses a plain `workspace close` on such a workspace with
 `workspace_group_close_required`, naming the `--group` flag that closes the
-group, and offers no close that takes the parent alone (measured on 0.8.2 and
-0.9.0 alike). Olympus asks for the narrow close first and widens only on that
-refusal, rather than passing the flag always or reading the server's version:
-the refusal IS the answer, and it is the same on every build that has the flag.
-Widening is what keeps a stop a stop by the paragraph above — a workspace whose
-group stays open is a session told to stop that did not. It is also the one
-place a verb ends more than the target names, since the other workspaces in the
-group are Olympus sessions of their own, and it is recorded here for that
-reason.
+group. It offers no close that takes the parent alone (measured on 0.8.2 and
+0.9.0 alike).
 
-**Creation** makes a workspace with one root pane, labels both with the name,
-and returns the WORKSPACE: `id` is `w5`, `name` is the label. The size is
-accepted and ignored (§2.1), and a command is refused (§2.3.1).
+Olympus asks for the narrow close first and widens only on that refusal, rather
+than passing the flag always or reading the server's version.
+
+##### Why
+
+The refusal IS the answer, and it is the same on every build that has the flag.
+Widening keeps a stop a stop: a workspace whose group stays open is a session
+told to stop that did not.
+
+It is also the one place a verb ends more than the target names, since the other
+workspaces in the group are Olympus sessions of their own. It is recorded here
+for that reason.
+
+#### Creation
+
+Creation makes a workspace with one root pane, labels both with the name, and
+returns the WORKSPACE: `id` is `w5`, `name` is the label. The size is accepted
+and ignored (§2.1), and a command is refused (§2.3.1).
 
 **A pane target is pane-precise here**, which is the one deliberate exception to
 §10.1 and is recorded there.
 
 ### 3.7 Agents in panes
 
-The agent listing answers which panes a coding agent is running in — one of
-the canonical names in the vocabulary below — and, where the backend can
-tell, what it is doing. It is a listing over panes, not a new level of the
-hierarchy: every row names its pane and its session the way a pane row does
-(§3.4, §3.6). Which names those are is not restated here in prose that would
-go stale as agents appear: the vocabulary is a table, and the `kinds` verb
-(api §1) reads it back, so the answer and what detection matches on are the
-same thing.
+The agent listing answers which panes a coding agent is running in (one of the
+canonical names in the vocabulary below) and, where the backend can tell, what
+it is doing.
 
-The verb MUST answer on every backend, and MUST NOT be `UNSUPPORTED`: a
-backend with no way to see an agent still has panes, and a pane whose
-processes include one of the vocabulary's agents IS an agent, whatever else
-the backend cannot say about it. The answer is an array, empty when there is no
-agent, never null.
+It is a listing over panes, not a new level of the hierarchy: every row names its
+pane and its session the way a pane row does (§3.4, §3.6). Which names those are
+is not restated here in prose that would go stale as agents appear. The
+vocabulary is a table, and the `kinds` verb (api §1) reads it back, so the answer
+and what detection matches on are the same thing.
 
-How a row was found MUST be disclosed on the row, in `detected_by`, because
-the two ways differ in what the row can carry:
+#### Every backend answers
 
-- **Native detection** — `detected_by: "herdr"`. The backend watches its
-  panes for agents itself and reports each one's state. A backend with native
-  detection MUST report `status` (`working`, `idle` or `blocked`) and `title`
-  on every row, marked `status_source: "native"`, and MUST set the
-  `agent_status` capability so a caller can learn before asking that the
-  rows will carry them. A state the backend spells that is outside the
-  vocabulary is reported as `unknown`, not passed through: the vocabulary is
-  semver-bound (api §7). A backend MAY spell one of the vocabulary's states
-  more than one way, and every spelling of it MUST be folded onto that state:
-  herdr says `done` for an idle agent nobody has looked at since it stopped
-  and `idle` for one somebody has, and both are `idle` here. That difference
-  is a fact about the OPERATOR rather than about the agent, and only a backend
-  drawing the panes can know it — a status read off a capture never can — so
-  it MUST NOT enter a vocabulary every backend shares.
-- **The command heuristic** — `detected_by: "command"`. The backend has no
-  detection, so the ergonomic layer derives rows from the whole-server pane
-  listing. Where the pane's `pid` is known (§3.4) detection MUST inspect the
-  pane's process subtree, and where it is not, detection MUST fall back to
-  the pane's foreground command, read as an argv. A process is named by its
-  argv the same way in both: by argv0's base name when that is an agent's,
-  and when argv0 is a runtime or shell — sh, bash, zsh, fish, tmux, node,
-  bun, python in any versioned spelling — by the script argument it runs,
-  found by skipping options; an eval flag (`-e`, `-p`, `-c`, `-m`) means it
-  runs no script and names nothing. Names are compared lowercased, with a
-  wrapper suffix (`.js`, `.cmd`) removed. In the subtree the pane's own
-  process is asked first, then its direct children — a pane spawned onto an
-  agent IS the agent, and a pane spawned onto a shell runs it as the shell's
-  child — and only then every process below, where the best-scoring one
-  wins: a name unwrapped from a runtime's argv outranks a plain binary, so
-  `node …/bin/codex` outranks the `codex` helper it forks, and the first
-  found wins among equals. A pane is listed once, whatever else below it
-  carries the name. The heuristic knows the agent's name and nothing else;
-  the status is read off the pane's screen, below, and the row carries no
-  title and no usage.
+The verb MUST answer on every backend, and MUST NOT be `UNSUPPORTED`. The answer
+is an array, empty when there is no agent, never null.
 
-A row MUST name the agent's own process in `pid` where one is known, and
-MUST omit it where none is: on a command-detected row that is the process
-whose argv named the agent, so a match on the foreground command alone
-carries none; on native detection it is the pane's foreground process group
-leader, which is the agent while it holds the terminal, read per row from
-the backend where the listing itself does not say. The pid is a handle, not
-a claim: what the process was started with, and by whom, is the caller's to
-read, and the row says nothing about it.
+##### Why
 
-The name reported is the vocabulary's canonical one, not the token matched.
-The vocabulary is exposed as itself — the `kinds` verb reports every
-canonical name with the executables and package directories that identify it,
-derived from these tables so the two cannot disagree (api §5). It is a table
-of every alias a running agent's binary may carry (`claude-code` and `claude`
-are claude; `cursor-agent` and `cursor` are cursor; `agy`, `antigravity` and
-`antigravity-cli` are agy; muse's launcher execs `muse-bin-<version>`) mapped
-to one name each. An agent installed through npm runs as
-`node …/@anthropic-ai/claude-code/cli.js`, where no token is called claude, so
-the vocabulary also names the package directories that identify one
-(`claude-code` → claude, `@openai/codex` → codex, `@google/gemini-cli` →
-gemini), and a token whose path holds one counts.
+A backend with no way to see an agent still has panes. A pane whose processes
+include one of the vocabulary's agents IS an agent, whatever else the backend
+cannot say about it.
 
-The subtree is why the walk exists: the foreground command a backend reports
-is the pane's process-group leader by its executable name, so an interactive
-shell running an agent reports the shell, or `node` for an agent that is a
-script, and a pane spawned onto a shell on zmx reports the shell's argv
-forever (§3.4). The process table is read once per listing; where it cannot
-be read the listing does not fail, it falls back to the foreground command
-for every pane.
+#### How a row was found
 
-**Status is a real state or nothing.** `status` is `working`, `idle`,
-`blocked` or `unknown`. `blocked` — the agent waiting on a person: a
-permission prompt, a question, a trust dialog — is a state of its own and
-MUST be reported wherever it is known, never folded into `unknown` or
-`idle`; it is the state a caller most needs to act on. `unknown` means no
-evidence, and a row MUST NOT carry any other status without evidence: a
-manifest with no rule matching the screen, an agent with no manifest, a
-capture that failed, are all `unknown` — never a guess, and never a
-fallback to `idle`.
+How a row was found MUST be disclosed on the row, in `detected_by`, because the
+two ways differ in what the row can carry:
 
-**Where the status came from MUST be disclosed**, in `status_source`:
-`native` for a state the backend reported itself, `screen` for one read off
-a capture of the pane. It is omitted when the status is `unknown`, because
-there is nothing to attribute. A screen-derived status MUST be marked
-`screen`: it was read from a snapshot, is only as current as the capture,
-and can be fooled by text on the screen that looks like the agent's own.
+| `detected_by` | Method | What the row carries |
+|---|---|---|
+| `"herdr"` | native detection | name, `status`, `title`, `usage` where reported |
+| `"command"` | the command heuristic | name; `status` read off the screen; no title, no usage |
 
-**Screen-derived status** is how a command-detected row gets a status. For
-each such row the ergonomic layer captures the pane's session — the visible
-screen, no scrollback, which is the viewport the rules were written against;
-on a backend whose only capture is the whole scrollback the last 24 lines
-stand in for it — trims trailing blanks off every row, and evaluates the
-agent's manifest over it: the agent's own rules for what its screen shows
-while working, idle or blocked, plus the pane's title where the backend
-reports one, which is the title the agent set through OSC 0/2. A pane title
-that is only the terminal's default (tmux's host name) is not the agent's
-word and is not passed. The capture addresses the session, whose screen is
-its active pane's (§10); a session holding more than one pane therefore has
-its agent rows left `unknown` rather than read off a screen that may be
-another pane's. The cost is one capture per command-detected row per call,
-and only for agents that have a manifest. The `agent_status` capability is
-true on every backend whose panes can be captured, which is all of them;
-`status_source` says which kind of status a row carries.
+##### Native detection
 
-The manifests are herdr's, vendored (`internal/agentstate/manifests/`,
-Apache 2.0) and evaluated by a port of herdr's engine: regions of the screen
-(the bottom N non-blank lines, what follows the last horizontal rule, the
-composer box, the title), matchers over them (substrings, case-insensitive;
-regular expressions; per-line regular expressions; `any`, `all` and `not`
-gates), and a priority per rule — the highest matching rule wins, the first
-in the manifest among equals. A rule marked `skip_state_update` recognises
-an overlay through which the state cannot be read (a transcript viewer, a
-model picker) and yields `unknown`. One departure from herdr, deliberate:
-herdr watches a pane continuously and falls back to `idle` when nothing
-matches, because a screen with no evidence there is a settled screen; a
-listing reads one snapshot, so here nothing matching is `unknown`. Agents
-with no manifest upstream (aider, goose, omp, mastracode) are listed with
+The backend watches its panes for agents itself and reports each one's state.
+
+- A backend with native detection MUST report `status` (`working`, `idle` or
+  `blocked`) and `title` on every row, marked `status_source: "native"`.
+- It MUST set the `agent_status` capability, so a caller can learn before asking
+  that the rows will carry them.
+- A state the backend spells that is outside the vocabulary is reported as
+  `unknown`, not passed through: the vocabulary is semver-bound (api §7).
+- A backend MAY spell one of the vocabulary's states more than one way, and every
+  spelling of it MUST be folded onto that state. herdr says `done` for an idle
+  agent nobody has looked at since it stopped and `idle` for one somebody has,
+  and both are `idle` here.
+
+That `done`/`idle` difference is a fact about the OPERATOR rather than about the
+agent. Only a backend drawing the panes can know it, and a status read off a
+capture never can, so it MUST NOT enter a vocabulary every backend shares.
+
+##### The command heuristic
+
+The backend has no detection, so the ergonomic layer derives rows from the
+whole-server pane listing.
+
+- Where the pane's `pid` is known (§3.4), detection MUST inspect the pane's
+  process subtree.
+- Where it is not, detection MUST fall back to the pane's foreground command,
+  read as an argv.
+
+A process is named by its argv the same way in both:
+
+- By argv0's base name when that is an agent's.
+- When argv0 is a runtime or shell (sh, bash, zsh, fish, tmux, node, bun, python
+  in any versioned spelling), by the script argument it runs, found by skipping
+  options. An eval flag (`-e`, `-p`, `-c`, `-m`) means it runs no script and
+  names nothing.
+- Names are compared lowercased, with a wrapper suffix (`.js`, `.cmd`) removed.
+
+In the subtree the order is:
+
+1. The pane's own process. A pane spawned onto an agent IS the agent.
+2. Its direct children. A pane spawned onto a shell runs the agent as the shell's
+   child.
+3. Every process below, where the best-scoring one wins. A name unwrapped from a
+   runtime's argv outranks a plain binary, so `node …/bin/codex` outranks the
+   `codex` helper it forks. The first found wins among equals.
+
+A pane is listed once, whatever else below it carries the name. The heuristic
+knows the agent's name and nothing else: the status is read off the pane's
+screen (below), and the row carries no title and no usage.
+
+The process table is read once per listing. Where it cannot be read the listing
+does not fail: it falls back to the foreground command for every pane.
+
+##### Why walk the subtree
+
+The foreground command a backend reports is the pane's process-group leader by
+its executable name. An interactive shell running an agent reports the shell, or
+`node` for an agent that is a script. A pane spawned onto a shell on zmx reports
+the shell's argv forever (§3.4).
+
+#### `pid` on an agent row
+
+A row MUST name the agent's own process in `pid` where one is known, and MUST
+omit it where none is:
+
+- On a command-detected row it is the process whose argv named the agent, so a
+  match on the foreground command alone carries none.
+- On native detection it is the pane's foreground process group leader, which is
+  the agent while it holds the terminal. It is read per row from the backend
+  where the listing itself does not say.
+
+The pid is a handle, not a claim. What the process was started with, and by
+whom, is the caller's to read, and the row says nothing about it.
+
+#### The vocabulary
+
+The name reported is the vocabulary's canonical one, not the token matched. The
+`kinds` verb reports every canonical name with the executables and package
+directories that identify it, derived from these tables so the two cannot
+disagree (api §5).
+
+It maps every alias a running agent's binary may carry to one name each:
+
+| Aliases | Canonical name |
+|---|---|
+| `claude-code`, `claude` | claude |
+| `cursor-agent`, `cursor` | cursor |
+| `agy`, `antigravity`, `antigravity-cli` | agy |
+| `muse-bin-<version>` (what muse's launcher execs) | muse |
+
+An agent installed through npm runs as `node …/@anthropic-ai/claude-code/cli.js`,
+where no token is called claude. The vocabulary also names the package
+directories that identify one, and a token whose path holds one counts:
+
+| Package directory | Canonical name |
+|---|---|
+| `claude-code` | claude |
+| `@openai/codex` | codex |
+| `@google/gemini-cli` | gemini |
+
+#### Status is a real state or nothing
+
+`status` is `working`, `idle`, `blocked` or `unknown`.
+
+- `blocked` is the agent waiting on a person: a permission prompt, a question, a
+  trust dialog. It is a state of its own and MUST be reported wherever it is
+  known, never folded into `unknown` or `idle`. It is the state a caller most
+  needs to act on.
+- `unknown` means no evidence. A row MUST NOT carry any other status without
+  evidence. A manifest with no rule matching the screen, an agent with no
+  manifest, a capture that failed: all are `unknown`, never a guess, and never a
+  fallback to `idle`.
+
+#### Where the status came from MUST be disclosed
+
+`status_source` is `native` for a state the backend reported itself, and `screen`
+for one read off a capture of the pane. It is omitted when the status is
+`unknown`, because there is nothing to attribute.
+
+A screen-derived status MUST be marked `screen`. It was read from a snapshot, is
+only as current as the capture, and can be fooled by text on the screen that
+looks like the agent's own.
+
+#### Screen-derived status
+
+This is how a command-detected row gets a status. For each such row the
+ergonomic layer:
+
+1. Captures the pane's session: the visible screen, no scrollback, which is the
+   viewport the rules were written against. On a backend whose only capture is
+   the whole scrollback, the last 24 lines stand in for it.
+2. Trims trailing blanks off every row.
+3. Evaluates the agent's manifest over it: the agent's own rules for what its
+   screen shows while working, idle or blocked, plus the pane's title where the
+   backend reports one (the title the agent set through OSC 0/2).
+
+A pane title that is only the terminal's default (tmux's host name) is not the
+agent's word and is not passed.
+
+The capture addresses the session, whose screen is its active pane's (§10). A
+session holding more than one pane therefore has its agent rows left `unknown`
+rather than read off a screen that may be another pane's.
+
+The cost is one capture per command-detected row per call, and only for agents
+that have a manifest. The `agent_status` capability is true on every backend
+whose panes can be captured, which is all of them. `status_source` says which
+kind of status a row carries.
+
+#### The manifests
+
+The manifests are herdr's, vendored (`internal/agentstate/manifests/`, Apache
+2.0) and evaluated by a port of herdr's engine:
+
+- regions of the screen: the bottom N non-blank lines, what follows the last
+  horizontal rule, the composer box, the title;
+- matchers over them: substrings (case-insensitive), regular expressions,
+  per-line regular expressions, and `any`, `all` and `not` gates;
+- a priority per rule: the highest matching rule wins, the first in the manifest
+  among equals.
+
+A rule marked `skip_state_update` recognises an overlay through which the state
+cannot be read (a transcript viewer, a model picker) and yields `unknown`.
+
+Agents with no manifest upstream (aider, goose, omp, mastracode) are listed with
 `unknown` and their screens are not captured.
 
-**What the agent said is asked for, never assumed.** `status` says somebody
-is needed; it does not say what for, and a caller that has to act on a
-blocked row needs the question. `last` carries one line of the agent's own
-output: what it last said, or, where the row is `blocked`, the question it
-is waiting on. It MUST be filled only where the caller asked for it, and
-MUST be omitted otherwise — a row whose status came from the backend was
-never captured, and filling this captures it, one call per row, so a caller
-that only wants to know what is running MUST NOT pay for one that wants to
-know what it said. Empty is the honest answer and MUST NOT be replaced by a
-guess: a screen with nothing to say, an agent with no manifest, a capture
-that failed all leave it empty, and the row is still an agent.
+##### One departure from herdr
 
-The line is read with the manifests' own regions rather than rules invented
-for it: the last non-blank line above the composer box for an agent that is
-not blocked, which is also what drops the status area the box sits on; for a
-blocked one the last line ending in a question mark within the bottom 30,
-else the last line after the final horizontal rule, since a dialog states
-its case where it does not ask. Box borders, a TUI's own key hints and the
-client's unread-message overlay are not the agent's words and are dropped.
+herdr watches a pane continuously and falls back to `idle` when nothing matches,
+because a screen with no evidence there is a settled screen. A listing reads one
+snapshot, so here nothing matching is `unknown`.
 
-`usage`, where a natively detecting backend reports it, is the agent's own
-quota readout: an ordered list of `{label, percent}` bars, the label as the
-agent spells it (`5h`, `7d`, a model name) and the percent an integer 0–100.
+#### What the agent said is asked for, never assumed
+
+`last` carries one line of the agent's own output: what it last said, or, where
+the row is `blocked`, the question it is waiting on.
+
+It MUST be filled only where the caller asked for it, and MUST be omitted
+otherwise. Empty is the honest answer and MUST NOT be replaced by a guess: a
+screen with nothing to say, an agent with no manifest, a capture that failed all
+leave it empty, and the row is still an agent.
+
+##### Why
+
+`status` says somebody is needed. It does not say what for, and a caller that
+has to act on a blocked row needs the question.
+
+A row whose status came from the backend was never captured, and filling `last`
+captures it, one call per row. A caller that only wants to know what is running
+MUST NOT pay for one that wants to know what it said.
+
+##### How the line is read
+
+The line is read with the manifests' own regions rather than rules invented for
+it:
+
+| Row status | Line |
+|---|---|
+| not `blocked` | the last non-blank line above the composer box, which also drops the status area the box sits on |
+| `blocked` | the last line ending in a question mark within the bottom 30, else the last line after the final horizontal rule, since a dialog states its case where it does not ask |
+
+Box borders, a TUI's own key hints and the client's unread-message overlay are
+not the agent's words and are dropped.
+
+#### `usage`
+
+`usage`, where a natively detecting backend reports it, is the agent's own quota
+readout: an ordered list of `{label, percent}` bars. The label is as the agent
+spells it (`5h`, `7d`, a model name) and the percent is an integer 0–100.
+
 A bar the backend renders in a shape Olympus cannot read is skipped, not an
-error: the bars are display text the backend owns, and a row is an agent with
-or without them.
+error. The bars are display text the backend owns, and a row is an agent with or
+without them.
 
 ---
 
@@ -1129,114 +1433,137 @@ The most expensive rules in this document. Read all of them.
 
 ### 4.1 tmux injection is buffer-based with per-call unique buffer names
 
-Literal text MUST be injected via `load-buffer` (stdin → named buffer) followed
-by `paste-buffer -d`. It MUST NOT use `send-keys -l`, which mangles special
-characters and cannot carry arbitrary bytes via stdin.
+Literal text MUST be injected via `load-buffer` (stdin to a named buffer)
+followed by `paste-buffer -d`. It MUST NOT use `send-keys -l`, which mangles
+special characters and cannot carry arbitrary bytes via stdin.
 
-The buffer name MUST be unique per call — process id plus a monotonic counter.
-Two concurrent injections sharing a name race: one call's `load-buffer` clobbers
-the other's text before `paste-buffer` consumes it.
+The buffer name MUST be unique per call: process id plus a monotonic counter.
+
+#### Why
+
+Two concurrent injections sharing a name race. One call's `load-buffer`
+clobbers the other's text before `paste-buffer` consumes it.
 
 ### 4.2 `paste-buffer -d` deletes only on success
 
-`-d` is **not** unconditional cleanup: tmux deletes the buffer only when the
-paste succeeds. If the target pane vanished between `load-buffer` and
-`paste-buffer` — a real race window — the buffer leaks forever unless the caller
-issues an explicit best-effort `delete-buffer` on the failure path.
+`-d` is not unconditional cleanup. tmux deletes the buffer only when the paste
+succeeds. If the target pane vanished between `load-buffer` and `paste-buffer`,
+a real race window, the buffer leaks forever unless the caller issues an
+explicit best-effort `delete-buffer` on the failure path.
 
 That cleanup call's own failure MUST be swallowed so it never masks the real
 error.
 
-### 4.3 Literal injection NEVER submits — on either backend
+### 4.3 Literal injection never submits, on any backend
 
 Placing text in the input line and submitting it are separate operations. The
-injection primitive MUST NOT press Enter; submission is an explicit, separate
+injection primitive MUST NOT press Enter. Submission is an explicit, separate
 call made by the consumer.
 
-This keeps injection symmetric across backends and composable, and it means
+#### Why
+
+It keeps injection symmetric across backends and composable, and it means
 §4.4's retry discipline belongs to whoever issues the Enter.
 
 ### 4.4 A failed Enter after injection MUST be retried once
 
-Once text sits in the input line, a failed Enter does not merely fail visibly — it
-leaves unsubmitted text there, where the *next* injection silently concatenates
-onto it, corrupting both. Any composed operation that injects then submits MUST
-retry the Enter exactly once before surfacing an error.
+Any composed operation that injects then submits MUST retry the Enter exactly
+once before surfacing an error.
+
+#### Why
+
+Once text sits in the input line, a failed Enter does not merely fail visibly.
+It leaves unsubmitted text there, and the next injection silently concatenates
+onto it, corrupting both.
 
 ### 4.5 The submit terminator MUST be a separate, delayed, lone write
 
-A single write containing both text and a trailing `\r` is treated as a **paste**
-by an Ink-based REPL: the terminator becomes a literal newline inside the input
-box and nothing is submitted. Submitting requires a genuinely separate write
-containing only `\r`, after a 150ms settle gap.
+The submitting terminator MUST register as a keypress on paste-detecting
+consumers, never as part of a paste.
 
-Stated at the level that matters: **the submitting terminator MUST register as a
-keypress on paste-detecting consumers, never as part of a paste.** How each
-backend achieves that is an implementation detail:
+#### Why
 
-- **tmux**: two `send-keys` subcommands chained by a literal `";"` argv element
-  into one client invocation.
-- **zmx**: text write, 150ms settle, then a lone `\r` write. zmx has no
-  subcommand chaining, so backend-level single-operation atomicity is
-  unachievable there.
+A single write containing both text and a trailing `\r` is treated as a paste
+by an Ink-based REPL. The terminator becomes a literal newline inside the input
+box and nothing is submitted. Submitting requires a separate write containing
+only `\r`, after a 150ms settle gap.
+
+#### Per backend
+
+| Backend | How the terminator stays a keypress |
+|---|---|
+| tmux | two `send-keys` subcommands chained by a literal `";"` argv element into one client invocation |
+| zmx | text write, 150ms settle, then a lone `\r` write. zmx has no subcommand chaining, so backend-level single-operation atomicity is unachievable |
+| meja | `send-keys -l` for the text, then a separate `send-keys Enter`, both on one held client |
+| herdr | one `pane run` request. The server frames the text as a paste and encodes the Enter after it as a keypress, in one write |
 
 ### 4.6 Paste is normalized, multi-line, and never auto-submitted
 
-Paste lands multi-line text in the input line without submitting it. **The final
-line is never submitted without an explicit separate Enter** — the cross-backend
-guarantee.
+Paste lands multi-line text in the input line without submitting it. The final
+line is never submitted without an explicit separate Enter. That is the
+cross-backend guarantee.
 
-*Intermediate* line execution is consumer-dependent and **not identical across
-backends**:
+#### Intermediate lines differ by backend
+
+Whether intermediate lines execute depends on the consumer and the backend:
 
 - A canonical-mode, non-line-editing consumer (a raw pipe, `cat`) has no
   bracketed-paste awareness, so embedded newlines execute one line at a time on
-  both backends.
-- A bracketed-paste-aware line-editing consumer (zsh/ZLE, bash ≥ 5.1 readline,
-  TUIs) diverges. tmux's `paste-buffer -p` emits DECSET-2004 framing
-  (`ESC[200~` / `ESC[201~`) around the payload, so such a consumer receives the
-  whole text as one un-executed paste event and intermediate lines do **not**
-  execute. zmx has no bracketed-paste framing at all, so the same shell sees
-  plain newlines and executes each intermediate line as it arrives.
+  every backend.
+- A bracketed-paste-aware line-editing consumer (zsh/ZLE, bash 5.1+ readline,
+  TUIs) diverges:
+  - tmux's `paste-buffer -p` emits DECSET-2004 framing (`ESC[200~` /
+    `ESC[201~`) around the payload. Such a consumer receives one un-executed
+    paste event, and intermediate lines do not execute.
+  - zmx and herdr paste with no framing. The same shell sees plain newlines
+    and executes each intermediate line as it arrives. herdr has a framed
+    injection, but only in the form that appends an Enter.
 
 Against a spawned zsh session, a two-line tmux paste leaves both lines
 unexecuted while the same zmx paste executes the first.
 
-tmux paste is literal injection with `-p` added to the `paste-buffer` argv —
-everything else (unique buffer, delete-on-failure, error mapping) is identical to
-§4.1, so no buffer leaks either way. zmx paste is a presence check followed by a
-raw send with no terminator.
+#### Per backend
+
+| Backend | Paste is |
+|---|---|
+| tmux | literal injection with `-p` added to the `paste-buffer` argv. Unique buffer, delete-on-failure and error mapping are as §4.1, so no buffer leaks |
+| zmx | a presence check followed by a raw send with no terminator |
+| meja | `set-buffer` then `paste-buffer -d` |
+| herdr | the same raw write as literal injection |
 
 ### 4.7 Atomic submit trades verification for atomicity
 
-An atomic operation delivers text **and** submits it as one caller-visible unit,
+An atomic operation delivers text and submits it as one caller-visible unit,
 so the retry unit is the whole delivery-plus-submit. A caller retrying a failed
 invocation can never leave a typed-but-unsubmitted line behind to double.
 
-Verify-then-submit cannot provide this: its Enter is a separate call, and any
-cross-invocation retry re-types the text before checking, doubling it.
+Atomic submit MUST NOT verify. Callers needing both properties do not get them
+from one call, and the doors MUST reject the combination.
 
-Atomic submit MUST NOT verify — atomicity trades away the on-screen check.
-Callers needing both properties do not get them from one call, and the doors MUST
-reject the combination.
-
-Atomic submit is **single-line only**, since multi-line text has no unambiguous
-submit point. The door layer validates and rejects `\n`/`\r`; the backend does
+Atomic submit is single-line only, since multi-line text has no unambiguous
+submit point. The door layer validates and rejects `\n`/`\r`. The backend does
 not re-check.
 
-On zmx, caller-visible atomicity is guaranteed by holding the per-session write
-lock across both writes. A failed submit write MUST return a timeout-class error
+On zmx, caller-visible atomicity comes from holding the per-session write lock
+across both writes. A failed submit write MUST return a timeout-class error
 ("text delivered but not submitted"), never silent success.
+
+#### Why
+
+Verify-then-submit cannot provide atomicity. Its Enter is a separate call, and
+any cross-invocation retry re-types the text before checking, doubling it.
 
 ### 4.8 tmux eats an unescaped trailing semicolon
 
-tmux's `;` chaining separator treats an **unescaped trailing `;` byte** in a text
-argv element as a command separator rather than literal text: `-l -- "echo A;
-echo B;"` lands `echo A; echo B` with the final `;` dropped, and text that is
-just `;` lands nothing. Interior semicolons are untouched — only a trailing one.
-
 Any chained `send-keys` path MUST detect a trailing `;` and escape it to `\;`.
 `-l --` is also required, guarding against text beginning with `-`.
+
+#### Why
+
+tmux's `;` chaining separator treats an unescaped trailing `;` byte in a text
+argv element as a command separator. `-l -- "echo A; echo B;"` lands
+`echo A; echo B` with the final `;` dropped, and text that is just `;` lands
+nothing. Interior semicolons are untouched.
 
 ### 4.9 Control keys are not deliverable on every backend
 
@@ -1244,67 +1571,72 @@ A backend may accept a control key and silently not deliver it. That is worse
 than refusing it: the caller sees success and waits for an effect that never
 comes.
 
-Measured by sending each byte to `cat -v` in a live session and reading back what
-arrived:
+Measured by sending each byte to `cat -v` in a live session and reading back
+what arrived:
 
 | | tmux | zmx | herdr |
 |---|---|---|---|
 | printable text | delivered | delivered | delivered |
 | tab, terminator | delivered | delivered | delivered |
-| control letters (`c-a`, `c-x`, …) | delivered | **dropped** | delivered |
+| control letters (`c-a`, `c-x`, ...) | delivered | **dropped** | delivered |
 | lone escape | delivered | **dropped** | delivered |
 | arrows, home | delivered | **dropped** | delivered |
 | page-up, function keys | delivered | delivered | delivered |
-| backspace, end, page-down | delivered | — | delivered |
-| delete, s-tab, c-up/down/left/right | delivered | — | delivered |
-| m-<letter>, m-enter | delivered | — | delivered |
-| s-up/down/left/right, m-up/down/left/right | delivered | — | delivered |
-| m-<symbol> (`m-0`, `m-/`, `m-;`, …) | delivered | — | delivered |
+| backspace, end, page-down | delivered | not measured | delivered |
+| delete, s-tab, c-up/down/left/right | delivered | not measured | delivered |
+| m-<letter>, m-enter | delivered | not measured | delivered |
+| s-up/down/left/right, m-up/down/left/right | delivered | not measured | delivered |
+| m-<symbol> (`m-0`, `m-/`, `m-;`, ...) | delivered | not measured | delivered |
 
-herdr delivers all of it for a structural reason worth stating, because it also
-decides how the keys are SPELLED. Its text-injection request writes the bytes it
-is given straight into the pane's PTY with no interpretation, so Olympus spells
-every key itself rather than handing a name over. That is not merely tidier: the
-backend's own key vocabulary is narrower than Olympus's — it has no home, end,
-page-up or page-down at all, and spells the control range `ctrl+a` rather than
-`c-a` — so the naming path would have refused four of Olympus's named keys while
-the byte path delivers them.
+A backend whose key names cannot reach a key MAY spell that key as its bytes
+through a literal path, but only where the bytes are measured arriving.
 
-meja takes tmux's spelling for most keys and delivers the control range, but
-not all of the vocabulary under tmux's names, and the two differences were found
-the same way. Forward delete is `Delete` there; tmux's `DC` is typed as two
-letters. Back-tab has no name meja delivers: `BTab` is typed as four letters,
-and `S-Tab` is parsed and then loses its shift, so the pane reads `^I` where
-`^[[Z` was meant (meja 0.0.26). meja's `send-keys -l` writes its argument to
-the pane unencoded, so back-tab is sent that way as the bytes `ESC [ Z`, and
-arrives. A backend whose key names cannot reach a key MAY spell that key as its
-bytes through such a path, but only where the bytes are measured arriving.
+#### herdr spells every key as bytes
 
-The modified arrows and the alt symbols arrive under their names on both:
-`S-Up` to `S-Left`, `M-Up` to `M-Left`, and `M-` with the character itself, all
-42 printable non-letters read back as `ESC` and the character (tmux 3.7c, meja
-0.0.26). None needed a literal path. tmux needed one spelling of its own: `M-;`
-ends in the `;` §4.8 is about, and tmux splits it off even inside a key name, so
-in `send-keys M-; C-j` the `C-j` is run as a command and refused. It is sent as
-`M-\;`, and arrives. meja does not split its arguments on `;` and takes `M-;` as
-it is.
+herdr's text-injection request writes the bytes it is given straight into the
+pane's PTY with no interpretation, so Olympus spells every key itself.
 
-The zmx boundary is irregular and is deliberately NOT specified further: what a
+The backend's own key vocabulary is narrower than Olympus's. It has no home,
+end, page-up or page-down, and spells the control range `ctrl+a` rather than
+`c-a`. The naming path would have refused four of Olympus's named keys. The
+byte path delivers them.
+
+#### meja takes tmux's names, with two exceptions
+
+meja delivers the control range and most keys under tmux's names. Two differ:
+
+- Forward delete is `Delete`. tmux's `DC` is typed as two letters.
+- Back-tab has no name meja delivers. `BTab` is typed as four letters, and
+  `S-Tab` loses its shift, so the pane reads `^I` where `^[[Z` was meant. meja's
+  `send-keys -l` writes its argument unencoded, so back-tab is sent that way as
+  the bytes `ESC [ Z`, and arrives.
+
+#### Modified arrows and alt symbols
+
+On tmux and meja these arrive under their names: `S-Up` to `S-Left`, `M-Up` to
+`M-Left`, and `M-` with the character itself. All 42 printable non-letters read
+back as `ESC` and the character.
+
+tmux needs one spelling of its own. `M-;` ends in the `;` §4.8 is about, and
+tmux splits it off even inside a key name: in `send-keys M-; C-j` the `C-j` is
+run as a command and refused. It is sent as `M-\;`, and arrives. meja does not
+split its arguments on `;` and takes `M-;` as it is.
+
+#### zmx is not mapped further
+
+The zmx boundary is irregular and is deliberately not specified further. What a
 caller needs is that control keys cannot be relied on there, which the
 `control_keys` capability (§13) reports. Mapping the exact set would invite
 depending on it.
 
-The consequence is concrete: an editor opened on zmx can be typed into and read,
-but not saved or exited, because both are control keys. Doors MUST report this
-through the capability rather than by failing the keypress, since the keypress
-itself succeeds.
+The consequence is concrete: an editor opened on zmx can be typed into and
+read, but not saved or exited, because both are control keys. Doors MUST report
+this through the capability rather than by failing the keypress, since the
+keypress itself succeeds.
 
 ### 4.10 The key vocabulary is open, in five shapes
 
-A closed list of keys is the obvious design and is wrong: driving a full-screen
-program means pressing whatever it binds, and a caller who cannot spell Ctrl-X
-cannot leave nano. So `press` takes five shapes, and every backend MUST
-translate all five:
+`press` takes five shapes, and every backend MUST translate all five:
 
 - a named key: `enter`, `escape`, `tab`, `s-tab` (back-tab), `backspace`,
   `delete` (forward delete), `space`, `up`, `down`, `left`, `right`, `c-up`,
@@ -1317,30 +1649,49 @@ translate all five:
   or a punctuation mark, `!` to `~` less the letters;
 - `f1` to `f12`.
 
-A letter's case is a spelling, not a different key. A symbol is spelled as the
-character itself, `m-;`, `m-\`, `m-'`, with no escaping and no alias: no shell
-stands between a caller and the key, so quoting is the calling shell's business,
-and a second spelling would be a second name for one key. The keys are those a
-terminal sends: `delete` is `ESC [ 3 ~`, `s-tab` is `ESC [ Z`, the modified
-arrows are the xterm form `ESC [ 1 ; m A` to `D` with `m` 2 for shift, 3 for alt
-and 5 for control, and alt is a prefix rather than a bit, so `m-a` is `ESC a`,
-`m-/` is `ESC /` and `m-enter` is `ESC CR`. A backend that spells keys by name
-uses the multiplexer's own name for the same keypress, and where that name does
-not deliver it, §4.9 applies.
+#### Why open
 
-Anything else is `usage`, including what merely looks like a shape: `c-1`,
-`m-ab`, `m-12`, `m-` followed by a space, a tab, DEL or a character past ASCII,
-`meta-a`, `s-a`, `s-home`, `c-home`, `f0`, `f13`. Accepting one would mean
-sending nothing and reporting success. Space and the control range are not
-symbols because a key bar does not send them as one: `m-enter` is the one alt
-chord of that kind with a name. Function keys stop at 12 because terminals
-disagree about the encoding above it.
+A closed list of keys is the obvious design and is wrong. Driving a full-screen
+program means pressing whatever it binds, and a caller who cannot spell Ctrl-X
+cannot leave nano.
+
+#### Spelling
+
+A letter's case is a spelling, not a different key. A symbol is spelled as the
+character itself, `m-;`, `m-\`, `m-'`, with no escaping and no alias. No shell
+stands between a caller and the key, so quoting is the calling shell's
+business, and a second spelling would be a second name for one key.
+
+#### Bytes
+
+The keys are those a terminal sends:
+
+| Key | Bytes |
+|---|---|
+| `delete` | `ESC [ 3 ~` |
+| `s-tab` | `ESC [ Z` |
+| modified arrows | xterm form `ESC [ 1 ; m A` to `D`, `m` 2 for shift, 3 for alt, 5 for control |
+| alt chords | a prefix, not a bit: `m-a` is `ESC a`, `m-/` is `ESC /`, `m-enter` is `ESC CR` |
+
+A backend that spells keys by name uses the multiplexer's own name for the same
+keypress, and where that name does not deliver it, §4.9 applies.
+
+#### Everything else is `usage`
+
+That includes what merely looks like a shape: `c-1`, `m-ab`, `m-12`, `m-`
+followed by a space, a tab, DEL or a character past ASCII, `meta-a`, `s-a`,
+`s-home`, `c-home`, `f0`, `f13`. Accepting one would mean sending nothing and
+reporting success.
+
+Space and the control range are not symbols because a key bar does not send
+them as one. `m-enter` is the one alt chord of that kind with a name. Function
+keys stop at 12 because terminals disagree about the encoding above it.
 
 ---
 
 ## 5. Screen capture
 
-### 5.1 tmux capture flags are load-bearing and mutually constrained
+### 5.1 tmux capture flags are mutually constrained
 
 | Flag | When | Why |
 |---|---|---|
@@ -1348,165 +1699,195 @@ disagree about the encoding above it.
 | `-e` | opt-in colors | preserves ANSI escapes; stripped by default |
 | `-S -<lines>` | opt-in history | scrollback above the visible viewport, to the requested depth; §6.4 decides that depth |
 
-**`-J` MUST be dropped whenever history is requested.** It is correct on the live
-viewport, where nothing has been wrapped and re-flowed since. Across full
-scrollback it is wrong: `capture-pane -J -S -` rejoins a long line that tmux
-already wrapped at capture time with its own historical continuation, silently
-merging two separate scrollback lines that never appeared as one on screen.
+**`-J` MUST be dropped whenever history is requested.**
 
-**A tmux capture target MAY name a window**, `<session>:<window>`, by index or
-by name, and it then reads that window's active pane. This is the one
-operation outside §8.9 that takes the shape, and it exists for §8.9's reader:
-a bare attach pins a view to a window, and whoever reads that view wants the
-same window's scrollback, which the session's own active pane may not be
-showing. The split is the first colon, as §8.9 splits it. A window the session
-lacks is `SESSION_NOT_FOUND`. §10.1 is otherwise unchanged: every other
-operation stays session-scoped, and `stop <session>:<window>` is not a way to
-close a window.
+#### Why
+
+`-J` is correct on the live viewport, where nothing has been wrapped and
+re-flowed since. Across full scrollback it is wrong: `capture-pane -J -S -`
+rejoins a long line that tmux already wrapped at capture time with its own
+historical continuation, merging two scrollback lines that never appeared as
+one on screen.
+
+#### A capture target MAY name a window
+
+On tmux the target may be `<session>:<window>`, by index or by name, and it
+then reads that window's active pane. This is the one operation outside §8.9
+that takes the shape. The split is the first colon, as §8.9 splits it. A window
+the session lacks is `SESSION_NOT_FOUND`.
+
+§10.1 is otherwise unchanged: every other operation stays session-scoped, and
+`stop <session>:<window>` is not a way to close a window.
+
+It exists for §8.9's reader. A bare attach pins a view to a window, and whoever
+reads that view wants the same window's scrollback, which the session's own
+active pane may not be showing.
 
 ### 5.2 zmx capture: no rejoin, opt-in colors
 
-zmx's history command has **no `-J` equivalent**. A line hitting the session PTY's
+zmx's history command has no `-J` equivalent. A line hitting the session PTY's
 width comes back split by a literal `\n` indistinguishable from a real newline.
-Olympus passes this through unmodified — a zmx limitation inherited as-is, not
-something to paper over. Consumers matching against zmx capture output MUST
-tolerate a wrap-split line. (§6.4 and §7.3 both exist because of this.)
+Olympus passes this through unmodified. Consumers matching against zmx capture
+output MUST tolerate a wrap-split line. §6.4 and §7.3 both exist because of
+this.
 
-The session PTY's fallback size, when no real attach client has ever resized it,
-is 24 rows × 160 columns — hardcoded in zmx upstream, and therefore coupled to
-the zmx release rather than the host.
+The session PTY's fallback size, when no real attach client has ever resized
+it, is 24 rows by 160 columns. That is hardcoded in zmx upstream, so it is
+coupled to the zmx release rather than the host.
 
-Colors are opt-in and **not** a no-op on zmx: default output has every ANSI escape
+Colors are opt-in and not a no-op on zmx. Default output has every ANSI escape
 byte stripped, and the VT flag preserves them byte-for-byte.
 
-History **is** a documented no-op on zmx, whose history command already returns
-full scrollback with no separate viewport mode to opt into. Both flag states MUST
-return byte-identical output, regression-guarded.
+History is a documented no-op on zmx, whose history command already returns
+full scrollback with no separate viewport mode. Both flag states MUST return
+byte-identical output, regression-guarded.
 
-**A capture DOES reflect an in-place repaint on both backends.** This was
-measured after it looked otherwise: a program that clears and redraws is
-captured as it currently appears, not as it first appeared. The limitation that
-actually blocks driving a full-screen program is input, not capture — see §4.9.
+#### A capture reflects an in-place repaint
 
-**Trailing whitespace does not survive identically across backends.** tmux
-preserves a row's padding and the trailing space of an unterminated prompt; zmx
-normalizes it away, so a REPL prompt captured as `>>> ` on one comes back as
-`>>>` on the other. A pattern that *requires* a trailing space therefore matches
-on one backend and silently never matches on the other. Doors MUST NOT paper
-over this by re-padding — the fix belongs in the pattern (`^>>>\s*$`), and
-§5.4 says so where callers will read it.
+A program that clears and redraws is captured as it currently appears, not as
+it first appeared, on tmux and zmx alike. The limitation that blocks driving a
+full-screen program on zmx is input, not capture (§4.9).
+
+#### Trailing whitespace differs by backend
+
+tmux preserves a row's padding and the trailing space of an unterminated
+prompt. zmx normalizes it away, so a REPL prompt captured as `>>> ` on one comes
+back as `>>>` on the other. A pattern that requires a trailing space matches on
+one backend and silently never on the other.
+
+Doors MUST NOT paper over this by re-padding. The fix belongs in the pattern
+(`^>>>\s*$`), and §5.4 says so where callers will read it.
 
 ### 5.3 Alt-screen panes are captured; only their scrollback is refused
 
-A pane on the alternate screen (a full-screen program issuing `\e[?1049h`) has no
-scrollback. Its visible grid is real and readable; there is simply nothing
-behind it.
+A pane on the alternate screen (a full-screen program issuing `\e[?1049h`) has
+no scrollback. Its visible grid is real and readable; there is nothing behind
+it.
 
-Two layers, behaving differently — state both precisely:
+Two layers behave differently:
 
 - **The backend's capture method** never refuses a target for being on the alt
-  screen. It succeeds, and returns the visible grid. The alt-screen metadata
-  flag travels beside it. This layer has no opinion.
-- **The door layer** gathers metadata for every target first, and where the
-  alt-screen flag is true it **drops any history request** for that target and
+  screen. It returns the visible grid, with the alt-screen metadata flag beside
+  it.
+- **The door layer** gathers metadata for every target first. Where the
+  alt-screen flag is true it drops any history request for that target and
   discloses that it did (§0.8). It still captures.
 
-**The door MUST NOT skip an alt-screen capture.** An earlier revision required
-exactly that, reasoning that the visible grid is one "a live consumer already
-mirrors". That reasoning silently assumes an attached human. Olympus serves
-programs too (CLAUDE.md non-negotiable #6), and for a caller driving a
-full-screen application — an editor, a pager, a TUI client — the visible grid is
-not redundant, it is the **only** way to observe the program at all. Skipping it
-means such a program can be started and never seen, with an empty string and no
-error to explain why.
+**The door MUST NOT skip an alt-screen capture.**
 
-What the alternate screen genuinely lacks is scrollback, and that is the part
-the door must refuse: a history request against it asks for something that does
-not exist, so the request is dropped and a warning says so rather than quietly
+#### Why
+
+Skipping it assumes a live consumer already mirrors the grid, which is true
+only for an attached human. For a program driving an editor, a pager or a TUI
+client, the visible grid is the only way to observe it at all. Skipping would
+mean such a program can be started and never seen, with an empty string and no
+error.
+
+What the alternate screen lacks is scrollback, and that is the part the door
+refuses. The request is dropped and a warning says so, rather than quietly
 returning less than was asked for.
 
-zmx never reports alt-screen: its capture metadata is always the zero value, with
-no subprocess run to check. This is **not** an unsupported-class error — the
-caller asked a question with an honest answer on zmx ("not tracked"), so the call
-succeeds with zeroes rather than failing.
+#### Backends that do not report alt-screen
 
-herdr never reports it either, and for a different reason worth distinguishing:
-its terminal DOES track the alternate screen internally, and nothing in its
-socket API exposes that. The answer a caller gets is the same — "not tracked" —
-because what the capability describes is what Olympus can observe, not what the
-multiplexer knows. A capture of an alt-screen pane there still returns the
-visible grid, and its scrollback request comes back with the grid alone, which
-is the honest answer since there is nothing behind it.
+zmx never reports it. Its capture metadata is always the zero value, with no
+subprocess run to check. This is not an unsupported-class error: the question
+has an honest answer on zmx ("not tracked"), so the call succeeds with zeroes.
 
-### 5.4 Waiting for a pattern is LINE-oriented
+herdr never reports it either, for a different reason. Its terminal tracks the
+alternate screen internally, and nothing in its socket API exposes that. The
+answer is the same, "not tracked", because the capability describes what
+Olympus can observe, not what the multiplexer knows. A capture of an alt-screen
+pane there still returns the visible grid, and a scrollback request comes back
+with the grid alone.
 
-Waiting matches a caller's regular expression against **each line** of the
-screen, never against the whole capture as one string.
+### 5.4 Waiting for a pattern is line-oriented
 
-A screen is lines, and callers write line-oriented patterns: `^>>> ` for a REPL
-prompt, `\$ $` for a shell. A regular-expression engine anchors `^` and `$` to
-the whole text by default, so whole-screen matching makes every anchored pattern
-**silently never match** — while a plain substring keeps working, which is
-precisely what lets the defect ship unnoticed.
+Waiting matches a caller's regular expression against each line of the screen,
+never against the whole capture as one string.
 
-Each line is tried both as captured and with trailing whitespace trimmed. A
-terminal pads rows out to the pane's width, and that padding is invisible to
-whoever wrote the pattern; requiring them to know about it would make the
-pattern depend on the pane's width, which they do not control.
+Each line is tried both as captured and with trailing whitespace trimmed.
 
 **Patterns MUST NOT require a trailing space.** Whether one survives into a
 capture is a backend difference (§5.2), so `^>>> $` matches on one backend and
 never on the other. `^>>>\s*$` is the portable form, and doors SHOULD say so
 where callers will read it.
 
-The matched line is reported alongside the screen: a caller waiting on a pattern
-almost always wants the line, and making them re-run the match to find it is
-asking them to reimplement what just happened.
+The matched line is reported alongside the screen.
+
+#### Why
+
+Callers write line-oriented patterns: `^>>> ` for a REPL prompt, `\$ $` for a
+shell. A regular-expression engine anchors `^` and `$` to the whole text by
+default, so whole-screen matching makes every anchored pattern silently never
+match, while a plain substring keeps working. That is what lets the defect ship
+unnoticed.
+
+Trimming exists because a terminal pads rows to the pane's width. The padding
+is invisible to whoever wrote the pattern, and requiring them to know about it
+would tie the pattern to a width they do not control.
+
+The matched line is reported because a caller waiting on a pattern almost
+always wants it, and re-running the match to find it would reimplement what
+just happened.
 
 ### 5.5 Capture metadata
 
-Per-target metadata carries the alt-screen flag and the copy-mode scroll position
-(lines scrolled up from the live bottom; 0 when not in copy mode).
+Per-target metadata carries the alt-screen flag and the copy-mode scroll
+position (lines scrolled up from the live bottom; 0 when not in copy mode).
 
-The two halves are not tied together, and herdr is what shows that: it reports a
-real scroll offset on every pane row and no alt-screen flag at all, so it carries
-one of the two truthfully and declares the other untracked. tmux carries both;
-zmx and meja carry neither.
+The two halves are independent:
+
+| Backend | Alt-screen flag | Scroll position |
+|---|---|---|
+| tmux | tracked | tracked |
+| zmx | not tracked | not tracked |
+| meja | not tracked | not tracked |
+| herdr | not tracked | tracked, on every pane row |
 
 ### 5.6 Following is a tap on the stream, not a capture in a loop
 
-Following streams a session's output as it is produced.
+Following streams a session's output as it is produced. What a follower
+receives is raw terminal output, escape sequences included. It is a stream, not
+a rendering: a caller that wants to match on content captures or waits instead,
+and one that wants a picture renders it.
 
-It cannot be built out of §5.1's capture. A capture reports the pane as it looks
-NOW, so anything printed and scrolled past between two polls is simply gone —
-which is exactly the output someone following a long build cares about — and a
-program that repaints in place has no meaningful delta between polls at all.
+#### Why not capture in a loop
 
-Every backend provides a primitive for this and the backend layer uses it rather
-than emulating one: tmux pipes the pane into a command, zmx tails the session,
-meja hands back a headless client's PTY, and herdr streams read-only frames.
-tmux's form pipes into a COMMAND rather than a descriptor Olympus holds, so the
-tap is pointed at a temporary file the reader follows; turning the tap off MUST
-happen before that file is removed, or tmux keeps writing to a path that no
-longer exists for as long as the pane lives.
+A capture reports the pane as it looks now. Anything printed and scrolled past
+between two polls is gone, which is the output someone following a long build
+cares about. A program that repaints in place has no meaningful delta between
+polls at all.
 
-herdr's form is the one that needs decoding rather than merely reading: its
-read-only stream emits one JSON envelope per frame carrying base64 ANSI, and the
-backend turns those back into the byte stream this interface promises so no
-consumer has to know about the wrapping. Following there does NOT resize the
-pane, so the frames' geometry belongs to the follower alone — measured, a pane at
-70x22 stayed 70x22 while a follower read it at 100x30.
+#### Per backend
 
-What a follower receives is raw terminal output, escape sequences included. It
-is a stream, not a rendering: a caller that wants to match on content captures or
-waits instead, and one that wants a picture renders it themselves.
+Every backend provides a primitive, and the backend layer uses it rather than
+emulating one:
 
-**On herdr it is the server's rendering of the pane** rather than the exact bytes
-the program wrote, because that is what its stream carries: a repaint reaches a
-follower as the cursor addressing that redraws it. The property following exists
-for is unaffected — output produced and scrolled past between two captures is
-still delivered — but a consumer diffing a follow against a program's own stdout
-would find them different.
+| Backend | Primitive |
+|---|---|
+| tmux | pipes the pane into a command |
+| zmx | tails the session |
+| meja | hands back a headless client's PTY |
+| herdr | streams read-only frames |
+
+tmux pipes into a command rather than a descriptor Olympus holds, so the tap
+points at a temporary file the reader follows. Turning the tap off MUST happen
+before that file is removed, or tmux keeps writing to a path that no longer
+exists for as long as the pane lives.
+
+herdr's stream emits one JSON envelope per frame carrying base64 ANSI. The
+backend decodes those back into the byte stream this interface promises, so no
+consumer has to know about the wrapping.
+
+Following on herdr does not resize the pane, so the frames' geometry belongs to
+the follower alone. Measured: a pane at 70x22 stayed 70x22 while a follower read
+it at 100x30.
+
+On herdr the stream is the server's rendering of the pane rather than the exact
+bytes the program wrote. A repaint reaches a follower as the cursor addressing
+that redraws it. Output scrolled past between two captures is still delivered,
+but a consumer diffing a follow against a program's own stdout would find them
+different.
 
 ---
 
@@ -1522,109 +1903,115 @@ echo <START>; <cmd>; echo "<DONE>_$?_"
 ```
 
 The identifier baked into both markers MUST be unique across concurrent
-processes, goroutines, and time — process id, per-process counter, and random
+processes, goroutines, and time: process id, per-process counter, and random
 bytes.
 
-**Quoting does not hide a marker from the screen.** The injected line echoes both
-marker strings onto the pane before the shell runs it; quoting controls shell
-parsing, not terminal rendering. What distinguishes the echoed command line from
-the real completion is **expansion**: the echoed line shows a literal, unexpanded
-`$?`, while the real DONE marker is followed by actual digits.
+#### Quoting does not hide a marker from the screen
+
+The injected line echoes both marker strings onto the pane before the shell
+runs it. Quoting controls shell parsing, not terminal rendering. What tells the
+echoed command line from the real completion is expansion: the echoed line
+shows a literal `$?`, while the real DONE marker is followed by digits.
 
 ### 6.2 Marker parsing rules
 
-- **DONE** is the **last** occurrence of the done marker immediately followed by
-  1–3 decimal digits **and then a literal `_` delimiter**. The digit requirement
+- **DONE** is the last occurrence of the done marker immediately followed by
+  1 to 3 decimal digits and then a literal `_` delimiter. The digit requirement
   rejects the echoed, unexpanded occurrence.
-
-  The trailing delimiter is not decoration: without it, a digit at the start of
-  the *next* captured line — a shell prompt like `12:34 $` — is absorbed into the
-  exit-code digit run once newlines are stripped, so `..._0\n12:34 $` parses as
-  exit code 12 instead of 0.
-
-- **START** is the **last** occurrence of the start marker strictly *before* the
-  DONE position. The command line's echo of the start marker appears before the
-  real start marker's own output, so "last before DONE" selects the right one.
-
-- **Wrap tolerance**: the raw capture is stripped of newlines exactly once into a
-  search copy with a parallel index map back to raw offsets. Parsing runs against
-  the stripped copy; positions are mapped back through that table to slice the
-  real output region, then trimmed of one leading and trailing newline.
-
-- **Both markers are required, while a deeper look is still available.** A
+- **START** is the last occurrence of the start marker strictly before the DONE
+  position. The command line's echo of the start marker appears before the real
+  start marker's own output, so "last before DONE" selects the right one.
+- **Wrap tolerance**: the raw capture is stripped of newlines once into a search
+  copy with a parallel index map back to raw offsets. Parsing runs against the
+  stripped copy. Positions map back through that table to slice the real output
+  region, then one leading and one trailing newline are trimmed.
+- **Both markers are required while a deeper look is still available.** A
   capture window that catches DONE but scrolled past START MUST parse as "not
-  found" — never a truncated or garbled partial match. A too-small window is
-  therefore indistinguishable from "still running", and the run keeps polling
-  with a larger one.
+  found", never a truncated or garbled partial match. A too-small window reads
+  as "still running", and the run keeps polling with a larger one.
+- **Once the window has stopped growing, DONE alone is the answer.** A run at
+  its maximum window whose START is absent MUST take the exit code DONE
+  carries, report the output that remained above it, and mark the result
+  truncated. The loss of where the output began MUST be disclosed (§0.8).
+- DONE is never relaxed. Without a completion there is no exit code and nothing
+  separates the capture from a command still running.
 
-- **Once the window has stopped growing, DONE alone is the answer.** The rule
-  above rests on a deeper look being available. Where it is not — the run is at
-  its maximum window, or a poll, which always asks for the maximum — no later
-  capture can be better, and refusing a completion that is legible on the
-  screen discards the only answer the protocol will ever produce. So a run at
-  its maximum window whose START is absent MUST take the exit code DONE carries,
-  report the output that remained above it, and mark the result truncated. The
-  exit code is exact: it is read off the completion marker itself. What is lost
-  is where the output began, and that loss MUST be disclosed (§0.8) — a partial
-  output whose payload looks whole is worse than no answer.
+#### Why the trailing delimiter
 
-  DONE is never relaxed. Without a completion there is no exit code to report
-  and nothing separates the capture from a command still running.
+Without it, a digit at the start of the next captured line, such as a prompt
+like `12:34 $`, is absorbed into the exit-code digits once newlines are
+stripped. `..._0\n12:34 $` would parse as exit code 12 instead of 0.
+
+#### Why DONE alone at the maximum window
+
+Where no deeper look is available (the run is at its maximum window, or it is a
+poll, which always asks for the maximum), no later capture can be better.
+Refusing a completion legible on screen discards the only answer the protocol
+will produce. The exit code is exact because it is read off the completion
+marker. A partial output whose payload looks whole is worse than no answer,
+which is why the loss is disclosed.
 
 ### 6.3 The command MUST be validated up front
 
 An empty or newline-containing command MUST be rejected before any injection.
-Neither degradation is a timeout, which is why an explicit check is needed:
+Rejecting up front also means no partial pane interaction happens.
 
-- A newline makes the shell run the fragments as separate commands. Both markers
-  still echo and the run **succeeds**, silently reporting the exit code of the
-  *last fragment*.
-- An empty command is shell-dependent: bash hard-errors (no markers, genuine
-  timeout), but zsh — macOS's default login shell — tolerates it and reports
+#### Why
+
+Neither degradation is a timeout, so only an explicit check catches them:
+
+- A newline makes the shell run the fragments as separate commands. Both
+  markers still echo and the run succeeds, reporting the exit code of the last
+  fragment.
+- An empty command is shell-dependent. bash hard-errors (no markers, a genuine
+  timeout), but zsh, macOS's default login shell, tolerates it and reports
   success with exit 0.
 
-Rejecting up front also means no partial pane interaction happens either way.
+### 6.4 The capture window grows where the depth can be requested
 
-### 6.4 The capture window grows on tmux and cannot be requested on zmx
+Long-running output can scroll the sentinel markers off-screen while the
+command is still producing output above them.
 
-Long-running output can scroll the sentinel markers off-screen while the command
-is still producing output above them.
+| Backend | Window |
+|---|---|
+| tmux | history with an explicit depth. Starts at 200 lines, quadruples on every miss, capped at 10,000. This deliberately does not inherit §5.1's viewport-only default |
+| zmx | no scrollback-window primitive, so polling uses plain capture every time. zmx returns scrollback, but its depth is zmx's own, not requestable, with an unknown ceiling. A command scrolling its own sentinel past it can be missed. No workaround |
+| herdr | requestable, capped at 1,000 lines by the server |
 
-- **tmux**: capture history with an explicit depth request. The window starts at
-  200 lines and quadruples on every miss, capped at 10,000. This deliberately
-  does *not* inherit §5.1's viewport-only default — a run's markers genuinely can
-  scroll away.
-- **zmx**: no scrollback-window primitive exists, so polling falls back to plain
-  capture every time. zmx *does* return scrollback rather than just the visible
-  screen, but its depth is governed by zmx itself, is not requestable, and its
-  ceiling is unknown. A command producing enough output to scroll its own
-  sentinel past whatever depth zmx retains can still be missed. No workaround.
-- **herdr**: the depth IS requestable, and capped at 1,000 lines by the server
-  rather than by Olympus. The server counts those lines from the bottom of the
-  grid, visible screen included, while a depth here is scrollback *above* the
-  screen — so Olympus adds the viewport height before asking, and the history
-  actually available at the cap is 1,000 less the viewport. A larger request is
-  not refused — it is silently clamped — so Olympus clamps it too, and
-  discloses the clamp (§0.8), rather than asking for a number it will not get. The growing window still works
-  below the cap; above it, the remedy tmux offers does not exist.
+#### herdr's cap
+
+The server counts its 1,000 lines from the bottom of the grid, visible screen
+included, while a depth here is scrollback above the screen. So Olympus adds
+the viewport height before asking, and the history available at the cap is
+1,000 less the viewport.
+
+A larger request is not refused by the server but silently clamped. Olympus
+clamps it too and discloses the clamp (§0.8), rather than asking for a number
+it will not get. The growing window works below the cap. Above it, the remedy
+tmux offers does not exist.
 
 Above the cap, §6.2's relaxation recovers the run whenever the completion is
-still legible, so the cap costs the START of the output rather than the whole
+still legible, so the cap costs the start of the output rather than the whole
 answer.
 
-What it cannot recover is a run with no completion on screen at all, and that
-timeout is otherwise indistinguishable from a slow command. So a run that
-reaches the maximum window and finds no start marker on it MUST say so in the
-timeout, and a run whose start marker is on screen MUST NOT — a diagnosis
+#### A timeout with no start marker says so
+
+A run that reaches the maximum window and finds no start marker on it MUST say
+so in the timeout. A run whose start marker is on screen MUST NOT. A diagnosis
 attached to every timeout carries no information.
 
 That message MUST report the observation and name both causes rather than
-asserting one. Measured: on herdr an alternate-screen program produces exactly
-the same capture as output scrolled past the cap — the start marker is absent
-and returns when the program exits — and that backend does not track the
-alternate screen (§13), so nothing can tell the two apart. Naming one would be a
-guess presented as a diagnosis, and it would be wrong for every run that pages
-its output.
+asserting one.
+
+##### Why both causes
+
+Measured on herdr: an alternate-screen program produces the same capture as
+output scrolled past the cap. The start marker is absent and returns when the
+program exits. herdr does not track the alternate screen (§13), so nothing can
+tell the two apart. Naming one would be a guess, and wrong for every run that
+pages its output.
+
+#### Detached polls
 
 The window a detached poll searches is the maximum by default. The cap it will
 hit is disclosed against the window actually searched, never against an unset
@@ -1634,92 +2021,95 @@ option (§0.8).
 
 The sentinel line uses `;` chaining and `$?`, both shell syntax. Pointed at a
 pane whose foreground process is not a shell (`cat`, `vim`), the markers never
-execute and the run times out — indistinguishable at this layer from a command
-that took too long. A consumer wanting a clearer diagnosis must know
-independently that the target runs a shell.
+execute and the run times out, indistinguishable at this layer from a slow
+command. A consumer wanting a clearer diagnosis must know independently that
+the target runs a shell.
 
-### 6.6 A session killed mid-poll is not-found, on both backends
+### 6.6 A session killed mid-poll is not-found, on every backend
 
-On zmx this requires care: blanket-mapping "any history failure" to
-backend-unavailable is wrong, because the deterministic `session ... does not
-exist` stderr is not the fuzzy, intermittent case that class is for. Match that
-substring explicitly and classify it as not-found before falling back.
+On zmx this requires care. Mapping any history failure to backend-unavailable
+is wrong, because the deterministic `session ... does not exist` stderr is not
+the intermittent case that class is for. Match that substring explicitly and
+classify it as not-found before falling back.
 
-### 6.7 Detached runs are stateless — the scrollback IS the state
+### 6.7 Detached runs are stateless: the scrollback is the state
 
-A detached run injects once and returns an id; polling answers
-`pending` / `completed` / `died` for a `(target, id)` pair, any number of times,
+A detached run injects once and returns an id. Polling answers `pending` /
+`completed` / `died` for a `(target, id)` pair, any number of times,
 lock-free.
 
-**Nothing durable is written.** No registry, no pending-command table, no disk
-state. The id is baked into the sentinel markers themselves, and a caller resumes
-solely by re-presenting `(target, id)` and having the poll re-scan scrollback for
-the matching pair.
-
-Consequences that MUST NOT be "fixed":
-
-- **An unknown id and a still-pending command are indistinguishable.** Both read
-  as pending, forever, until the caller's own timeout. A registry would mean
-  persistent state, which is out of scope. It is the caller's job to bound how
-  long it waits on an id it is not sure is real — the same way it must already
-  bound how long it waits on a genuinely slow command.
-- **"Completed then killed" and "died mid-command" are indistinguishable.** If
-  the command finishes and the session dies before any poll observes the DONE
-  marker, the marker vanishes with the scrollback. Reporting `died` is the only
-  honest answer.
+Nothing durable is written: no registry, no pending-command table, no disk
+state. The id is baked into the sentinel markers, and a caller resumes by
+re-presenting `(target, id)` so the poll re-scans scrollback for the matching
+pair.
 
 **The exit code field MUST be a pointer, omitted unless completed.** Pending and
 died MUST NOT populate it, so the payload never carries a fake zero a naive
 consumer could read as success. Consumers branch on status first.
 
-**The detached path's window is a fixed one-shot request, not a growing loop.**
-On tmux the requested depth (default 10,000) passes straight through; if
-scrollback has pushed the marker beyond it, poll reports pending forever and the
-remedy is re-polling with a larger window. On zmx the value is ignored per §6.4.
+#### Consequences that MUST NOT be "fixed"
+
+- **An unknown id and a still-pending command are indistinguishable.** Both read
+  as pending until the caller's own timeout. A registry would mean persistent
+  state, which is out of scope. The caller bounds how long it waits on an id it
+  is not sure is real, as it already bounds a slow command.
+- **"Completed then killed" and "died mid-command" are indistinguishable.** If
+  the command finishes and the session dies before any poll sees the DONE
+  marker, the marker vanishes with the scrollback. `died` is the only honest
+  answer.
+
+#### The detached window is one-shot
+
+The detached path's window is a fixed request, not a growing loop. On tmux the
+requested depth (default 10,000) passes straight through. If scrollback pushed
+the marker beyond it, poll reports pending forever and the remedy is re-polling
+with a larger window. On zmx the value is ignored (§6.4).
 
 ### 6.8 Polling answers about the command, never about the backend
 
-Two deliberate divergences, both consequences of poll's posture — *answer the
-desired-state question, never surface backend plumbing*:
+Two deliberate divergences follow from poll's posture: answer the desired-state
+question, never surface backend plumbing.
 
-- **A target that never existed answers `died`, not not-found.** Poll's question
-  is about the state of a command, not the existence of a session. From a
-  read-only vantage point, "the target vanished" and "the target was never real"
-  are indistinguishable, so both collapse to the same answer.
+#### A target that never existed answers `died`, not not-found
 
-  This is a real asymmetry with *starting* a detached run against a bad target,
-  which touches the target — the injection fails loudly and MUST surface
-  not-found normally.
+Poll's question is about a command, not the existence of a session. From a
+read-only vantage point, "the target vanished" and "the target was never real"
+are indistinguishable, so both get the same answer.
 
-- **A dead tmux server also answers `died`.** Listing maps "no server running" to
-  an empty list (§3.3), and poll uses listing to distinguish pending from died, so
-  a socket whose server was killed out from under it reports `died` cleanly
-  instead of the backend-unavailable error every other operation gives. A caller
-  cannot read `died` as "this session specifically died" versus "the whole
-  backend disappeared".
+Starting a detached run against a bad target is different. It touches the
+target, so the injection fails loudly and MUST surface not-found normally.
+
+#### A dead tmux server also answers `died`
+
+Listing maps "no server running" to an empty list (§3.3), and poll uses listing
+to tell pending from died. A socket whose server was killed reports `died`
+instead of the backend-unavailable error every other operation gives. A caller
+cannot read `died` as "this session died" versus "the whole backend
+disappeared".
 
 ### 6.9 Died detection MUST cover a corpse pane, not just a dead session
 
-With `remain-on-exit`, a dead command's pane becomes a corpse but the **session
-stays listed**, so session-level death detection alone reports pending forever
-even though the command has died.
+Poll MUST check the per-session dead flag it already parses. When no completion
+marker is found and the session is listed, a dead pane means `died`, not
+`pending`. This is a no-op on zmx, which has no corpse concept.
 
-Poll MUST therefore check the per-session dead flag it already parses: when no
-completion marker is found and the session **is** listed, a dead pane means
-`died`, not `pending`. A no-op on zmx, which has no corpse concept.
+#### Why
+
+With `remain-on-exit`, a dead command's pane becomes a corpse but the session
+stays listed. Session-level death detection alone would report pending forever.
 
 ### 6.10 Throwaway sessions
 
 Running a command without naming a target creates a throwaway session for that
-run and kills it afterwards — on success, failure, and timeout alike. It gets the
-default shell, §1.1's sanitized spawn environment, and a name reserved per §17.1.
+run and kills it afterwards, on success, failure, and timeout alike. It gets
+the default shell, §1.1's sanitized spawn environment, and a name reserved per
+§17.1.
 
-**A cleanup failure MUST NOT override the run's own result.** Report it on stderr
-and return what the run produced. A throwaway session that failed to clean up is
-a leak to notice separately, not a reason to hide the answer the caller asked
-for.
+**A cleanup failure MUST NOT override the run's own result.** Report it on
+stderr and return what the run produced. A leaked throwaway session is a
+problem to notice separately, not a reason to hide the answer.
 
-A throwaway run MUST NOT be combinable with detaching — there would be nothing
+A throwaway run MUST NOT be combinable with detaching, since nothing would be
 left to poll. Reject the combination as a usage error.
 
 ---
@@ -1731,96 +2121,106 @@ observed there, resending once before failing.
 
 ### 7.1 Normalization
 
-UI-tolerant, absorbing terminal rendering noise: lowercase, strip every rune that
-is not a Unicode letter or digit (punctuation, whitespace, box-drawing and prompt
-glyphs all drop).
+Normalization is UI-tolerant: lowercase, then strip every rune that is not a
+Unicode letter or digit (punctuation, whitespace, box-drawing and prompt glyphs
+all drop).
 
-**The 24-character truncation applies to the NEEDLE only.** It answers how much
-of the typed text must be seen again for the echo to count as observed; it is not
-a statement about how much of a line is worth reading. A line being SEARCHED MUST
-be normalized whole.
+#### The 24-character truncation applies to the needle only
 
-Truncating both is a defect, and a common one rather than exotic: bash's default
-prompt puts `user@host:/dir$ ` on the same line as the command and normalizes to
-more characters than the whole cap, so a truncated line ends before the typed
-text begins. A verified send then fails after its resend with its own echo
-plainly on screen. It survives review easily because a multi-line prompt — which
-many developers have — puts the command on a clean second line and hides it.
+It answers how much of the typed text must be seen again for the echo to count.
+A line being searched MUST be normalized whole.
 
-**The needle is taken from BOTH ends of the text, and either one seen counts.**
-An input box drawn narrower than the text scrolls to where the cursor is, which
-is the end, so a long text's first 24 characters are above the box's top edge
-while its last 24 are on screen. Looking for the head alone reads that as a
-dropped delivery, and the §7.4 resend then types the text a second time: the
-input line holds it twice and nothing is submitted. Measured: a prompt of about
-1,500 characters into a 52-column pane of a full-screen agent client. A text of
-24 normalized characters or fewer yields one needle either way.
+##### Why
 
-### 7.2 Match per line, NOT across the whole screen
+Truncating both is a common defect. bash's default prompt puts
+`user@host:/dir$ ` on the same line as the command and normalizes to more
+characters than the cap, so a truncated line ends before the typed text begins.
+A verified send then fails after its resend with its own echo on screen. A
+multi-line prompt puts the command on a clean second line and hides the defect
+in review.
+
+#### The needle is taken from both ends of the text
+
+Either end seen counts. A text of 24 normalized characters or fewer yields one
+needle.
+
+##### Why
+
+An input box narrower than the text scrolls to the cursor, at the end. A long
+text's first 24 characters are above the box's top edge while its last 24 are
+on screen. Looking for the head alone reads that as a dropped delivery, and the
+§7.4 resend types the text a second time: the input line holds it twice and
+nothing is submitted. Measured with a prompt of about 1,500 characters into a
+52-column pane of a full-screen agent client.
+
+### 7.2 Match per line, not across the whole screen
 
 Normalization MUST be applied per line, never to the full multi-line capture as
-one blob.
+one blob. The rule is about which text is compared, not about truncating it
+(§7.1).
 
-A real terminal's status or prompt banner routinely fills a line *before* the
-pane even reaches the line containing the just-echoed text. Normalizing the whole
-screen as one string risks matching a needle assembled from two unrelated lines,
-and per-line matching is what keeps a match a real one.
+#### Why
 
-The rule is about which text is compared, not about truncating it — see §7.1.
+A terminal's status or prompt banner routinely fills a line before the line
+holding the echoed text. Normalizing the whole screen as one string risks
+matching a needle assembled from two unrelated lines.
 
 ### 7.3 Also match adjacent line pairs, for wrap tolerance
 
-Per-line matching alone regresses §5.2's wrap problem: on zmx a needle whose echo
-straddles the PTY's column width comes back split by a literal newline that
-cannot be rejoined, so a per-line-only matcher falsely times out on every
-straddle case.
+The matcher MUST check each line individually and each adjacent pair of lines
+concatenated. The pair check covers every single-boundary split without
+reintroducing whole-screen matching.
 
-Since a needle can straddle at most one line boundary, the matcher MUST check
-each line individually **and** each adjacent pair of lines concatenated. The pair
-check covers every single-boundary split without reintroducing whole-screen
-truncation.
+The matcher is shared, so every backend behaves identically. tmux does not need
+it, since `-J` rejoins the wrap before capture sees it.
 
-**Scope caveat**: pair concatenation covers a single wrap boundary only. A needle
-split across two wrap points would require a pane narrower than the ~24-character
-normalized needle; sub-24-column panes are not a supported target.
+#### Why
 
-tmux is unaffected — `-J` rejoins the wrap before capture sees it — but the
-matcher is shared, so both backends behave identically.
+Per-line matching alone regresses §5.2's wrap problem. On zmx a needle whose
+echo straddles the PTY's column width comes back split by a literal newline
+that cannot be rejoined, so a per-line-only matcher times out on every straddle.
+
+#### Scope
+
+Pair concatenation covers one wrap boundary. A needle split across two wrap
+points needs a pane narrower than the roughly 24-character normalized needle,
+and sub-24-column panes are not a supported target.
 
 ### 7.3.1 A caller's pattern MUST NOT assume a prompt starts a line
 
-Anchoring a wait on `^` is the obvious way to write a prompt pattern, and it is
-unreliable against any program that paints by cursor addressing rather than by
-printing lines.
+Anchoring a wait on `^` is unreliable against any program that paints by cursor
+addressing rather than by printing lines.
 
-Measured: Python 3.13's default REPL, started under load, draws its first prompt
-onto the row the shell's echo is still occupying, and the pane genuinely renders
+Measured: Python 3.13's default REPL, started under load, draws its first
+prompt onto the row the shell's echo still occupies, and the pane renders
 
 ```
 $ /usr/bin/python3 -q>>>
 ```
 
-The capture is correct — that is what the terminal drew — so this is not a defect
-to fix in a backend or in the matcher. It is a property of full-screen-capable
-programs that callers have to write patterns against: the same program produces a
-line-anchored prompt on one run and an appended one on the next, depending on
-timing.
+The capture is correct: that is what the terminal drew. It is not a defect to
+fix in a backend or the matcher. The same program produces a line-anchored
+prompt on one run and an appended one on the next, depending on timing.
 
 A caller that needs the stricter assertion should pin the program's behavior
-instead of the pattern — for a REPL, by selecting its line-oriented mode. Olympus
-reports what is on the screen; it does not normalize away where a program chose
-to put it.
+instead of the pattern, for a REPL by selecting its line-oriented mode. Olympus
+reports what is on the screen. It does not normalize away where a program put
+it.
 
 ### 7.4 One resend, two independent budgets
 
-Send, poll for up to one attempt budget, and on a miss resend the **same** text
+Send, poll for up to one attempt budget, and on a miss resend the same text
 once and poll a second, independent budget. Only a miss on that second window
 fails.
 
-The failure mode guarded is a dropped or coalesced first delivery, not a garbled
-second attempt. Worst-case wall time before failure is therefore **twice** the
-attempt budget, and the conformance suite MUST assert that elapsed time so a
-future regression cannot silently return early on the first miss.
+Worst-case wall time before failure is twice the attempt budget, and the
+conformance suite MUST assert that elapsed time so a regression cannot silently
+return early on the first miss.
+
+#### Why
+
+The failure guarded is a dropped or coalesced first delivery, not a garbled
+second attempt.
 
 ---
 
@@ -1831,32 +2231,35 @@ streaming stdio both ways until the child exits.
 
 ### 8.1 The presence gate is mandatory on zmx
 
-`zmx attach <name>` on an **absent** name silently upserts it, auto-spawning a
-fresh unrelated shell under that name. tmux fails cleanly in the same situation.
+Attach MUST probe presence first and fail closed: on probe errors and "no
+server" as well as on confirmed absence.
 
-Attach MUST therefore probe presence first and **fail closed** — on probe errors
-and "no server" as well as on confirmed absence. Without this, a race between a
-session's death and an attach call fabricates a phantom session that looks
-completely legitimate.
+#### Why
+
+`zmx attach <name>` on an absent name upserts it, spawning a fresh unrelated
+shell under that name. tmux fails cleanly in the same situation. Without the
+gate, a race between a session's death and an attach fabricates a phantom
+session that looks legitimate.
 
 ### 8.2 Interactive attach owns the outer terminal's discipline
 
 With a TTY stdin, attach MUST put it into raw mode for the attach's lifetime and
-undo everything on **every** exit path: normal detach, error teardown,
-supersession, **and termination by signal (`SIGTERM`, `SIGHUP`)**.
+undo everything on every exit path: normal detach, error teardown,
+supersession, and termination by signal (`SIGTERM`, `SIGHUP`).
 
-The signal paths are easy to miss because the common ones are covered by deferred
-cleanup, and a process killed by an unhandled `SIGTERM` runs no defers at all —
-leaving the operator's terminal in raw mode with mouse reporting on.
+The signal paths are easy to miss. Deferred cleanup covers the common ones, but
+a process killed by an unhandled `SIGTERM` runs no defers, leaving the
+operator's terminal in raw mode with mouse reporting on.
 
-**Raw mode is what makes keystroke forwarding real.** Without it the outer line
-discipline interprets keys itself, turning Ctrl+C into SIGINT against the Olympus
-process — a spurious detach — instead of a `0x03` byte delivered to the inner
-shell. With `ISIG` cleared, Ctrl+C/Ctrl+Z/Ctrl+\ all forward inward, matching
-`tmux attach` semantics. Detaching is the *inner* backend's job (tmux `C-b d`,
+#### Raw mode makes keystroke forwarding real
+
+Without it the outer line discipline interprets keys itself, turning Ctrl+C
+into SIGINT against Olympus (a spurious detach) instead of a `0x03` byte for the
+inner shell. With `ISIG` cleared, Ctrl+C, Ctrl+Z and Ctrl+\ all forward inward,
+matching `tmux attach`. Detaching is the inner backend's job (tmux `C-b d`,
 zmx's own key), not the outer terminal's.
 
-**Exit MUST restore two layers**, not one:
+#### Exit MUST restore two layers
 
 1. The saved termios is reinstated.
 2. A reset sequence is written to stdout: mouse reporting off
@@ -1864,275 +2267,337 @@ zmx's own key), not the outer terminal's.
    paste off (`?2004l`), cursor shown (`?25h`).
 
 Without (2), an inner application that enabled mouse or focus reporting through
-the PTY leaves the **outer** terminal emitting `\e[<...M` / `\e[I` junk into the
+the PTY leaves the outer terminal emitting `\e[<...M` / `\e[I` junk into the
 next shell prompt after detach.
 
-The restore MUST be exactly-once across all exit paths, and a failure to enter
-raw mode MUST degrade to cooked-mode behavior rather than aborting the attach.
+The restore MUST be exactly-once across all exit paths. A failure to enter raw
+mode MUST degrade to cooked-mode behavior rather than abort the attach.
 
-**Piped (non-TTY) stdin is deliberately untouched**: no raw mode to restore, and
-no reset bytes injected into a stream a programmatic consumer parses. That
-consumer owns its own client-side terminal state.
+#### Piped stdin is untouched
+
+A non-TTY stdin gets no raw mode and no reset bytes injected into a stream a
+programmatic consumer parses. That consumer owns its own client-side terminal
+state.
 
 ### 8.3 Resize protocol
 
 - **The first size** MUST be on the PTY before the client starts: the caller's
-  terminal size on a TTY stdin, else the size the caller gave. A client that
-  reads its size as it starts sees whatever the PTY holds at that instant, and
-  a PTY sized a moment after the start reads 0x0: herdr's client exits on it
-  ("terminal reported a zero-sized grid"), measured under load as about one
-  attach in 120.
-- **TTY stdin**: `SIGWINCH` is forwarded to the PTY — synced immediately on
-  attach, then on every subsequent signal.
-- **Piped stdin**: no `SIGWINCH` concept exists, so an **in-band control line** on
-  stdin resizes the PTY instead:
+  terminal size on a TTY stdin, else the size the caller gave.
+- **TTY stdin**: `SIGWINCH` is forwarded to the PTY, synced immediately on
+  attach, then on every signal.
+- **Piped stdin**: no `SIGWINCH` exists, so an in-band control line on stdin
+  resizes the PTY (below).
 
-  ```
-  \x1b]olympus;resize;<cols>;<rows>\x07
-  ```
+#### Why the first size comes first
 
-  It MUST be matched byte-for-byte and stripped before forwarding — never written
-  into the session. Malformed payloads MUST be ignored: a bad control sequence
-  must not kill the session.
+A client that reads its size as it starts sees whatever the PTY holds at that
+instant. A PTY sized a moment after the start reads 0x0, and herdr's client
+exits on it ("terminal reported a zero-sized grid"). Measured under load as
+about one attach in 120.
 
-  The same stream carries one more control, for a client that can be moved
-  (a bare herdr session client, §8.10), and both controls are read on a TTY
-  stdin as well: a consumer driving the attach under a PTY of its own has
-  that stream and no other, and nothing a person types spells one.
+#### In-band controls
 
-  ```
-  \x1b]olympus;go;<target>\x07
-  ```
+Three controls ride the stdin stream. All are read on a TTY stdin as well: a
+consumer driving the attach under a PTY of its own has that stream and no
+other, and nothing a person types spells one.
 
-  It moves the live client onto another target on its server, in the
-  stream's own order: bytes before it reach the session before the move,
-  bytes after it wait until the client is on the new target. Every control
-  in a read is taken, one after another, and a control cut by the end of a
-  read is held for its end (an unterminated run past a target's length is
-  ordinary bytes). Nothing is forwarded before the client has settled on
-  its first target. On an attach that cannot be moved the control is
-  dropped and stderr says so; the bytes around it still reach the session.
-  A go that fails ends the attach with its error (§8.10).
+| Control | Effect |
+|---|---|
+| `\x1b]olympus;resize;<cols>;<rows>\x07` | resizes the PTY |
+| `\x1b]olympus;go;<target>\x07` | moves the live client onto another target on its server |
+| `\x1b]olympus;focus;<pane>\x07` | focuses a pane the way a click on it does |
 
-  A third control focuses a pane the way a click on it does, where the
-  client can be moved:
+Controls MUST be matched byte-for-byte and stripped before forwarding, never
+written into the session. Malformed payloads MUST be ignored: a bad control
+sequence must not kill the session.
 
-  ```
-  \x1b]olympus;focus;<pane>\x07
-  ```
+Every control in a read is taken, one after another. A control cut by the end
+of a read is held for its end. An unterminated run past a target's length is
+ordinary bytes.
 
-  It puts the client on the pane's tab with that pane focused and the tab
-  not zoomed, in the stream's order as a go is. A target that is not a pane
-  ends the attach as `USAGE`. Where the attach cannot focus a pane this way
-  (an attach that cannot be moved, or a herdr server without
-  `client_view_pane`) the control is dropped and stderr says so; any other
-  failure ends the attach as a failed go does (§8.10).
+#### `go`
+
+It applies to a client that can be moved: a bare herdr session client (§8.10).
+It runs in the stream's order: bytes before it reach the session before the
+move, bytes after it wait until the client is on the new target. Nothing is
+forwarded before the client has settled on its first target.
+
+On an attach that cannot be moved the control is dropped and stderr says so.
+The bytes around it still reach the session. A go that fails ends the attach
+with its error (§8.10).
+
+#### `focus`
+
+It puts the client on the pane's tab with that pane focused and the tab not
+zoomed, in the stream's order as a go is. A target that is not a pane ends the
+attach as `USAGE`.
+
+Where the attach cannot focus a pane this way (an attach that cannot be moved,
+or a herdr server without `client_view_pane`) the control is dropped and stderr
+says so. Any other failure ends the attach as a failed go does (§8.10).
 
 ### 8.4 Attach supersedes prior clients by default
 
-A new attach takes over from prior clients on every backend, mirroring what
-`tmux attach -d` has always done. Opting out is explicit.
+A new attach takes over from prior clients on every backend, mirroring
+`tmux attach -d`. Opting out is explicit.
 
-- **tmux**: `-d` in the attach argv; tmux's own client detaches the prior one.
-  This is an argv transform at the door layer, **not** a backend interface method
-  — adding it to the interface would leak a tmux-specific flag into a contract
-  zmx has no equivalent for.
-- **zmx**: two mechanisms, because one is not enough (§8.5).
-- **meja**: none. There is no supersede and no displacement of any kind: a prior
-  client stays attached, and meja sizes the session to the smallest client on
-  it, so the new attach may reshape what everyone else sees. An attach that
-  asked to supersede therefore succeeds and MUST carry a notice saying it did
-  not — silence there reads as a supersession that happened.
-- **herdr**: the backend's own, and nothing else is needed. It allows one
-  attached client per terminal and refuses a second unless it asks to take over,
-  so the guard-and-sweep §8.5 builds for zmx has no work to do here. Measured: a
-  second attach without takeover is refused with `terminal <id> already has an
-  attached client; retry with --takeover`, and with it the prior client is
-  detached cleanly and told `terminal attach taken over`.
+| Backend | Supersession |
+|---|---|
+| tmux | `-d` in the attach argv; tmux's client detaches the prior one |
+| zmx | a guard and a sweep (§8.5) |
+| meja | none |
+| herdr | the backend's own takeover |
 
-  One consequence follows and MUST be documented rather than hidden. Because the
-  refusal is the server's, a non-superseding attach onto an occupied terminal
-  fails INSIDE the client, after the PTY is running, rather than as a conflict
-  Olympus raises before spawning one — and herdr reports no per-terminal client
-  count, so there is nothing to check beforehand.
+#### tmux
+
+`-d` is an argv transform at the door layer, not a backend interface method.
+Adding it to the interface would leak a tmux-specific flag into a contract zmx
+has no equivalent for.
+
+#### meja
+
+There is no displacement of any kind. A prior client stays attached, and meja
+sizes the session to its smallest client, so the new attach may reshape what
+everyone else sees. An attach that asked to supersede succeeds and MUST carry a
+notice saying it did not. Silence would read as a supersession that happened.
+
+#### herdr
+
+herdr allows one attached client per terminal and refuses a second unless it
+asks to take over, so §8.5's guard and sweep have no work here. Measured: a
+second attach without takeover is refused with `terminal <id> already has an
+attached client; retry with --takeover`. With it, the prior client is detached
+cleanly and told `terminal attach taken over`.
+
+One consequence MUST be documented rather than hidden. The refusal is the
+server's, so a non-superseding attach onto an occupied terminal fails inside the
+client, after the PTY is running, rather than as a conflict Olympus raises
+before spawning. herdr reports no per-terminal client count, so there is
+nothing to check beforehand.
 
 ### 8.5 zmx supersession needs both a guard and a sweep
 
-zmx **co-attaches**: a second attach takes the session to two clients with the
+zmx co-attaches: a second attach takes the session to two clients with the
 first still alive and both rendering.
 
-**The guard** governs Olympus-vs-Olympus. One pidfile per (directory-hash,
-session), whose `flock` — not its content — is the exclusivity mechanism; the pid
+#### The guard
+
+The guard governs Olympus-vs-Olympus. One pidfile per (directory-hash,
+session), whose `flock`, not its content, is the exclusivity mechanism. The pid
 is read only to know whom to signal.
 
-- No holder, or a stale pidfile (dead pid, or a flock that is simply acquirable
-  regardless of content — a holder that crashed between writing the pidfile and
-  exiting), is reclaimed silently.
-- Without steal, a live holder is an immediate conflict error, **before** the PTY
-  is spawned.
-- With steal, the holder's pid gets `SIGUSR1`, then the stealer polls every 50ms
-  for up to 3s for the flock to free. If it never frees — holder hung, signal
-  lost — the acquisition gives up with the same conflict shape rather than
+- No holder, or a stale pidfile, is reclaimed silently. Stale means a dead pid,
+  or a flock that is acquirable regardless of content (a holder that crashed
+  between writing the pidfile and exiting).
+- Without steal, a live holder is an immediate conflict error, before the PTY is
+  spawned.
+- With steal, the holder's pid gets `SIGUSR1`, then the stealer polls every
+  50ms for up to 3s for the flock to free. If it never frees (holder hung,
+  signal lost) the acquisition gives up with the same conflict shape rather than
   blocking forever.
 
-**Winning the flock is not proof of holding the slot.** `unlink` detaches a name
-from an inode without invalidating an fd a waiter already holds on it. A waiter
-blocked on an fd opened *before* a concurrent release can win a lock on that
-now-nameless inode at the exact moment a third, independent acquisition creates a
-brand-new inode at the same path and "succeeds" too — two callers both believing
-they hold the slot. Every acquisition site MUST therefore re-verify, immediately
-after winning the flock, that the fd's `(st_dev, st_ino)` still matches a fresh
-`stat` of the path. A mismatch, or a path that is simply gone, MUST restart the
-whole acquisition from the top, reopening the path so it lands on whatever inode
-is actually there now.
+#### Winning the flock is not proof of holding the slot
 
-**The sweep** covers what the guard cannot see: a raw `zmx attach` an operator
+Every acquisition site MUST re-verify, immediately after winning the flock, that
+the fd's `(st_dev, st_ino)` still matches a fresh `stat` of the path. A
+mismatch, or a path that is gone, MUST restart the whole acquisition, reopening
+the path so it lands on the inode actually there.
+
+##### Why
+
+`unlink` detaches a name from an inode without invalidating an fd a waiter
+already holds. A waiter blocked on an fd opened before a concurrent release can
+win a lock on the now-nameless inode at the moment a third acquisition creates a
+new inode at the same path and succeeds too. Two callers then both believe they
+hold the slot.
+
+#### The sweep
+
+The sweep covers what the guard cannot see: a raw `zmx attach` an operator
 started from their own terminal has no pidfile, no flock, and no signal handler.
 
-The primitive for this is undocumented and not discoverable from `zmx help`.
-`zmx detach` is listed as taking no arguments ("Detach all clients"), a session
-name passed positionally is accepted and silently ignored, and running it bare
-from outside a session is a no-op that still exits 0. **It resolves its target
-from the ambient `ZMX_SESSION`** — the variable zmx sets inside a session's own
-shell — so setting `ZMX_SESSION` explicitly from outside aims the verb at an
-arbitrary session. It detaches every client and leaves the session itself alive.
+The primitive is undocumented and not discoverable from `zmx help`:
 
-Rules for combining the two:
+- `zmx detach` is listed as taking no arguments ("Detach all clients").
+- A session name passed positionally is accepted and ignored.
+- Run bare from outside a session it is a no-op that exits 0.
+- It resolves its target from the ambient `ZMX_SESSION`, the variable zmx sets
+  inside a session's own shell. Setting `ZMX_SESSION` explicitly from outside
+  aims it at any session. It detaches every client and leaves the session
+  alive.
 
-- **Order is guard-then-sweep.** The signal lets a prior Olympus holder tear its
-  own PTY down cleanly, restoring the outer terminal per §8.2; the sweep then
-  covers whatever the guard cannot see. The reverse would kick the holder's
-  client out from under a holder that then cleans up a PTY whose client is
-  already gone.
-- **The sweep is best-effort and LOUD on failure.** A failed sweep leaves prior
-  clients co-attached — degraded but usable — which is not a reason to refuse the
-  attach the operator asked for. But it MUST print to stderr, because a silent
-  no-op here is indistinguishable from a successful steal, which is the precise
-  failure this exists to remove.
-- **Residual race, accepted**: the sweep is point-in-time, so a client attaching
-  between the sweep and Olympus's own attach survives it. Closing that would need
-  a zmx-side exclusive-attach primitive that does not exist.
+#### Combining the two
+
+- **Order is guard-then-sweep.** The signal lets a prior Olympus holder tear
+  its own PTY down cleanly, restoring the outer terminal per §8.2. The sweep
+  then covers what the guard cannot see. The reverse would pull the client out
+  from under a holder that then cleans up a PTY whose client is already gone.
+- **The sweep is best-effort and loud on failure.** A failed sweep leaves prior
+  clients co-attached, degraded but usable, which is no reason to refuse the
+  attach. But it MUST print to stderr: a silent no-op is indistinguishable from
+  a successful steal, the failure this exists to remove.
+- **Residual race, accepted.** The sweep is point-in-time, so a client attaching
+  between the sweep and Olympus's own attach survives it. Closing that would
+  need a zmx-side exclusive-attach primitive that does not exist.
 
 ### 8.6 Signalling and its accepted risks
 
 The supersession handler's message MUST be generic ("detached: superseded"),
 never "superseded by pid N". POSIX signal delivery carries no sender pid
-portably, so the superseded side cannot honestly name who stole from it. The "by
-pid N" framing belongs on the **stealer's** side, where the holder's pid is
-genuinely known from the pidfile it just read.
+portably, so the superseded side cannot name who stole from it. The "by pid N"
+framing belongs on the stealer's side, which read the holder's pid from the
+pidfile.
 
-A holder with **no** handler is a different case, and the difference is worth
-stating: it falls to SIGUSR1's POSIX default disposition, which is termination.
-That is an accepted risk rather than a mechanism to rely on — it was observed
-NOT to terminate a Go process on a GitHub Actions runner, while terminating the
-same binary on macOS and in a plain container. A steal from a holder that has
-not installed its handler is therefore best-effort, and the bounded wait
-(§17.3) is what keeps it from blocking forever.
+#### A holder with no handler
 
-The handler runs on its own goroutine, installed **before** the PTY is spawned,
-so a steal landing in that window has no PTY to close yet. It can fire at any
-point relative to the attach: before the PTY exists, mid-stream, or after the
-attach has already torn it down on child exit. A mutex-guarded PTY handle,
-populated the moment the PTY starts and closed by the handler only when non-nil,
-makes every one of those windows a safe no-op rather than a nil-pointer panic or
-a double-close.
+It falls to SIGUSR1's POSIX default disposition, termination. That is an
+accepted risk, not a mechanism to rely on: it was observed not to terminate a
+Go process on a GitHub Actions runner, while terminating the same binary on
+macOS and in a plain container. A steal from such a holder is best-effort, and
+the bounded wait (§17.3) keeps it from blocking forever.
 
-**Accepted risk — pid recycling.** Between reading the pid and signalling it, the
-OS could reap the original holder and recycle its pid onto an unrelated process.
-This is unfixable without a handle-based signal primitive (`pidfd`), which Go does
-not expose. The window is narrow, but the blast radius is *not* uniformly
-bounded: a Go process without the handler treats an un-notified `SIGUSR1` as
-non-fatal, while a non-Go process hits the POSIX default disposition, which is
-termination. Accepted, not fixed.
+#### The handler's timing
+
+The handler runs on its own goroutine, installed before the PTY is spawned. It
+can fire before the PTY exists, mid-stream, or after the attach tore it down on
+child exit. A mutex-guarded PTY handle, populated when the PTY starts and closed
+by the handler only when non-nil, makes each of those a safe no-op rather than a
+nil-pointer panic or a double-close.
+
+#### Accepted risk: pid recycling
+
+Between reading the pid and signalling it, the OS could reap the holder and
+recycle its pid onto an unrelated process. This is unfixable without a
+handle-based signal primitive (`pidfd`), which Go does not expose. The window is
+narrow, but the blast radius varies: a Go process without the handler treats an
+un-notified `SIGUSR1` as non-fatal, while a non-Go process hits the default
+disposition, termination. Accepted, not fixed.
 
 ### 8.7 A viewer role on zmx MUST drop resize as well as input
 
-zmx has exactly one PTY per session shared by every client, unlike tmux's
-per-view grouped sessions. A read-only viewer MUST therefore drop resize calls in
-addition to keystrokes: a viewer resize on zmx physically resizes the *driver's*
-terminal — a real disruption, not a self-contained no-op. A deliberately stronger
-gate than tmux needs.
+A read-only viewer on zmx MUST drop resize calls in addition to keystrokes. This
+is a stronger gate than tmux needs.
 
-**meja has no read-only client at all**, so there is nothing to make passive: a
-viewer attach is refused as `UNSUPPORTED` (§12) rather than downgraded to a
-controller. Dropping input silently would be worse than saying so — a watcher
-who believes they cannot type, and can, will eventually type into somebody
-else's session.
+#### Why
 
-**herdr's read-only stream is not a terminal client**, which reaches the same
-refusal by a different road: it emits JSON frames for a program to decode rather
-than a rendering for a human to sit in, so there is nothing to hand a PTY. A
-viewer attach is `UNSUPPORTED` there too. The stream is not wasted — it is what
-§5.6's follow is built on — but following and attaching are different operations
-and only one of them is a place to sit.
+zmx has one PTY per session shared by every client, unlike tmux's per-view
+grouped sessions. A viewer resize on zmx physically resizes the driver's
+terminal.
+
+#### meja and herdr refuse a viewer
+
+meja has no read-only client, so there is nothing to make passive. A viewer
+attach is refused as `UNSUPPORTED` (§12) rather than downgraded to a
+controller. A watcher who believes they cannot type, and can, will eventually
+type into somebody else's session.
+
+herdr's read-only stream is not a terminal client. It emits JSON frames for a
+program to decode, not a rendering for a human to sit in, so there is nothing to
+hand a PTY. A viewer attach is `UNSUPPORTED` there too. The stream is what §5.6's
+follow is built on, but following and attaching are different operations.
 
 ### 8.8 A spontaneous attach exit must still reap its view session
 
 A view session's cleanup MUST NOT depend solely on an explicit close from the
-consumer. The attach client can exit on its own — base session died, process
-killed out from under it — without any close running. The exit handler MUST
-independently reap the per-view session, or it leaks forever.
+consumer. The attach client can exit on its own (base session died, process
+killed) without any close running. The exit handler MUST independently reap the
+per-view session, or it leaks forever.
 
 ### 8.9 A bare attach on tmux is an attach onto a throwaway view
 
-A *bare* attach shows a session as a plain pane with no chrome. On herdr that is
-the session client with its chrome hidden and every key that leaves the
-workspace unbound (tabs, workspaces, worktrees, the sidebar, the picker),
-under a configuration file written for the one attach; what the operator does
-INSIDE the workspace stays theirs — the prefix is the one their own
-configuration names (§13.3), and the pane keys behind it (split, close pane,
-zoom, resize, focus between panes) keep herdr's bindings, with a divider
-drawn between split panes and nothing around a lone one (`pane_borders =
-true`, the legacy spelling of 0.9.0's `"auto"`, which an older herdr still
-parses). On tmux it is a
-**view** (§9): a
-grouped session is already bare by construction — no status bar, no prefix, an
-inert key table (§9.3) — so a bare attach MUST create a view onto the session,
-attach the client to the view rather than to the session, and reap the view
-when the attach ends, on every exit path (§8.8). Attaching the session itself
-with `status off` would reconfigure it for every other client of it.
+A bare attach shows a session as a plain pane with no chrome. zmx and meja have
+neither a chrome-drawing client nor views, so a bare attach is `UNSUPPORTED`
+there (§12).
 
-The target MAY name a window: `<session>:<window>`, where the window is an
-index or a name. A grouped session keeps its own current window (§9.2, §9.4), so
-the view is pinned to that window while the base and every sibling view keep
-showing whatever they were showing — which is the whole reason for the shape.
-The split is at the first colon: tmux rewrites a colon out of any session name
-it is given, so a session name never contains one, and a window name may. The
-window MUST be validated against the base before the view exists (§9.4), and a
-window the base does not have is `SESSION_NOT_FOUND` with nothing created.
+#### herdr
 
-The caller MAY name the view and MAY turn its mouse reporting off. An attach is
-interactive and has no channel to report a generated name back, yet a consumer
-that scrolls the view from outside (§9.2) or focuses a pane in it (§9.6) while
-the attach runs has to address it; a name the caller chose is the only way it
-can. The name MUST carry the reserved prefix (§17.1) or it is `USAGE` before a
-view exists — an unprefixed view would be invisible to enumeration and to every
-sweep. Mouse reporting off is for a client that keeps its own text selection and
-drives the scroll through §9.2 instead. Either option on a backend whose bare
-attach makes no view is `USAGE`, not ignored: a caller naming a view it then
-drives would otherwise drive nothing, silently.
+A bare attach is the session client under a configuration file written for the
+one attach:
 
-What a bare attach cannot promise: the active *pane* within a window is the
-window's, shared with the base. A bare view of a multi-pane window shows the
-base's active pane, and Olympus never selects a pane in a view (§9.4).
+- Its chrome is hidden.
+- Every key that leaves the workspace is unbound: tabs, workspaces, worktrees,
+  the sidebar, the picker.
+- What the operator does inside the workspace stays theirs. The prefix is the
+  one their own configuration names (§13.3), and the pane keys behind it
+  (split, close pane, zoom, resize, focus between panes) keep herdr's bindings.
+- A divider is drawn between split panes and nothing around a lone one
+  (`pane_borders = true`, the legacy spelling of 0.9.0's `"auto"`, which an
+  older herdr still parses).
 
-Nothing else about attach changes. The view is a session, so the ordinary
-argv applies to it: a viewer role attaches it read-only (§8.7), and the
-supersede flag is harmless on a session no client has yet reached. Opting out
-of supersession has nothing to act on and is accepted rather than refused — the
-base's own clients are never displaced by a bare attach, which is its point.
-zmx and meja have neither a chrome-drawing client nor views, so a bare attach is
-`UNSUPPORTED` there (§12).
+#### tmux
+
+A bare attach is a view (§9). A grouped session is already bare by construction:
+no status bar, no prefix, an inert key table (§9.3). A bare attach MUST create a
+view onto the session, attach the client to the view rather than the session,
+and reap the view when the attach ends, on every exit path (§8.8).
+
+Attaching the session itself with `status off` would reconfigure it for every
+other client of it.
+
+#### A window target
+
+The target MAY name a window: `<session>:<window>`, by index or name. A grouped
+session keeps its own current window (§9.2, §9.4), so the view is pinned to
+that window while the base and every sibling view keep showing their own.
+
+The split is at the first colon. tmux rewrites a colon out of any session name,
+so a session name never contains one, and a window name may. The window MUST be
+validated against the base before the view exists (§9.4). A window the base does
+not have is `SESSION_NOT_FOUND` with nothing created.
+
+#### Naming the view and turning mouse off
+
+The caller MAY name the view and MAY turn its mouse reporting off.
+
+The name MUST carry the reserved prefix (§17.1) or it is `USAGE` before a view
+exists. An unprefixed view would be invisible to enumeration and every sweep.
+Either option on a backend whose bare attach makes no view is `USAGE`, not
+ignored: a caller naming a view it then drives would otherwise drive nothing.
+
+##### Why
+
+An attach is interactive and has no channel to report a generated name back. A
+consumer that scrolls the view from outside (§9.2) or focuses a pane in it
+(§9.6) while the attach runs has to address it, and a name it chose is the only
+way. Mouse reporting off is for a client that keeps its own text selection and
+drives the scroll through §9.2.
+
+#### What a bare view cannot promise
+
+The active pane within a window is the window's, shared with the base. A bare
+view of a multi-pane window shows the base's active pane, and Olympus never
+selects a pane in a view (§9.4).
+
+#### The rest of attach is unchanged
+
+The view is a session, so the ordinary argv applies. A viewer role attaches it
+read-only (§8.7), and the supersede flag is harmless on a session no client has
+reached. Opting out of supersession has nothing to act on and is accepted
+rather than refused: a bare attach never displaces the base's own clients.
 
 ### 8.10 A session-client attach on herdr is steered onto its target
 
-herdr has two clients, and they are different programs. The default attach is
-the raw per-pane stream, `herdr terminal attach`, onto the pane the target
-resolves to (§3.6) — a plain terminal with no chrome and no selection. The
-session client — `--client`, and `--bare`, which implies it — is herdr's own
-application: sidebar, tabs, mouse selection, scrollback and copy. It takes no
-target of its own, so Olympus MUST steer the server onto the target, level by
-level in the order the client will read them:
+herdr has two clients, and they are different programs:
+
+| Client | Selected by | What it is |
+|---|---|---|
+| raw pane stream, `herdr terminal attach` | default | a plain terminal on the pane the target resolves to (§3.6), no chrome, no selection |
+| session client | `--client`, or `--bare`, which implies it | herdr's own application: sidebar, tabs, mouse selection, scrollback, copy |
+
+The session client takes no target of its own, so Olympus MUST put it on the
+target. How depends on what the server supports:
+
+| Server | Method | Section |
+|---|---|---|
+| without `client_view_focus`, `--client` | server steering | below |
+| without `client_view_focus`, `--bare` | walk | "The walk" |
+| with `client_view_focus` | per-client view requests | "A server that moves one client's view" |
+| also with `client_view_ack` | per-client view requests, confirmed by acknowledgement | "A server that reports when a client applied its view" |
+| also with `client_view_pane` | pane focus for one client | "A pane focused for one client" |
+
+#### Server steering
+
+Steering runs level by level, in the order the client will read them:
 
 | target | steering |
 |---|---|
@@ -2140,501 +2605,648 @@ level in the order the client will read them:
 | tab | `workspace focus <ws>`, then `tab focus <tab>`; then the same zoom-out if the tab is zoomed |
 | pane | `workspace focus <ws>`, `tab focus <tab>`, then `pane zoom --pane <pane> --on` |
 
-HOW the client reaches its workspace depends on the herdr, and this was
-measured rather than read (2026-09-13, two clients on one server, a marker
-typed into each and read back from each workspace's pane — the clients'
-window titles were tried first and lied, since a title repaints for the
-focused client alone). Below 0.9.0 every client shows the server's one focus:
-the steering above runs BEFORE the spawn, and the client comes up showing
-it. From 0.9.0 a client that has moved between workspaces on its own keeps a
-view of its own, but `workspace focus` on the server still moves EVERY
-client, those included; so on the server there is no way to put two clients
-on two workspaces, and steering it for a second tab moved the first. A bare
-client is therefore WALKED: it comes up on the server's focus (measured),
-and once it is reading keys — a beat after the client asks the terminal for
-the kitty keyboard protocol (`CSI > 7 u`), which the backend names as the
-attachment's `SettleAfter` and the engine watches the output for; a key
-written with the push itself is dropped, a key
-written a stretch after is read once the client is up. Idle that stretch is
-short, but under load — several clients attaching to one server at once —
-the client is not reading keys for longer: the two-clients e2e failed 6 of
-6 at a 250ms beat and passed 6 of 6 at 400ms (measured 2026-09-13), so the
-beat is 400ms.
-The engine waited for the first quiet stretch after the first byte before
-that, since the first byte comes before the connection; a client on a
-workspace whose pane never stops painting never goes quiet, and every such
-attach waited out the two-second cap (measured: 2.1s to the walked frame,
-against 0.2s by the mark). Quiet, and the cap, remain the way for a client
-that names no mark — the backend reads the workspaces in the order of their numbers
-and writes the client's own next- or previous-workspace key, the shorter
-way round the ring those keys walk, once per step with a beat between
-(two at once were read as one). The bare configuration binds them to F17
-and F18, keys a terminal almost never sends, and the client reads them in
-the kitty spelling it asked for (`CSI > 7 u`); the legacy `CSI 31 ~` went
-unread. A tab or pane target is then steered on the server for its tab and
-zoom, which are the workspace's own state and move no client on another
-workspace. A client with the operator's configuration (`--client` without
-`--bare`) has no keys the backend can count on, so it is steered on the
-server as before, and moves every other client with it. The backend hands
-the walk to the engine as the attachment's `Settle`, run with the client's
-own input; a `Settle` that fails ends the attach with its error, since a
+Below herdr 0.9.0 every client shows the server's one focus. The steering runs
+before the spawn, and the client comes up showing it.
+
+From 0.9.0 a client that moved between workspaces on its own keeps a view of
+its own, but `workspace focus` still moves every client, those included. On the
+server there is no way to put two clients on two workspaces: steering it for a
+second tab moved the first. So a bare client is walked, and a `--client` attach
+without `--bare` is still steered on the server and moves every other client
+with it, since it has no keys the backend can count on.
+
+These were measured with two clients on one server, a marker typed into each
+and read back from each workspace's pane. Window titles were not usable for
+this, since a title repaints for the focused client alone.
+
+##### Why the pane step is a zoom
+
+herdr has no server pane-focus request, and a zoom both focuses the pane and
+shows it alone, which is what a caller attaching one pane of a split tab means.
+Measured: zooming a pane that was not focused answers `focus_changed: true`,
+and zooming into a tab already zoomed on another pane reports `already_zoomed`
+and still moves focus.
+
+##### Why workspace and tab rows zoom out
+
+The zoom outlives the attach. Without the zoom-out, a second attach onto a
+two-pane tab showed only the pane an earlier pane attach had zoomed, with
+nothing the caller could target to bring the other back. The zoom state is read
+from the tab's layout row, the same row that names its focused pane. A tab that
+is not zoomed gets no extra request.
+
+##### Steering is a server call and is not undone
+
+The steering is server requests over the socket, so a session-client attach is
+a server call. It is not undone when the client exits: the server keeps the
+focus and zoom a human would have left the same way.
+
+#### The walk
+
+On a server without `client_view_focus`, a bare client comes up on the server's
+focus (measured) and is walked to its target with its own workspace keys.
+
+##### Waiting until the client reads keys
+
+The client asks the terminal for the kitty keyboard protocol (`CSI > 7 u`) as
+it starts. The backend names that sequence as the attachment's `SettleAfter`,
+and the engine watches the output for it and waits 400ms after it before
+walking.
+
+A key written with the push is dropped. A key written a stretch after is read.
+Idle that stretch is short, but under load (several clients attaching to one
+server) it is longer: the two-client e2e failed 6 of 6 at 250ms and passed 6 of
+6 at 400ms.
+
+For a client that names no mark, the engine waits for the first quiet stretch
+after output begins, capped at two seconds. The mark exists because a client on
+a workspace whose pane never stops painting never goes quiet, and waited out the
+cap (measured: 2.1s to the walked frame, against 0.2s by the mark).
+
+##### The keys
+
+The backend reads the workspaces in the order of their numbers and writes the
+client's next- or previous-workspace key, the shorter way round the ring, once
+per step with a gap between presses. Two written at once were read as one.
+
+The bare configuration binds those keys to F17 and F18, keys a terminal almost
+never sends. They are written in the kitty spelling the client asked for; the
+legacy `CSI 31 ~` went unread.
+
+A tab or pane target is then steered on the server for its tab and zoom. Those
+are the workspace's own state and move no client on another workspace.
+
+The backend hands the walk to the engine as the attachment's `Settle`, run with
+the client's own input. A `Settle` that fails ends the attach with its error: a
 client left on the wrong workspace is worse than none.
 
-Where the client comes up is read when the attach is BUILT, and the steps
-are counted then, not when the walk runs: a walk moves the server's focus
-(the focus follows whichever client last moved, measured), and a second
-bare client spawned a beat after the first came up on the focus of one
-moment and walked from the focus of another (measured 2026-09-13: spawned
-on `w14`, the first's walk moved the focus to `wY` meanwhile, and the
-second walked `wY → wZ` from `w14` and landed on `wY`). And the bare
-attaches onto one server are built ONE AT A TIME: a lock per server, in the
-reserved lock directory (§17.1), held from the moment the focus is read to
-a beat after the last key of the walk, or to the attachment's cleanup where
-the client ended before it walked. A second attach waits for it, up to
-fifteen seconds, and is refused as a conflict after. A consumer opening
-several tabs at once pays the walks in a row, each under a second, which is
-what makes every one of them land. The `focus` verb
-(§13) is unchanged and still steers the server directly, which on 0.9.0
-moves every client.
+##### Steps are counted at build, under a lock
 
-A bare client, once walked, can be MOVED: the attachment's `Go`, asked for
-with the in-band `go` control (§8.3), walks it from the workspace it is ON
-to another target on the same server, the same way — the steps counted
-from where this backend last left it (the attach's target, then each go's;
-where a walk is cut short, the workspace of the last key pressed), under
-the walk lock, the tab and zoom steered on the server after. That is how a
-consumer with one client per server switches between workspaces without a
-spawn: a tab in Agamemnon's strip is a go on its host's one client. The
-probe follows the client, so the attach ends with the target it is on, not
-the one it was made for; a go onto a target that does not exist, or a walk
-that fails, ends the attach with its error, since a caller that believes
-the client moved is worse off than one told it did not.
+Where the client comes up is read when the attach is built, and the steps are
+counted then, not when the walk runs.
 
-Every press of a walk, the first one's and a go's alike, is CONFIRMED by
-the client rather than assumed from a beat. The client paints its window
-title as it lands on a workspace — on its own switches every time,
-measured — so the engine is asked, before the press, to watch the output
-for a window title (`Expect`), and the press is made once more if none has
-come
-within a beat and a half, then given up as the walk's error. Then the
-switch's synchronized frame (DEC 2026) is waited for to its end, and a
-beat after it, before anything else is written: the title comes at the
-START of the switch, and a marker typed between the title and the end of
-the frame never echoed (measured). Both were measured against the app's
-e2e under load: with a fixed beat after the press, one press in three went
-unread and the marker typed after it landed in the workspace the client
-was still on; with the title alone, the marker typed after it was lost
-one run in eight; with the frame, eight of eight landed (2026-09-13).
-Any title counts, since what it says is not the label a workspace list
-gives: for a workspace nobody named, herdr names the list's row from the
-directory its process is in and the title from the directory its terminal
-last reported, and a press onto a Claude Code pane listed as `agamemnon`
-painted `<host>: ~`, so a walk matching the label gave up on every press
-that landed (measured 2026-09-15, three of three; four of four with any
-title).
-What no walk can hold against: a `workspace focus` or `tab focus` on the
-server, from any CLI, moves every client and this backend cannot see it;
-and a workspace created or closed during a walk shifts the ring under it,
-since the lock serialises this backend's own walks alone. A client that
-came up on its target with no walk does not follow the server's focus
-afterwards (a marker typed into one on `w14` landed in `w14` after another
-client walked to `w0`, measured).
+Bare attaches onto one server are built one at a time. A lock per server, in
+the reserved lock directory (§17.1), is held from the moment the focus is read
+to a beat after the last key of the walk, or to the attachment's cleanup where
+the client ended before it walked. A second attach waits up to fifteen seconds
+and is then refused as a conflict. A consumer opening several tabs at once pays
+the walks in a row, each under a second, and every one lands.
 
-**A server that moves one client's view is not walked.** A herdr server
-that answers `ping` with `capabilities.client_view_focus: true` takes a
-client launch flag and two socket requests that put ONE client somewhere:
-`--workspace <workspace id>` starts that client on the workspace without
-moving the server's focus or any other client, `--client-tag <tag>` names
-it, `client.list` reports each client's tag, workspace and tab, and
-`client.view.focus` moves the client a tag names, and no other, onto a
-workspace and optionally a tab. Whether the server has them is ASKED — the
-capability, read once per backend handle and forgotten when that handle
-starts or stops a server; a failed ask is not kept — and never read from
-the version, since a build with them reports the same version as one
-without. A server that does not advertise it is walked as above, and is
-never handed the flags: a herdr without them refuses to launch. The ping and
-the two client requests have no CLI verb, so they go over the API socket
-directly, one JSON line each way on a connection of their own; everything
+###### Why
+
+A walk moves the server's focus (the focus follows whichever client last moved,
+measured). A second bare client spawned a beat after the first came up on the
+focus of one moment and walked from the focus of another, landing one workspace
+off.
+
+The `focus` verb (§13) does not take this lock and still steers the server
+directly, which from 0.9.0 moves every client.
+
+##### Moving a walked client: `go`
+
+A bare client, once walked, can be moved. The attachment's `Go`, asked for with
+the in-band `go` control (§8.3), walks it to another target on the same server
+the same way:
+
+- The steps are counted from where this backend last left it: the attach's
+  target, then each go's; where a walk is cut short, the workspace of the last
+  key pressed.
+- It runs under the walk lock, with tab and zoom steered on the server after.
+
+That is how a consumer with one client per server switches workspaces without a
+spawn. The probe follows the client, so the attach ends with the target it is
+on, not the one it was made for.
+
+A go onto a target that does not exist, or a walk that fails, ends the attach
+with its error. A caller that believes the client moved is worse off than one
+told it did not.
+
+##### Every press is confirmed
+
+Every press of a walk, the first one's and a go's alike, is confirmed by the
+client rather than assumed from a delay:
+
+1. Before the press, the engine is asked to watch the output for a window title
+   (`Expect`). The client paints its title as it lands on a workspace, on its
+   own switches every time (measured).
+2. If no title has come within 1.5 seconds, the press is made once more, then
+   given up as the walk's error.
+3. The switch's synchronized frame (DEC 2026) is waited for to its end, and a
+   beat after it, before anything else is written.
+
+Any title counts. For a workspace nobody named, herdr names the list's row from
+the directory its process is in and the title from the directory its terminal
+last reported, so a Claude Code pane listed under its project directory painted `<host>: ~`. A walk
+matching the label gave up on every press that landed.
+
+###### Why the frame, not the title alone
+
+The title comes at the start of the switch, and a marker typed between the
+title and the end of the frame never echoed. Against a consumer's e2e under
+load: with a fixed delay after the press, one press in three went unread and the
+next marker landed in the workspace the client was still on. With the title
+alone, the marker was lost one run in eight. With the frame, eight of eight
+landed.
+
+##### What a walk cannot hold against
+
+See §8.11. In short: a `workspace focus` or `tab focus` on the server, from any
+CLI, moves every client and this backend cannot see it. A workspace created or
+closed during a walk shifts the ring, since the lock serialises only this
+backend's walks.
+
+A client that came up on its target with no walk does not follow the server's
+focus afterwards: a marker typed into one on `w14` landed in `w14` after another
+client walked to `w0` (measured).
+
+#### A server that moves one client's view is not walked
+
+A herdr server that answers `ping` with `capabilities.client_view_focus: true`
+has these:
+
+| Interface | Effect |
+|---|---|
+| `--workspace <workspace id>` (client launch flag) | starts that client on the workspace without moving the server's focus or any other client |
+| `--client-tag <tag>` (client launch flag) | names the client |
+| `client.list` | reports each client's tag, workspace and tab |
+| `client.view.focus` | moves the client a tag names, and no other, onto a workspace and optionally a tab |
+
+Whether the server has them is asked, never read from the version: a build with
+them reports the same version as one without. The capability is read once per
+backend handle and forgotten when that handle starts or stops a server. A failed
+ask is not kept.
+
+A server that does not advertise it is walked as above and never handed the
+flags, since a herdr without them refuses to launch.
+
+The ping and the client requests have no CLI verb, so they go over the API
+socket directly, one JSON line each way on a connection of their own. Everything
 else still goes through the CLI.
 
-On such a server a bare attach (the session client with the operator's
-configuration is steered as before):
+##### The bare attach on such a server
+
+The session client with the operator's configuration is steered as before. A
+bare attach runs:
 
 | step | what runs |
 |---|---|
-| build | the zoom steps of the table above, and nothing else on the server: no `workspace focus`, no `tab focus`, no walk lock |
-| spawn | the client with `--workspace <ws> --client-tag <tag>`: the caller's tag where the attach names one (§13.5), else `olympus-client-<16 hex>` (§17.1), a tag drawn per attach |
-| settle | wait for the tag in `client.list`; the zoom steps of the table above; then, if the client is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id`; then the confirmation below — the server's acknowledgement where it reports one, the client's frame where it does not |
+| build | the zoom steps of the steering table, and nothing else on the server: no `workspace focus`, no `tab focus`, no walk lock |
+| spawn | the client with `--workspace <ws> --client-tag <tag>`: the caller's tag where the attach names one (§13.5), else `olympus-client-<16 hex>` (§17.1), drawn per attach |
+| settle | wait for the tag in `client.list`; the zoom steps; then, if the client is not on the target's workspace (and, for a tab or pane target, its tab), `client.view.focus` with `workspace_id` and, for a tab or pane target, `tab_id`; then the confirmation below |
 | go | resolve the target; the same as settle, from where `client.list` has the client |
 | probe | `client.list` for the tag, then the presence of the target the backend last put the client on |
 
-`client.view.focus` is confirmed by its answer: the client it returns must
-be on the workspace, and the tab where one was asked, or the settle or go
-fails. The answer is not yet enough to forward what was typed after a go:
-the client addresses its input to the pane it believes it shows, and the
-server drops input for a pane the client no longer views until the repaint
-that tells the client where it is has reached it (measured: a marker
-written straight after the answer never echoed, and landed once the frame
-was waited for). So the end of that repaint's synchronized frame is waited
-for, a beat and a half at most, and a beat after it, before the call
-returns; a client that paints nothing ends the attach with an error. No key
-is pressed and no window title is waited for. A client that is already where
-the target is — a client launched onto its workspace, or a go onto where it
-is — is not moved again.
+A client already where the target is (launched onto its workspace, or a go onto
+where it is) is not moved again. No key is pressed and no window title is
+waited for.
 
-**A server that reports when a client has applied its view is asked, not
-watched.** A herdr server that also answers `ping` with
-`capabilities.client_view_ack: true` (asked and kept with
-`client_view_focus`, never read from the version) reports, per client in
-`client.list`, `snapshot_acks` (whether the client acknowledges the
-snapshots it applies), `pane_id` and `zoomed` (the focused pane of the tab
-it shows, and whether that tab is zoomed) and `view_applied` (whether it has
-acknowledged a snapshot carrying its current view: workspace, tab, focused
-pane and zoom — the snapshot it routes input through). It takes
-`client.view.wait`, which answers once the client has applied its current
-view, and `client.view.focus` with `wait: true`, which moves the client and
-answers once it has applied the new one. Where the server advertises it
-and the client's row says `snapshot_acks: true`, the settle and the go run
-the zoom steps and then ONE request with `timeout_ms` 5000 (herdr's own
-default): `client.view.focus` with `wait: true` where the client is not on
-the target's workspace and tab, `client.view.wait` where it is (the first
-placement of a client just launched onto its target, and a zoom that moved
-the focus of the tab the client shows). Nothing the client paints is
-watched. The client the answer carries must be applied, on the target's
-workspace, on its tab for a tab or pane target, and for a pane target have
-that pane focused and its tab zoomed as the zoom step's own answer left it
-(a lone pane is not zoomed: herdr answers `single_pane`, measured); anything
-else fails the settle or go. herdr's `timeout` fails it as `TIMEOUT`, saying
-the client did not apply its view: what was typed after the go is not
-forwarded into a pane the client may not address. The request's own
-deadline sits past the server's, so that answer is herdr's rather than a
-socket that stopped answering. A server without the capability, or a client
-that does not acknowledge snapshots, takes the frame confirmation above
-unchanged.
+##### Confirmation by frame
 
-**A pane is focused for one client without a zoom.** A herdr server that
-also answers `ping` with `capabilities.client_view_pane: true` takes
-`pane_id` in `client.view.focus`: the client is moved onto that pane's tab
-and the tab's focused pane becomes that one, the tab's zoom left as it was.
-The focus control (§8.3) uses it and nothing else: the server's own
-`pane focus` moves the server's focus, which is every other client's too. A
-zoom on the tab is taken off first with `pane zoom --off`, before the view
-moves, for the reason the zoom steps run first on a go. The call carries
-`wait: true` and `timeout_ms` 5000 where the server advertises
-`client_view_ack` and the client acknowledges snapshots, and otherwise the
-end of the move's synchronized frame is waited for, as for a go. The client
-the answer carries must be on the pane's workspace and tab, with that pane
-focused, not zoomed, and applied where it was waited for; anything else
-fails the focus. Afterwards the attach is on the pane's TAB, so a pane
-closed later leaves the client where it is rather than ending the attach.
-A server without `client_view_pane` is `UNSUPPORTED`, which the control
-drops.
+`client.view.focus` is confirmed by its answer: the client it returns must be on
+the workspace, and the tab where one was asked, or the settle or go fails.
 
-The zoom steps run BEFORE the view moves, and at build before the client
-exists, on both confirmations. The client addresses its input to the pane its own copy of the tab
-has focused, and herdr takes input for a zoomed tab from its focused pane
-alone, so a zoom that moves the tab's focus is typed past until the client
-has it (measured: a marker typed straight after a zoom onto the second pane
-of a split never echoed). Zoomed first, the state the view change sends the
-client already has the pane focused, and a client launched onto a zoomed
-tab is sent it in its first state. Zoomed after the view moved, the zoom
-needed a frame wait of its own, and that wait was met by a frame the view
-change painted late, before the zoom had even answered, in 17 of 20 goes
-onto a pane in another tab under load; the marker typed after the go was
-dropped in 4 of them. Where the client already shows the target's tab
-there is no view change to carry the zoom: a zoom that moves that tab's
-focus is followed by the same frame wait, and one that leaves the focus
-where it was (the pane already focused, or a zoom-out) needs none, since
-the pane the client addresses is the one herdr takes input for. On a server
-that acknowledges the view, the one request after the zoom steps confirms
-the zoom and the move together, since the view it waits for includes the
-focused pane and the zoom.
+The answer is not enough to forward what was typed after a go. So the end of
+the repaint's synchronized frame is waited for, bounded, and a beat after it,
+before the call returns. A client that paints nothing ends the attach with an
+error.
 
-The zoom steps stay because a zoom is the tab's own state and there is no
-zoom of one client's: a pane target still means that pane alone, and a
-workspace or tab target still means the split an earlier pane attach left
-zoomed. A zoom focuses its pane, and herdr moves its own focus with it
-(measured: a go onto a pane in `w3` moved the server's focus from `w1` to
-`w3`); no client moves with that focus on such a server (the other client
-of the two stayed where it was), so nothing here depends on it. A workspace
-target names no tab, and the client shows the tab it last showed in that
-workspace, as a person switching to it would see.
+###### Why
 
-The probe follows the client. The server moves a client for two reasons:
-the workspace it showed closed, or somebody moved it by its id. The target
-the backend last put it on tells them apart — gone, the attach ends; still
-there, the probe takes the workspace `client.list` reports as where the
-client is. With two bare clients on one server, the case the walk could not
-hold (herdr paints the foreground client the title of the server's focus and
-skips a title it has already sent, so a press that landed painted nothing,
-was made again, and every later go landed one workspace off), each of twelve
-alternating goes across three workspaces landed where it was asked, the
-other client stayed put, the server's focus did not move, and a marker
-typed after each go landed in the workspace the go took the client to.
+The client addresses its input to the pane it believes it shows. The server
+drops input for a pane the client no longer views until the repaint that tells
+the client where it is has reached it. Measured: a marker written straight
+after the answer never echoed, and landed once the frame was waited for.
 
-The pane step is a zoom rather than a focus because herdr has no pane-focus
-request, and a zoom both focuses the pane and shows it alone — which is what a
-caller attaching one pane of a split tab means. Measured: zooming a pane that
-was not focused answers `focus_changed: true`, and zooming into a tab already
-zoomed on another pane reports `already_zoomed` and still moves focus. The
-steering is server requests over the socket, so a session-client attach IS a
-server call (an earlier revision asserted it never made one, and that
-assertion is gone). It is not undone when the client exits: the server keeps
-the focus and the zoom a human would have left the same way.
+##### The probe follows the client
 
-That zoom outliving the attach is why the workspace and tab rows end by zooming
-out: a caller attaching the workspace or the tab asked for the split, and
-without the step the second attach onto a two-pane tab showed the one pane the
-earlier pane attach had zoomed, with nothing the caller could target to bring
-the other back (measured 2026-09-04 through a consumer's launcher). The zoom
-state is read from the tab's layout row, the same row that names its focused
-pane; a tab that is not zoomed gets no extra request.
+The server moves a client for two reasons: the workspace it showed closed, or
+somebody moved it by its id. The target the backend last put it on tells them
+apart. Gone, the attach ends. Still there, the probe takes the workspace
+`client.list` reports as where the client is.
 
-Which client is spawned depends on how the server was selected (§13.2):
+Measured with two bare clients on one server, the case the walk could not hold:
+each of twelve alternating goes across three workspaces landed where asked, the
+other client stayed put, the server's focus did not move, and a marker typed
+after each go landed in the workspace the go took the client to.
 
-- **By name** (`--server <name>`): the server is one of herdr's named
-  sessions, and its client is `herdr session attach <name>`, resolved under the
-  operator's configuration directory — that client needs the name, not the
-  socket.
+The walk failed there because herdr paints the foreground client the title of
+the server's focus and skips a title it has already sent. A press that landed
+painted nothing, was made again, and every later go landed one workspace off.
+
+#### A server that reports when a client applied its view
+
+A herdr server that also answers `ping` with `capabilities.client_view_ack:
+true` (asked and kept with `client_view_focus`, never read from the version)
+adds:
+
+| Interface | Effect |
+|---|---|
+| `client.list` field `snapshot_acks` | whether the client acknowledges the snapshots it applies |
+| `client.list` fields `pane_id`, `zoomed` | the focused pane of the tab it shows, and whether that tab is zoomed |
+| `client.list` field `view_applied` | whether it has acknowledged a snapshot carrying its current view (workspace, tab, focused pane, zoom), the snapshot it routes input through |
+| `client.view.wait` | answers once the client has applied its current view |
+| `client.view.focus` with `wait: true` | moves the client and answers once it has applied the new view |
+
+Where the server advertises it and the client's row says `snapshot_acks: true`,
+the settle and the go run the zoom steps and then one request with `timeout_ms`
+5000 (herdr's own default):
+
+- `client.view.focus` with `wait: true` where the client is not on the target's
+  workspace and tab;
+- `client.view.wait` where it is: the first placement of a client launched onto
+  its target, and a zoom that moved the focus of the tab the client shows.
+
+Nothing the client paints is watched.
+
+The client the answer carries must be applied, on the target's workspace, on
+its tab for a tab or pane target, and for a pane target have that pane focused
+and its tab zoomed as the zoom step's own answer left it. A lone pane is not
+zoomed: herdr answers `single_pane` (measured). Anything else fails the settle
+or go.
+
+herdr's `timeout` fails it as `TIMEOUT`, saying the client did not apply its
+view. What was typed after the go is not forwarded into a pane the client may
+not address. The request's own deadline sits past the server's, so that answer
+is herdr's rather than a socket that stopped answering.
+
+A server without the capability, or a client that does not acknowledge
+snapshots, takes the frame confirmation unchanged.
+
+#### A pane focused for one client, without a zoom
+
+A herdr server that also answers `ping` with `capabilities.client_view_pane:
+true` takes `pane_id` in `client.view.focus`. The client moves onto that pane's
+tab, the tab's focused pane becomes that one, and the tab's zoom is left as it
+was.
+
+The `focus` control (§8.3) uses it and nothing else. The server's own
+`pane focus` moves the server's focus, which is every other client's too.
+
+The sequence:
+
+1. A zoom on the tab is taken off first with `pane zoom --off`, before the view
+   moves, for the reason the zoom steps run first on a go (below).
+2. The call carries `wait: true` and `timeout_ms` 5000 where the server
+   advertises `client_view_ack` and the client acknowledges snapshots.
+   Otherwise the end of the move's synchronized frame is waited for, as for a
+   go.
+3. The client the answer carries must be on the pane's workspace and tab, with
+   that pane focused, not zoomed, and applied where it was waited for. Anything
+   else fails the focus.
+
+Afterwards the attach is on the pane's tab, so a pane closed later leaves the
+client where it is rather than ending the attach. A server without
+`client_view_pane` is `UNSUPPORTED`, which the control drops.
+
+#### Zoom steps run before the view moves
+
+On both confirmations the zoom steps run before the view moves, and at build
+before the client exists.
+
+Where the client already shows the target's tab there is no view change to
+carry the zoom. A zoom that moves that tab's focus is followed by the same frame
+wait. One that leaves the focus where it was (the pane already focused, or a
+zoom-out) needs none. On a server that acknowledges the view, the one request
+after the zoom steps confirms zoom and move together, since the view it waits
+for includes the focused pane and the zoom.
+
+##### Why
+
+The client addresses its input to the pane its own copy of the tab has focused,
+and herdr takes input for a zoomed tab from its focused pane alone. A zoom that
+moves the tab's focus is typed past until the client has it (measured: a marker
+typed straight after a zoom onto the second pane of a split never echoed).
+
+Zoomed first, the state the view change sends already has the pane focused, and
+a client launched onto a zoomed tab gets it in its first state. Zoomed after the
+view moved, the zoom needed a frame wait of its own, and that wait was met by a
+frame the view change painted late, in 17 of 20 goes onto a pane in another tab
+under load. The marker typed after the go was dropped in 4 of them.
+
+##### Why the zoom steps stay at all
+
+A zoom is the tab's own state, and there is no per-client zoom. A pane target
+still means that pane alone, and a workspace or tab target still means the split
+an earlier pane attach left zoomed.
+
+A zoom focuses its pane, and herdr moves its own focus with it (measured: a go
+onto a pane in `w3` moved the server's focus from `w1` to `w3`). No client moves
+with that focus on such a server (the other client stayed where it was), so
+nothing here depends on it.
+
+A workspace target names no tab, and the client shows the tab it last showed in
+that workspace, as a person switching to it would see.
+
+#### Which client is spawned
+
+It depends on how the server was selected (§13.2):
+
+- **By name** (`--server <name>`): the server is one of herdr's named sessions,
+  and its client is `herdr session attach <name>`, resolved under the operator's
+  configuration directory. That client needs the name, not the socket.
 - **By path** (Olympus's own default socket, or `--socket-path` onto a headless
-  server): there is no named session to attach. The client is plain `herdr`
-  with the socket override, measured to attach the server on that socket rather
-  than the operator's default. A server Olympus started is given Olympus's own
-  configuration directory, the one it was booted against; a server Olympus
-  found keeps the operator's (§17.5).
+  server): there is no named session. The client is plain `herdr` with the
+  socket override, measured to attach the server on that socket rather than the
+  operator's default. A server Olympus started gets Olympus's own configuration
+  directory, the one it was booted against. A server Olympus found keeps the
+  operator's (§17.5).
 
-`--bare` overrides the configuration FILE with the stripped one (§8.9) without
+`--bare` overrides the configuration file with the stripped one (§8.9) without
 moving the configuration directory, so the client renders as a plain pane and
-still reaches the same server. The session client has no viewer role and no
-co-attach control (§8.7, §8.4): a viewer attach is refused, and `--keep-others`
-is reported as unhonored rather than dropped. A target that does not exist is
-not-found before any client is spawned, the same gate as §8.1.
+still reaches the same server.
 
-**A session-client attach MUST end when its target ceases to exist.** The
-client is attached to the whole session, not to the target, so it does not end
-on its own when the target does: measured, `exit` in a workspace's only pane
-closes the pane and the workspace, and herdr moves the client onto whatever it
-focuses next, still running — a caller that closes something when the attach
-returns is left showing a workspace it never asked for. Olympus polls the
-target's presence (§3.5, by resolved id, every half second) while the client
-runs, and on `absent` says `detached: the target is gone` on the narration
-channel, sends the client SIGTERM, and SIGKILL after a short grace. The attach
-then exits `0`: Olympus ended the client, so the status is Olympus's, and the
-attach did what was asked until its subject ended — §12.1's handoff to the
-client's own status applies only to a client that exited by itself. An `error`
-answer is skipped, not treated as gone: a socket hiccup must not end a live
-terminal, and a server that has genuinely gone away ends the client on its
-own. The raw pane attach needs none of this — herdr's `terminal attach` exits
-by itself when the pane's terminal closes — and neither does the tmux bare
-attach: its view shares the base's windows, so the base's last pane exiting
-destroys the view and the client with it (a `kill-session` of the base leaves
-the view standing, §9.2).
+The session client has no viewer role and no co-attach control (§8.7, §8.4). A
+viewer attach is refused, and `--keep-others` is reported as unhonored rather
+than dropped. A target that does not exist is not-found before any client is
+spawned, the same gate as §8.1.
 
-**The focus is the server's, and it can be steered without attaching.** Every
-session client on a server shows that one focus, so two clients steered onto
-two targets both show whichever was steered last — a caller holding one
-client per tab sees every tab render the same pane. `focus <target>` runs the
-steering table above and spawns nothing, so such a caller re-steers whenever
-it brings a client to the front. The target reaches the backend as given —
-the point is precision below the session, which §10.1's resolution would
-discard — with presence gated through the resolved session first. tmux has
-the same need in its own vocabulary: clients attached to one plain session
-share its current window and pane (a view, §9, is what gives a client its
-own), so `<session>:<window>` selects the window and a pane id selects its
-window and then the pane, while a bare session has nothing to steer and is
-accepted. zmx and meja sessions are one pane, so it is `UNSUPPORTED` there;
+#### A session-client attach MUST end when its target ceases to exist
+
+While the client runs, Olympus polls the target's presence (§3.5, by resolved
+id, every half second). On `absent` it:
+
+1. says `detached: the target is gone` on the narration channel;
+2. sends the client SIGTERM;
+3. sends SIGKILL after a short grace.
+
+The attach then exits `0`. Olympus ended the client, so the status is Olympus's,
+and the attach did what was asked until its subject ended. §12.1's handoff to
+the client's own status applies only to a client that exited by itself.
+
+An `error` answer is skipped, not treated as gone. A socket hiccup must not end
+a live terminal, and a server that has genuinely gone away ends the client on
+its own.
+
+##### Why
+
+The client is attached to the whole session, not to the target, so it does not
+end when the target does. Measured: `exit` in a workspace's only pane closes the
+pane and the workspace, and herdr moves the client onto whatever it focuses
+next, still running. A caller that closes something when the attach returns is
+left showing a workspace it never asked for.
+
+##### Where it is not needed
+
+The raw pane attach exits by itself when the pane's terminal closes. The tmux
+bare attach does too: its view shares the base's windows, so the base's last
+pane exiting destroys the view and the client with it. A `kill-session` of the
+base leaves the view standing (§9.2).
+
+#### Steering without attaching: `focus`
+
+`focus <target>` runs the server steering table above and spawns nothing. On a
+server without per-client views, every session client shows the server's one
+focus, so two clients steered onto two targets both show whichever was steered
+last. A caller holding one client per tab re-steers whenever it brings a client
+to the front.
+
+The target reaches the backend as given, since the point is precision below the
+session, which §10.1's resolution would discard. Presence is gated through the
+resolved session first.
+
+| Backend | `focus` |
+|---|---|
+| herdr | runs the steering table |
+| tmux | `<session>:<window>` selects the window; a pane id selects its window and then the pane; a bare session has nothing to steer and is accepted |
+| zmx, meja | `UNSUPPORTED`: sessions are one pane |
+
+tmux has the need in its own vocabulary: clients attached to one plain session
+share its current window and pane. A view (§9) is what gives a client its own.
 `focus` (§13) is the capability to probe.
 
+#### No `<server>/<target>` grammar
+
 There is deliberately no `<server>/<target>` target grammar. The server is
-`--server`, the same option every other verb takes; a second spelling inside the
+`--server`, the same option every other verb takes. A second spelling inside the
 target would be a second contract to keep in step.
 
 ---
 
 ### 8.11 What the bare client cannot hold against
 
-Three things about a bare herdr client are limits of herdr's API rather
-than of this walk, and a consumer should know them rather than read them
-as defects here:
+On a server without `client_view_focus`, three limits of a bare herdr client
+come from herdr's API rather than from the walk:
 
-- **A server-side focus moves every client.** `herdr workspace focus`,
-  `herdr tab focus` and `herdr agent focus`, from any CLI or agent, and
-  Olympus's own `focus` verb (§13), move every attached client, this one
-  included, and nothing reports it: herdr has no request that names a
-  client, and no way to read which workspace a given client is on. A
-  client dragged this way shows the wrong workspace until its next walk.
-- **The ring can shift under a walk.** The steps are counted from the
-  workspaces as they stood when the walk began; a workspace created or
-  closed meanwhile moves the ring under the keys. The walk lock serialises
-  Olympus's own walks on a server and nothing else.
-- **A walk is bounded by a lock and a press timeout.** Bare attaches onto
-  one server are built one at a time (§8.10); a second waits up to fifteen
-  seconds and is then refused as a conflict. Each press waits a beat and a
-  half for the client's title and is made once more; a client that never
-  answers ends the attach with an error.
+| Limit | Detail |
+|---|---|
+| A server-side focus moves every client | `herdr workspace focus`, `herdr tab focus` and `herdr agent focus`, from any CLI or agent, and Olympus's own `focus` verb (§13), move every attached client, this one included, and nothing reports it. Such a server has no request that names a client and no way to read which workspace a client is on. A client dragged this way shows the wrong workspace until its next walk |
+| The ring can shift under a walk | The steps are counted from the workspaces as they stood when the walk began. A workspace created or closed meanwhile moves the ring under the keys. The walk lock serialises only Olympus's own walks on a server |
+| A walk is bounded by a lock and a press timeout | Bare attaches onto one server are built one at a time (§8.10). A second waits up to fifteen seconds and is then refused as a conflict. Each press waits 1.5 seconds for the client's title and is made once more. A client that never answers ends the attach with an error |
 
-A server that advertises `client_view_focus` has the requests that attach
-and move ONE client, and a bare client there is not walked (§8.10). The
-second and third go with the walk: there is no ring to shift, and no lock
-or press timeout is taken. The first is narrower. herdr documents that a
-`workspace focus` still moves every client, but `client.list` then reports
-where the client went, so a go puts it back from wherever it is and the
-probe follows it rather than guessing. On a server without the capability
-the walk is the only way in, and it is confirmed press by press so that
-what it cannot see is at least not guessed.
+#### On a server with `client_view_focus`
 
-One limit stays on a server that does not advertise `client_view_ack`:
-**nothing confirms the client has what it was sent.** There herdr reports no
-sign that a client has applied a view or focus change — `client.list` gives
-a client's id, tag, workspace and tab as the server holds them, and the
-client acknowledges no state it is sent — so the end of a frame is the only
-sign, and a late frame the client painted for where it was before ends the
-wait as well. Input forwarded then is addressed to a pane the client no
-longer shows, and herdr drops it. Measured: with the zoom made first, a
-frame the zoom made the client paint for its old view ended the view
-change's wait before its answer had arrived, and the marker typed after
-that go was dropped. That go failed in 3 of 60 runs under load and in none
-of 60 without, where it failed in 3 of 20 under the same load with the zoom
-made after.
+A bare client there is not walked (§8.10). The second and third limits go with
+the walk: there is no ring to shift, and no lock or press timeout is taken.
 
-A server that advertises `client_view_ack` closes it for a client whose row
-says `snapshot_acks: true`: the server answers only once the client has
-acknowledged a snapshot carrying its view, focused pane and zoom included
-(§8.10), so no frame is read as the sign. Measured on ten cores under
-fourteen busy loops, sixteen goes in a row between the panes of two split
-tabs, each with a marker typed straight after it (in the same tab and
-across workspaces), thirty runs each: by the frame, 3 runs dropped a marker
-(each on a go across workspaces); by the acknowledgement, none did
-(2026-09-15). What remains is a bound, not a guess: a client that has not
-applied its view within five seconds fails the go as a timeout.
+The first is narrower. herdr documents that a `workspace focus` still moves
+every client, but `client.list` then reports where the client went, so a go puts
+it back from wherever it is and the probe follows it rather than guessing.
+
+On a server without the capability, the walk is the only way in, and it is
+confirmed press by press so that what it cannot see is at least not guessed.
+
+#### Without `client_view_ack`, nothing confirms the client has what it was sent
+
+herdr reports no sign that a client applied a view or focus change.
+`client.list` gives a client's id, tag, workspace and tab as the server holds
+them, and the client acknowledges no state. The end of a frame is the only sign,
+and a late frame the client painted for where it was before ends the wait as
+well. Input forwarded then is addressed to a pane the client no longer shows,
+and herdr drops it.
+
+Measured with the zoom made first: a frame the zoom made the client paint for
+its old view ended the view change's wait before its answer arrived, and the
+marker typed after that go was dropped. That go failed in 3 of 60 runs under
+load and none of 60 without. With the zoom made after, it failed in 3 of 20
+under the same load.
+
+#### With `client_view_ack`, it is closed
+
+For a client whose row says `snapshot_acks: true`, the server answers only once
+the client has acknowledged a snapshot carrying its view, focused pane and zoom
+included (§8.10), so no frame is read as the sign.
+
+Measured on ten cores under fourteen busy loops: sixteen goes in a row between
+the panes of two split tabs, each with a marker typed straight after it (in the
+same tab and across workspaces), thirty runs each. By the frame, 3 runs dropped
+a marker, each on a go across workspaces. By the acknowledgement, none did.
+
+What remains is a bound, not a guess: a client that has not applied its view
+within five seconds fails the go as a timeout.
 
 ## 9. Views
 
-Read-only grouped sessions over a base. **tmux only**; zmx has no grouped-session
-concept and MUST return an unsupported-class error rather than emulating one
-badly.
+A view is a read-only grouped session over a base. Views are **tmux only**. zmx
+has no grouped-session concept and MUST return an unsupported-class error rather
+than emulating one badly.
 
 ### 9.1 Group by immutable session ID, never by name
 
-tmux resolves `-t <name>` against **group** names before session names. If a base
-session dies but its group name lingers inside a stale view, grouping a new view
-by name silently joins the wrong window set instead of failing.
+A view MUST be grouped by the base's session ID, never by its name.
+
+#### Why
+
+tmux resolves `-t <name>` against **group** names before session names. If a
+base session dies but its group name lingers inside a stale view, grouping a new
+view by name silently joins the wrong window set instead of failing.
 
 ### 9.2 Lifetime is independent; window and pane are shared
 
-A view is a real, separately-killable session: killing the base leaves the view
+A view is a real, separately killable session. Killing the base leaves the view
 alive, and sweeping views is the caller's responsibility.
 
-But the window and pane are **shared** with the base and every other group
-member, so copy-mode state and scroll position are shared too. Scrolling one view
-moves the shared scroll position for the base and all sibling views. There is no
-independent viewport per view.
+The window and pane are **shared** with the base and every other group member,
+so copy-mode state and scroll position are shared too. Scrolling one view moves
+the scroll position for the base and all sibling views. There is no independent
+viewport per view.
 
 ### 9.3 Creating a view, and what it MUST NOT reconfigure
 
-View creation is not a side-effect-free read: it defines a key table via
+View creation is not a side-effect-free read. It defines a key table via
 `bind-key -T`, which tmux scopes to the server rather than to the new session.
 
-That mutation is **inert by construction**. A named key table applies only to
-sessions whose `key-table` option points at it, so a server gains an entry no
-other session consults. Olympus MUST keep it that way — a view MUST NOT rebind
-anything in tmux's own `root` or `prefix` tables, where it would change what the
-operator's existing sessions do.
+#### The key table is inert, and MUST stay inert
 
-**What the pass-through table binds.** The wheel, both ways (§9.2), and a
-click: `MouseDown1Pane` selects the pane under the pointer and forwards the
-click, as tmux's own root binding does. A view attached interactively (§8.9)
-needs that on touch, where no keyboard shortcut moves focus. The active pane is
-the shared window's (§9.4), so the base follows, exactly as a click in the base
-would. No drag binding: copy-mode on a shared pane would drag the base into it.
+A named key table applies only to sessions whose `key-table` option points at
+it, so the server gains an entry no other session consults. A view MUST NOT
+rebind anything in tmux's own `root` or `prefix` tables, where it would change
+what the operator's existing sessions do.
 
-**A view MUST NOT touch `terminal-features`.** It is a server option with no
-per-session form, so appending to it changes how tmux renders for *every* client
-of that server — including the operator's own sessions, permanently, whenever
-Olympus is pointed at a server they already run. Olympus pins only what it
-discloses (§17.5), and this was neither disclosed nor necessary.
+#### What the pass-through table binds
 
-**The hyperlink capability belongs to the client instead.** tmux strips OSC 8
-hyperlink escape sequences for any client whose terminal has not declared the
-`hyperlinks` capability, and a headless PTY client never answers tmux's runtime
-probe — so without a declaration they vanish for that client with no error
-anywhere. A real terminal answers the probe and needs nothing. So the attach path
-MUST declare the feature for its own client with tmux's `-T` flag, which is
-global and therefore precedes the command:
+- **The wheel**, both ways (§9.2).
+- **A click.** `MouseDown1Pane` selects the pane under the pointer and forwards
+  the click, as tmux's own root binding does. A view attached interactively
+  (§8.9) needs that on touch, where no keyboard shortcut moves focus. The active
+  pane is the shared window's (§9.4), so the base follows, exactly as a click in
+  the base would.
+- **No drag.** Copy-mode on a shared pane would drag the base into it.
+
+#### A view MUST NOT touch `terminal-features`
+
+`terminal-features` is a server option with no per-session form. Appending to it
+changes how tmux renders for *every* client of that server, including the
+operator's own sessions, permanently, whenever Olympus is pointed at a server
+they already run. Olympus pins only what it discloses (§17.5), and this is
+neither disclosed nor necessary.
+
+#### The hyperlink capability belongs to the client
+
+The attach path MUST declare the `hyperlinks` feature for its own client with
+tmux's `-T` flag. The flag is global, so it precedes the command:
 
 ```
 tmux -S <socket> -T hyperlinks attach-session -t =<name>
 ```
 
-Measured: `#{client_termfeatures}` reports `hyperlinks` for a client started this
-way and omits it otherwise, while the server's `terminal-features` is unchanged.
+##### Why
 
-Scoping the declaration to the client is strictly better than the server option
-it replaces — it reaches exactly the clients that need it, is not shared with
-anyone, and disappears when the client does.
+tmux strips OSC 8 hyperlink escape sequences for any client whose terminal has
+not declared the `hyperlinks` capability. A headless PTY client never answers
+tmux's runtime probe, so without a declaration the links vanish for that client
+with no error anywhere. A real terminal answers the probe and needs nothing.
+
+Measured: `#{client_termfeatures}` reports `hyperlinks` for a client started
+this way and omits it otherwise, while the server's `terminal-features` is
+unchanged.
+
+Scoping the declaration to the client is strictly better than the server option.
+It reaches exactly the clients that need it, is not shared with anyone, and
+disappears when the client does.
 
 ### 9.4 Focusing a view moves the BASE's active pane
 
 A grouped view keeps its own current *window*, but the current *pane* is a
-property of the shared window rather than the session. So the `select-pane` call
-that focuses a view on the pane its base is showing **also moves the base
+property of the shared window rather than the session. So the `select-pane`
+call that focuses a view on the pane its base is showing **also moves the base
 session's own active pane**.
 
-On a single-pane session — the only shape Olympus's creation verbs produce — this
-is unobservable. It becomes visible the moment a consumer splits a base session
-into multiple panes themselves and then creates a view over it. Accepted, but
-documented.
+On a single-pane session, the only shape Olympus's creation verbs produce, this
+is unobservable. It becomes visible when a consumer splits a base session into
+several panes and then creates a view over it. This is accepted, and documented.
 
-**The window is the view's own, and a view MAY be pinned to one.** Because the
-current window is per-session even inside a group, selecting a window in the
-view moves nobody else — measured: a base showing window 0 and a view pinned to
-window 1 report `0` and `1` respectively, and `status off` on the view leaves
-the base's status bar alone. A pinned view MUST NOT then `select-pane`: the pane
-is the one thing it cannot choose privately, and a bare attach (§8.9) exists to
-show one window without disturbing anyone. The window MUST be checked against
-the base's own window list before the view is created, as an exact match on the
-index or the whole name: tmux's own target matching accepts a name prefix, so
-handing it the caller's spelling turns a typo into a window. A window the base
-does not have is `SESSION_NOT_FOUND`, and nothing is created.
+#### A view MAY be pinned to a window
+
+The current window is per-session even inside a group, so selecting a window in
+the view moves nobody else. Measured: a base showing window 0 and a view pinned
+to window 1 report `0` and `1` respectively, and `status off` on the view leaves
+the base's status bar alone.
+
+A pinned view MUST NOT then `select-pane`. The pane is the one thing it cannot
+choose privately, and a bare attach (§8.9) exists to show one window without
+disturbing anyone.
+
+#### The window MUST be matched exactly before the view is created
+
+The window MUST be checked against the base's own window list, as an exact match
+on the index or the whole name. A window the base does not have is
+`SESSION_NOT_FOUND`, and nothing is created.
+
+##### Why
+
+tmux's own target matching accepts a name prefix, so handing it the caller's
+spelling turns a typo into a window.
 
 ### 9.5 Listing views
 
-Views owned by this backend are enumerable as `{view name, base session}`. The
-base name comes straight from tmux's own `#{session_group}`: since §9.1 groups by
-the base's session ID rather than a synthetic name, tmux's group-name answer for
-*any* member of the group already **is** the base's real session name. No separate
-lookup or bookkeeping is needed.
+Views owned by this backend are enumerable as `{view name, base session}`. An
+empty result MUST serialize as an empty list, never null.
 
-An empty result MUST serialize as an empty list, never null.
+The base name comes straight from tmux's own `#{session_group}`. §9.1 groups by
+the base's session ID rather than a synthetic name, so tmux's group-name answer
+for *any* member of the group already **is** the base's real session name. No
+separate lookup or bookkeeping is needed.
 
-**Views are not sessions to `ls`.** To the multiplexer a view is an ordinary
-session, so a backend's own listing returns it; the ergonomic layer's `Sessions`
-(behind `ls` and `list_sessions`) MUST leave out every name of the §17.1 view
-shape. A view is scaffolding Olympus built over a session, and a caller offered
-it as a session will attach a view onto a view (measured: a web launcher listing
-`ls` verbatim did exactly that). The backend-level `Sessions` is unchanged, since
-`Views` and the tmux group bookkeeping read it.
+#### Views are not sessions to `ls`
+
+The ergonomic layer's `Sessions` (behind `ls` and `list_sessions`) MUST leave
+out every name of the §17.1 view shape. The backend-level `Sessions` is
+unchanged, since `Views` and the tmux group bookkeeping read it.
+
+##### Why
+
+To the multiplexer a view is an ordinary session, so a backend's own listing
+returns it. A view is scaffolding Olympus built over a session, and a caller
+offered it as a session will attach a view onto a view. Measured: a web launcher
+listing `ls` verbatim did exactly that.
 
 ### 9.6 Focusing a pane by cell
 
-A view MAY be attached with mouse reporting off — a desktop browser keeps its
-native text selection that way — and then a click never reaches tmux, so the
-§9.3 click binding cannot fire and nothing can change the active pane by touch.
-The client still knows the clicked **cell**, so `view focus <view> --col N
---row M` (`focus_view`, `FocusView`) turns that into the same `select-pane`.
+`view focus <view> --col N --row M` (`focus_view`, `FocusView`) selects the pane
+under a cell the caller names.
+
+#### Why
+
+A view MAY be attached with mouse reporting off, so that a desktop browser keeps
+its native text selection. A click then never reaches tmux, the §9.3 click
+binding cannot fire, and nothing can change the active pane by touch. The client
+still knows the clicked **cell**, so this verb turns it into the same
+`select-pane`.
+
+#### Coordinates
 
 Coordinates are 0-based within the client area. On the view's **current
-window**, the pane selected is the one whose rectangle — tmux's `#{pane_left}
-#{pane_top} #{pane_right} #{pane_bottom}`, every edge inclusive — contains the
-cell. Measured on an 80x24 window split in two: `%0` spans columns 0–39, `%1`
-spans 41–79, and column 40 is the border. A cell on a border or outside every
-pane selects nothing: the result reports an empty pane id and MUST NOT be an
-error, since the coordinate was legitimate and there was simply no pane there.
-A negative coordinate is a usage error.
+window**, the pane selected is the one whose rectangle contains the cell. The
+rectangle is tmux's `#{pane_left}`, `#{pane_top}`, `#{pane_right}` and
+`#{pane_bottom}`, every edge inclusive.
+
+Measured on an 80x24 window split in two: `%0` spans columns 0 to 39, `%1` spans
+41 to 79, and column 40 is the border.
+
+| Cell | Result |
+|---|---|
+| inside a pane | that pane is selected |
+| on a border, or outside every pane | nothing is selected; the result reports an empty pane id and MUST NOT be an error |
+| negative coordinate | usage error |
+
+A cell with no pane is not an error because the coordinate was legitimate and
+there was no pane there.
+
+#### Resolution
 
 The active pane is the shared window's (§9.4), so the base follows, exactly as
 the click binding moves it. The view MUST be resolved like every other target
-(§10): a pane id addresses its owning view, and a view's absence from `ls`
+(§10). A pane id addresses its owning view, and a view's absence from `ls`
 (§9.5) does not affect resolution, which reads panes rather than the filtered
 session list.
 
@@ -2644,83 +3256,114 @@ session list.
 
 **A pane id addresses the session that owns it, on every backend.** An id a
 caller reads out of a pane listing MUST work as a target without them knowing
-which backend produced it, or the listing hands out identifiers its own API
-rejects.
+which backend produced it. Otherwise the listing hands out identifiers its own
+API rejects.
 
-Only the SPELLING differs, so only the spelling is per-backend:
+### Pane id spelling per backend
+
+Only the spelling differs, so only the spelling is per-backend:
 
 | Backend | Pane id | Why that shape is unambiguous |
 |---|---|---|
 | tmux | `%0` | The prefix cannot begin a session name Olympus would use. |
 | meja | `1` | meja rejects a session name that is entirely numeric, so a bare integer can only be a pane. |
-| zmx | the session's own name | No pane concept; the row is synthesized 1:1 from the session, so resolution is the identity. |
-| herdr | `w1:p2`, `w4Y:pA` | Not structurally unambiguous — see below. The same alphabet spells the other two levels, `w1` for a workspace and `w1:t2` for a tab, and a workspace with an empty label is NAMED by its id (§3.6). Each segment is a herdr public number: base 32 over `123456789ABCDEFGHJKMNPQRSTVWXYZ0`, digits for the first nine allocations and letters from the tenth, so the shapes MUST accept letters or they stop matching real ids on any server that has seen its tenth workspace, tab or pane. Measured: the tenth pane is `w1:pA`, the tenth workspace `wA`, and the workspace counter survives a restart. |
+| zmx | the session's own name | No pane concept. The row is synthesized 1:1 from the session, so resolution is the identity. |
+| herdr | `w1:p2`, `w4Y:pA` | Not structurally unambiguous. See below. |
 
-herdr is the exception that has to be handled rather than declared away: it will
-accept a workspace label of any spelling, `w1:p2` included, so a session could be
-shadowed by the shape that addresses panes — or by a workspace id, or a tab id.
-The backend therefore REJECTS a name of any of the three shapes at creation as a
-usage error, which is what turns "probably a pane" into "certainly a pane" — the
-same guarantee meja gets for free from its own naming rule, bought explicitly.
+#### herdr ids
+
+The same alphabet spells herdr's other two levels: `w1` for a workspace and
+`w1:t2` for a tab. A workspace with an empty label is NAMED by its id (§3.6).
+
+Each segment is a herdr public number: base 32 over
+`123456789ABCDEFGHJKMNPQRSTVWXYZ0`, digits for the first nine allocations and
+letters from the tenth. The shapes MUST accept letters, or they stop matching
+real ids on any server that has seen its tenth workspace, tab or pane. Measured:
+the tenth pane is `w1:pA`, the tenth workspace `wA`, and the workspace counter
+survives a restart.
+
+#### herdr rejects the id shapes as names
+
+herdr accepts a workspace label of any spelling, `w1:p2` included, so a session
+could be shadowed by a pane id, a workspace id or a tab id. The backend
+therefore REJECTS a name of any of the three shapes at creation as a usage
+error.
+
+That rejection turns "probably a pane" into "certainly a pane". meja gets the
+same guarantee for free from its own naming rule; herdr buys it explicitly.
+
 On herdr the shape is read by the backend rather than passed into the shared
 resolution, because a pane id there does NOT resolve to its session (§10.1).
 
+### The shape is passed in, never branched on
+
 The shape MUST be passed into resolution rather than branched on inside it. One
-rule with a per-backend spelling stays one rule; a copy per backend is where the
+rule with a per-backend spelling stays one rule. A copy per backend is where the
 two silently stop agreeing.
 
-**Every pane row MUST name its own session**, including in a whole-server
-listing. That listing is exactly where a caller cannot supply the owner, and it
-is what resolution reads to swap an id for a session — a row that cannot name
-its owner resolves to nothing, and the operation then reports a live session as
-absent.
+### Every pane row MUST name its own session
+
+This includes a whole-server listing. That listing is exactly where a caller
+cannot supply the owner, and it is what resolution reads to swap an id for a
+session. A row that cannot name its owner resolves to nothing, and the operation
+then reports a live session as absent.
 
 ### 10.1 A pane id is an address for the session, not for the pane
 
-The consequence of the rule above, stated because it reads like a defect until
-the reason is visible: after resolution the operation runs against the session's
-**active** window and pane, so addressing a pane in some other window does not
-reach that pane. `send %0` and `send <session>` are the same operation.
+After resolution the operation runs against the session's **active** window and
+pane. Addressing a pane in some other window does not reach that pane. `send %0`
+and `send <session>` are the same operation.
 
-This is deliberate. Every name comparison and every write-lock key is
-session-scoped (§11), so a pane-precise target would key locks on something the
-rest of the system cannot see, and two callers driving two panes of one session
-would serialize against nothing. Precision here would buy addressing and sell
-the lock.
+#### Why
+
+This reads like a defect until the reason is visible. Every name comparison and
+every write-lock key is session-scoped (§11). A pane-precise target would key
+locks on something the rest of the system cannot see, and two callers driving
+two panes of one session would serialize against nothing. Precision would buy
+addressing and sell the lock.
 
 It costs nothing on a session Olympus made, which is single-window and
 single-pane by §17.4. It only becomes visible on a session somebody else added a
-window to, and then the honest answer is that Olympus does not manage windows —
-not that it will reach into one.
+window to. Then the honest answer is that Olympus does not manage windows, not
+that it will reach into one.
+
+#### Tests MUST NOT depend on which window is active
 
 Which window is active after another window appears is the **multiplexer's**
-decision and differs between them: measured, tmux switches to the new window
-while meja stays on the current one. Olympus MUST NOT depend on either, and
-tests of this behaviour MUST assert that a pane id and a session name are
-indistinguishable rather than asserting which window received the text.
+decision, and it differs: measured, tmux switches to the new window while meja
+stays on the current one. Olympus MUST NOT depend on either. Tests of this
+behaviour MUST assert that a pane id and a session name are indistinguishable,
+not which window received the text.
 
-**herdr is pane-precise, and it is the one deliberate exception to this
-section.** A target passes through resolution unchanged and the backend reads
-its level from its shape (§3.6): `w5:p3` acts on that pane, not on the pane its
-workspace is showing, and `w5:t2` acts on the pane that tab is showing. The
-reason is structural: every herdr request already addresses a pane, so
-precision costs no addressing — what it costs is the lock. The write lock (§11)
-is keyed on the target as given, so a caller driving `w5` and a caller driving
-`w5:p3` serialize against nothing even while the workspace is showing that
-pane. Recorded rather than fixed: keying the lock on the owning workspace would
-put a listing before every lock take, on the path §11 keeps subprocess-free,
-and two callers driving two panes of one workspace — the common shape on a
-herdr fleet — are not contending for anything. A caller who wants the
+#### herdr is pane-precise
+
+herdr is the one deliberate exception to this section. A target passes through
+resolution unchanged and the backend reads its level from its shape (§3.6):
+
+- `w5:p3` acts on that pane, not on the pane its workspace is showing.
+- `w5:t2` acts on the pane that tab is showing.
+
+Every herdr request already addresses a pane, so precision costs no addressing.
+What it costs is the lock. The write lock (§11) is keyed on the target as given,
+so a caller driving `w5` and a caller driving `w5:p3` serialize against nothing,
+even while the workspace is showing that pane.
+
+This is recorded rather than fixed. Keying the lock on the owning workspace
+would put a listing before every lock take, on the path §11 keeps
+subprocess-free. Two callers driving two panes of one workspace, the common
+shape on a herdr fleet, are not contending for anything. A caller who wants the
 session-scoped guarantee addresses the workspace.
 
-Every tmux backend operation addresses sessions through exact-match `=<name>`
-syntax, which does **not** accept a bare pane id (`%0`) even though tmux's own
-`-t` does. Consumers holding pane ids would otherwise have to do their own
-session lookup before every call.
+#### tmux: exact-match targets and their scope
 
-**The exact-match prefix does not make one target shape fit every command.** tmux
-resolves `-t` against whatever the command operates on, so the scope suffix is
-load-bearing:
+Every tmux backend operation addresses sessions through exact-match `=<name>`
+syntax. That syntax does **not** accept a bare pane id (`%0`), even though
+tmux's own `-t` does. Without resolution, consumers holding pane ids would have
+to do their own session lookup before every call.
+
+The exact-match prefix does not make one target shape fit every command. tmux
+resolves `-t` against whatever the command operates on, so the scope suffix
+matters:
 
 | Scope | Target | Commands |
 |---|---|---|
@@ -2730,43 +3373,44 @@ load-bearing:
 
 `send-keys` and `capture-pane` reject a bare session target outright, and
 `set-option -w` rejects it with `no such window`. That last one is why §2.2's
-cleanup rule exists in the form it does: the `new-session` at the head of the
-chain has already succeeded by then, so a rejected suffix leaves a live,
-half-configured session behind rather than failing cleanly.
+cleanup rule has its form: the `new-session` at the head of the chain has
+already succeeded, so a rejected suffix leaves a live, half-configured session
+behind rather than failing cleanly.
+
+#### tmux: resolving a pane id
 
 On tmux, a target beginning with `%` MUST be resolved against a full-server pane
 listing and swapped for its owning session's name before the call proceeds. Any
 other target passes through unchanged. Resolution MUST live in **one** shared
 place every operation calls, never duplicated per operation.
 
-If the pane id matches no listed pane, resolution itself fails and the operation
-returns not-found **naming the pane id**, not a resolved session name — there was
-never a session to name, since resolution never happened. A corpse pane (§2.7)
-is a listed pane and MUST still resolve: resolution answers which session owns a
-pane, not whether that session is healthy, and collapsing the two would turn
-every died-session question into not-found before the caller's own death
-handling could report it properly.
+The resolution rules:
 
-A pane id can match **more than one row**. A base session and its views share
-the same underlying pane (§3.4), so resolution MUST select the base — the
-earliest `created_at` — and not merely the first match. Resolving to a view
-means operating on the wrong session, and killing one leaves the real session
-running.
+- **No match.** Resolution fails and the operation returns not-found **naming
+  the pane id**, not a resolved session name. There was never a session to name.
+- **A corpse pane (§2.7) MUST still resolve.** Resolution answers which session
+  owns a pane, not whether that session is healthy. Collapsing the two would
+  turn every died-session question into not-found before the caller's own death
+  handling could report it.
+- **More than one row.** A base session and its views share the same underlying
+  pane (§3.4), so resolution MUST select the base, the earliest `created_at`,
+  and not merely the first match. Resolving to a view operates on the wrong
+  session, and killing one leaves the real session running.
+- **A failed listing MUST NOT become not-found.** "Could not ask" and
+  "definitely gone" stay distinct for the reason §3.2 gives, so the listing
+  error propagates with its own code.
+- **An empty target is `USAGE`.** An empty string compares equal to nothing and
+  would key a write lock of its own, which is the mismatch this section exists
+  to prevent.
 
-Resolution MUST NOT flatten a failed listing into not-found. "Could not ask" and
-"definitely gone" have to stay distinct for the same reason §3.2 gives, so the
-listing error propagates with its own code.
-
-An empty target reaching resolution is `USAGE`. It cannot pass through: an empty
-string compares equal to nothing and would key a write lock of its own, which is
-precisely the mismatch this section exists to prevent.
-
-On zmx there is no pane-id concept, so a `%`-prefixed target is just an unknown
+On zmx there is no pane-id concept, so a `%`-prefixed target is an unknown
 session name under the ordinary lookup: still not-found, and it MUST NOT crash.
 
-Any caller that compares a target against a session name — or keys a lock on it —
-MUST resolve first, or a pane-id caller silently mismatches every name. This is
-the source of false "already gone" and false "died" reports.
+### Resolve before comparing or locking
+
+Any caller that compares a target against a session name, or keys a lock on it,
+MUST resolve first. Otherwise a pane-id caller silently mismatches every name,
+which is the source of false "already gone" and false "died" reports.
 
 ---
 
@@ -2777,38 +3421,57 @@ the source of false "already gone" and false "died" reports.
 Concurrent writers to one session MUST serialize through an advisory,
 `flock`-based, per-session lock.
 
-- **Key derivation** is the (backend, socket-or-directory, session) triple:
-  **hash the whole triple**, sanitize the session name (keep `[A-Za-z0-9._-]`,
-  replace everything else with `_`) for a readable prefix, and place the lock
-  file under a private temporary directory with mode 0700. Two different
-  sockets, directories, or backends MUST never contend on the same lock file
-  even when a session name collides.
+#### Key derivation
 
-  The hash MUST cover the session name, not only the socket or directory.
-  Sanitizing makes a name a *safe* path component but not a *unique* one:
-  `my build` and `my_build` sanitize identically, so a name-only-sanitized key
-  makes two unrelated sessions share a lock. The visible symptom is not merely
-  over-serialization — it is a `CONFLICT` raised against a caller about a
-  session it never touched.
-- **The lock file is never removed, and that is deliberate.** Unlinking it on
-  release races another process that has the same path open and is about to
-  lock the now-unlinked inode: both would then hold a lock on different inodes
-  and run at once, which is the exact failure the lock exists to prevent. So
-  releasing closes the descriptor and leaves the file.
+The key is the (backend, socket-or-directory, session) triple:
 
-  The cost is accumulation: one empty file per distinct (backend, scope,
-  session) triple, for the life of the temporary directory. It is bounded by
-  how many distinct sessions a machine addresses between reboots, the files are
-  zero bytes, and a system that clears its temporary directory clears them.
-  Recorded here because the accumulation looks like a leak, and the obvious fix
-  for it reintroduces the race.
+- **Hash the whole triple.**
+- **Sanitize the session name** for a readable prefix: keep `[A-Za-z0-9._-]`,
+  replace everything else with `_`.
+- **Place the lock file** under a private temporary directory with mode 0700.
+
+Two different sockets, directories or backends MUST never contend on the same
+lock file, even when a session name collides.
+
+The hash MUST cover the session name, not only the socket or directory.
+
+##### Why
+
+Sanitizing makes a name a *safe* path component but not a *unique* one. `my
+build` and `my_build` sanitize identically, so a key that only sanitizes the
+name makes two unrelated sessions share a lock. The visible symptom is not only
+over-serialization: it is a `CONFLICT` raised against a caller about a session
+it never touched.
+
+#### The lock file is never removed
+
+Releasing closes the descriptor and leaves the file.
+
+##### Why
+
+Unlinking the file on release races another process that has the same path open
+and is about to lock the now-unlinked inode. Both would then hold a lock on
+different inodes and run at once, which is the failure the lock exists to
+prevent.
+
+The cost is one empty file per distinct (backend, scope, session) triple, for
+the life of the temporary directory. It is bounded by how many distinct sessions
+a machine addresses between reboots, the files are zero bytes, and a system that
+clears its temporary directory clears them. The accumulation looks like a leak,
+and the obvious fix for it reintroduces the race.
+
+#### Other properties
+
 - **Advisory only.** `flock` is cooperative: only other Olympus processes going
-  through the same path observe it. A human typing in a raw `tmux attach`, or any
-  non-Olympus writer, is unaffected and can still race.
-- **Contention is a conflict-class error**, after polling for the configured wait.
+  through the same path observe it. A human typing in a raw `tmux attach`, or
+  any non-Olympus writer, is unaffected and can still race.
+- **Contention is a conflict-class error**, after polling for the configured
+  wait.
 - **The target MUST be resolved before it is used as a key** (§10). A pane-id
   caller and a session-name caller addressing the same session would otherwise
   take two different locks and not serialize at all.
+
+#### Which operations take it
 
 Operations that MUST take the lock, and the scope each holds it for:
 
@@ -2817,15 +3480,15 @@ Operations that MUST take the lock, and the scope each holds it for:
 | literal text send | the send |
 | key send | the send |
 | paste | the paste, plus the optional trailing submit |
-| verified send | send → verify → submit, as one section (§11.2) |
+| verified send | send, verify, submit, as one section (§11.2) |
 | atomic send | both writes, on backends needing two (§4.7) |
 | ensure | the whole check-then-create decision (§2.6) |
 | run (sync) | the injection only, released before polling (§11.2) |
 | run (detached start) | the injection only |
 
-Operations that MUST NOT take it: every read (list, probe, capture, capabilities,
-pane listing), and detached-run polling. A read that blocks on a writer's lock
-turns observation into contention, which is backwards — observing a busy session
+Operations that MUST NOT take it: every read (list, probe, capture,
+capabilities, pane listing), and detached-run polling. A read that blocks on a
+writer's lock turns observation into contention, and observing a busy session
 is the case that matters most.
 
 Opting out MUST be possible for a caller that already serializes its own writes,
@@ -2833,22 +3496,27 @@ and MUST be explicit.
 
 ### 11.2 Lock scope is per-operation, and the two rules are opposites
 
-These cases look analogous and are not. Getting either backwards is a real defect.
+These cases look analogous and are not. Getting either backwards is a real
+defect.
 
-- **Verified delivery holds the lock across send → verify → submit as ONE
-  critical section.** It MUST NOT release and reacquire between verification
-  succeeding and the Enter being sent. A competing writer landing in that gap —
-  another send clearing the line, a resize — invalidates exactly what verification
-  just confirmed, so the Enter would submit something other than what was
-  verified.
-- **Running a command releases the lock BEFORE polling.** Only the injection needs
-  to be atomic with respect to concurrent writers; the polling phase only reads.
-  Holding the lock across the whole wait would block every other writer against
-  the target for the full timeout, for no benefit.
+#### Verified delivery holds the lock across send, verify and submit
 
-The distinguishing question: *does the phase after the lock gate a subsequent
-write whose correctness depends on the observed state still holding?* If yes,
-hold. If it only reads, release.
+The three steps are ONE critical section. The lock MUST NOT be released and
+reacquired between verification succeeding and the Enter being sent. A competing
+writer landing in that gap (another send clearing the line, a resize)
+invalidates what verification just confirmed, so the Enter would submit
+something other than what was verified.
+
+#### Running a command releases the lock BEFORE polling
+
+Only the injection needs to be atomic with respect to concurrent writers. The
+polling phase only reads. Holding the lock across the whole wait would block
+every other writer against the target for the full timeout, for no benefit.
+
+#### The distinguishing question
+
+*Does the phase after the lock gate a subsequent write whose correctness depends
+on the observed state still holding?* If yes, hold. If it only reads, release.
 
 ### 11.3 The attach guard is a separate mechanism
 
@@ -2873,425 +3541,584 @@ added.
 | `UNSUPPORTED` | 7 | The backend has no concept for this operation at all. |
 | `UNEXPECTED` | 1 | Anything not carrying one of the above. |
 
-Two distinctions that MUST be preserved:
+### Two distinctions that MUST be preserved
 
 - **`UNSUPPORTED` is not `BACKEND_UNAVAILABLE`.** Unsupported means the question
-  does not apply to this backend (views on zmx). Unavailable means a backend that
-  *has* the concept could not be reached. Consumers should branch on a
+  does not apply to this backend (views on zmx). Unavailable means a backend
+  that *has* the concept could not be reached. Consumers should branch on a
   capabilities query rather than on the unsupported error.
 - **`UNSUPPORTED` is not "absent".** A tmux server-environment key that is unset
-  answers *present: false* — asked, and got a real negative answer. zmx answers
-  unsupported: the question itself does not apply.
+  answers *present: false*: asked, and got a real negative answer. zmx answers
+  unsupported, because the question itself does not apply.
 
-`UNEXPECTED` is what a machine consumer reads as "Olympus broke, retrying will not
-help." Any error a caller could have avoided by changing one argument MUST
-therefore be `USAGE` — including an unknown backend name.
+### Avoidable errors are `USAGE`
 
-**Every error, including usage errors, MUST reach the door's structured output.**
-A caller MUST NOT have to know which internal layer caught a failure in order to
-know whether the failure is machine-readable.
+Any error a caller could have avoided by changing one argument MUST be `USAGE`,
+including an unknown backend name. `UNEXPECTED` is what a machine consumer reads
+as "Olympus broke, retrying will not help."
+
+### Every error reaches the structured output
+
+**Every error, including usage errors, MUST reach the door's structured
+output.** A caller MUST NOT have to know which internal layer caught a failure
+in order to know whether the failure is machine-readable.
 
 ### 12.1 Process exit codes, and the two operations that deviate
 
-For every operation the process exit code is the code from the table above. **Two
-deviate, deliberately, and both MUST be documented at the door.**
+For every operation the process exit code is the code from the table above.
+**Two deviate, deliberately, and both MUST be documented at the door.**
 
-**Running a command.** A completed run has two independent outcomes that must not
-be conflated: whether the sentinel protocol worked (Olympus's concern) and what
-the command's own exit code was (the caller's concern). `0` is a normal result for
-a failing command not to produce and `1` a normal result for it to produce;
-neither is an Olympus failure.
+#### Running a command
 
-- **Human path**: the process exits with the *command's own* exit code, composing
-  in a shell pipeline exactly like running the command directly. Genuine
-  infrastructure failures still use the table.
-- **Structured path**: the process exits `0` for any successful protocol run
-  regardless of the command's exit code, which is carried in the payload instead.
-  Infrastructure failures still use the table and the error envelope.
+A completed run has two independent outcomes that must not be conflated:
+
+- whether the sentinel protocol worked, which is Olympus's concern;
+- what the command's own exit code was, which is the caller's concern.
+
+A failing command exiting `1` is a normal result, and neither code is an Olympus
+failure. So the two paths differ:
+
+| Path | Process exit on a successful protocol run | Infrastructure failure |
+|---|---|---|
+| Human | the *command's own* exit code, composing in a shell pipeline like running the command directly | the table |
+| Structured | `0`, whatever the command's exit code; that code is carried in the payload | the table and the error envelope |
 
 This asymmetry MUST be a local special case at the run door, never taught to the
-shared error-to-exit-code mapping. That mapping translates failures; a successful
-run carrying a second, unrelated exit code is not a failure, and making the shared
-path aware of it leaks run-specific meaning into code every operation shares.
+shared error-to-exit-code mapping.
 
-**Attaching.** Once the presence gate (§8.1) passes, attach hands off to the
-backend's own client inside the PTY Olympus owns, and the process's exit code
-follows *that client's*. An attach exiting `3` is therefore not necessarily
-not-found — it may be the attach client's own unrelated status.
+##### Why
+
+That mapping translates failures. A successful run carrying a second, unrelated
+exit code is not a failure, and making the shared path aware of it leaks
+run-specific meaning into code every operation shares.
+
+#### Attaching
+
+Once the presence gate (§8.1) passes, attach hands off to the backend's own
+client inside the PTY Olympus owns, and the process's exit code follows *that
+client's*. An attach exiting `3` is therefore not necessarily not-found. It may
+be the attach client's own unrelated status.
 
 ### 12.2 Usage errors MUST NOT escape through the argument parser
 
-§12's rule has one specific failure mode, and it is why the rule is stated at all:
-a CLI framework's own flag validation — unknown flags, bad values, wrong
-positional arity, missing required flags, mutually-exclusive violations —
+Argument-parsing errors MUST be intercepted and emitted through the same
+envelope, with the same code, as a usage error the application detected itself.
+
+#### Why
+
+A CLI framework's own flag validation (unknown flags, bad values, wrong
+positional arity, missing required flags, mutually exclusive violations)
 typically prints to stderr and exits *before* any application code runs.
 
-Whether a usage-class failure is machine-readable would then depend on which layer
-caught it, which is an implementation detail from the caller's side. Olympus MUST
-NOT ship that split: argument-parsing errors MUST be intercepted and emitted
-through the same envelope, with the same code, as a usage error the application
-detected itself.
+Whether a usage-class failure is machine-readable would then depend on which
+layer caught it, which is an implementation detail from the caller's side. This
+is the specific failure mode §12's rule exists for, and Olympus MUST NOT ship
+that split.
 
 ### 12.3 Absence semantics
 
 "No server running" collapses into the negative answer, not an error, for every
 question where the negative answer is meaningful:
 
-- presence probe → `absent`
-- server-environment read → `present: false`
-- listing → empty list
+| Question | Answer with no server |
+|---|---|
+| presence probe | `absent` |
+| server-environment read | `present: false` |
+| listing | empty list |
 
 A query against a socket with no server behind it is "nothing to find here", not
 "something went wrong asking".
 
-A target-addressed operation resolves the same absence into not-found **naming
-its own target**. tmux reports it in its own vocabulary — a socket path, a pane
-id, or nothing at all — and a caller holding a session name can match none of
-those against what it asked for.
+#### Target-addressed operations name their own target
 
-Detecting the condition is not one string match. tmux spells it two different
-ways depending on the subcommand: `list-sessions` reports `no server running on
-<socket>`, while most others fail at connect time with `error connecting to
-<socket> (No such file or directory)`. Matching only the first classifies every
-other verb's no-server case as `UNEXPECTED` — the exact opposite of this
-section's rule, and invisible until a caller hits a verb nobody tested cold.
+A target-addressed operation resolves the same absence into not-found **naming
+its own target**. tmux reports the absence in its own vocabulary (a socket path,
+a pane id, or nothing at all), and a caller holding a session name can match
+none of those against what it asked for.
+
+#### Detection is not one string match
+
+tmux spells the condition two ways depending on the subcommand:
+
+- `list-sessions` reports `no server running on <socket>`.
+- Most others fail at connect time with `error connecting to <socket> (No such
+  file or directory)`.
+
+Matching only the first classifies every other verb's no-server case as
+`UNEXPECTED`. That is the opposite of this section's rule, and invisible until a
+caller hits a verb nobody tested cold.
 
 ---
 
 ## 13. Capabilities
 
-Static, subprocess-free backend facts a consumer feature-probes **before** hitting
-an unsupported error: backend name, native scrollback, views, remain-on-exit,
-server environment, control keys, spawn sizing, spawn command, session status,
-alt-screen tracking, servers, session client, bare attach, focus, rename, agent
-status.
+Capabilities are static, subprocess-free backend facts a consumer feature-probes
+**before** hitting an unsupported error.
 
-**Session client and bare attach are capabilities because they decide which
-attach a caller can offer.** A consumer presenting a "clean" or a "mirror"
-attach otherwise has to branch on the backend's name, and that table goes
-stale the moment a backend gains or loses a client. `session_client` is true
-where the backend has a client distinct from its raw per-pane stream (§8.10);
-`bare` is true where an attach can show a session as a plain pane with no
-chrome (§8.9); `focus` where the server's focus can be steered onto a target
-without attaching (§8.10); `rename` where a target can be given a new name in
-place (§2.11). All four are refused as `UNSUPPORTED` where false.
-
-**Agent status is a capability because the agent listing answers everywhere,
-with different rows.** The verb is never refused (§3.7), so a consumer cannot
-probe it by trying: `agent_status` says whether the rows will carry a status
-and a title — the backend detects agents itself — or only the pane and the
-agent's name, matched on its command.
-
-**Spawn command is a capability because a session's process is not always the
-caller's to choose.** A backend whose panes run the program its own
-configuration names has nowhere to put an argv, so `CreateSpec.Command` is a
-request it cannot honour at all (§2.3.1). It is a capability rather than a
-degraded-operation warning for the same reason control keys are: the caller's
-whole approach changes. With it, spawn the program and read only its output;
-without it, start a shell, hand it over with `exec`, and accept the echoed
-command line and the quoting that a shell in the path forces on you.
-
-**Spawn sizing is a capability because the size is silently lost otherwise.** A
-backend that sizes a session from the client that attaches it cannot honour a
-size chosen at creation, and a request for one succeeds while producing
-something else — measured, 120x40 becomes 120x40 on tmux and 80x23 on meja. Both
-halves of §0.8 apply: the capability says whether to ask, and a degraded-operation
-warning says what happened when a caller asked anyway.
-
-**Control-key delivery decides whether a full-screen program can be DRIVEN**,
-which makes it the most consequential entry here. Without it a caller can open
-an editor, read it, and never get out of it. It is a capability rather than a
-degraded-operation warning because the caller's whole approach changes: with it,
-drive the program; without it, do not start.
-
-**Alt-screen tracking is a capability because the flag alone is ambiguous.** §5.3
-gives the door a rule — skip the capture where the alt-screen flag is true — and
-a backend that never sets the flag is indistinguishable from one whose panes
-simply are not on the alternate screen. Without a capability to branch on, a
-caller cannot tell "not on the alt screen" from "not tracked", which is exactly
-the ambiguity the flag exists to remove.
+| Capability | Field | Rule |
+|---|---|---|
+| backend name | not on the wire (see below) | |
+| native scrollback | `native_scrollback` | §5 |
+| views | `views` | §9 |
+| remain-on-exit | `remain_on_exit` | §2.7 |
+| server environment | `server_env` | §1.2, §12.3 |
+| control keys | `control_keys` | below |
+| spawn sizing | `spawn_sizing` | below |
+| spawn command | `spawn_command` | §2.3.1 |
+| session status | `session_status` | §13.1 |
+| alt-screen tracking | `tracks_alt_screen` | §5.3 |
+| servers | `servers` | §13.2 |
+| session client | `session_client` | §8.10 |
+| bare attach | `bare` | §8.9 |
+| focus | `focus` | §8.10 |
+| rename | `rename` | §2.11 |
+| agent status | `agent_status` | §3.7 |
 
 The name is carried on the capability value so it is self-describing in-process,
 but it is **not repeated on the wire**. Every structured shape that reports
 capabilities already names the backend on the row or in the envelope (api §5),
 and a second copy would be a second place for the two to disagree.
 
+### Attach capabilities decide which attach a caller can offer
+
+A consumer presenting a "clean" or a "mirror" attach would otherwise have to
+branch on the backend's name, and that table goes stale when a backend gains or
+loses a client.
+
+| Field | True where | Section |
+|---|---|---|
+| `session_client` | the backend has a client distinct from its raw per-pane stream | §8.10 |
+| `bare` | an attach can show a session as a plain pane with no chrome | §8.9 |
+| `focus` | the server's focus can be steered onto a target without attaching | §8.10 |
+| `rename` | a target can be given a new name in place | §2.11 |
+
+All four are refused as `UNSUPPORTED` where false.
+
+### Agent status
+
+The agent listing answers on every backend, with different rows. The verb is
+never refused (§3.7), so a consumer cannot probe it by trying. `agent_status`
+says whether the rows will carry a status and a title, because the backend
+detects agents itself, or only the pane and the agent's name, matched on its
+command.
+
+### Spawn command
+
+A session's process is not always the caller's to choose. A backend whose panes
+run the program its own configuration names has nowhere to put an argv, so
+`CreateSpec.Command` is a request it cannot honour at all (§2.3.1).
+
+It is a capability rather than a degraded-operation warning because the caller's
+whole approach changes:
+
+- **With it**, spawn the program and read only its output.
+- **Without it**, start a shell, hand it over with `exec`, and accept the echoed
+  command line and the quoting a shell in the path forces on you.
+
+### Spawn sizing
+
+A backend that sizes a session from the client that attaches it cannot honour a
+size chosen at creation. A request for one succeeds while producing something
+else: measured, 120x40 becomes 120x40 on tmux and 80x23 on meja.
+
+Both halves of §0.8 apply. The capability says whether to ask, and a
+degraded-operation warning says what happened when a caller asked anyway.
+
+### Control keys
+
+Control-key delivery decides whether a full-screen program can be DRIVEN, which
+makes it the most consequential entry here. Without it a caller can open an
+editor, read it, and never get out of it.
+
+It is a capability rather than a degraded-operation warning because the caller's
+whole approach changes. With it, drive the program. Without it, do not start.
+
+### Alt-screen tracking
+
+The alt-screen flag alone is ambiguous. A backend that never sets the flag is
+indistinguishable from one whose panes are not on the alternate screen. Without
+a capability to branch on, a caller cannot tell "not on the alt screen" from
+"not tracked", which is the ambiguity the flag exists to remove.
+
 ### 13.1 Session status
 
 A session MAY carry a **status**: an opaque label a process *inside* it leaves
 for whoever is driving it from outside.
 
-It exists because a capture cannot answer the question. A program sitting at a
-prompt and a program halfway through work can render identically, and the
-difference is a fact only the program itself holds. Waiting on a screen pattern
-means guessing at a program's idle appearance; waiting on a status means the
-program said so.
+#### Why
 
-**Olympus MUST NOT interpret the value, and MUST NOT define a vocabulary of
-states.** What counts as busy, blocked or finished is a property of the program
-in the session, not of the terminal — enumerating them would name the concerns
-of whatever is driving Olympus rather than the thing Olympus drives, which §0
-rules out. The value is stored and returned exactly as given.
+A capture cannot answer the question. A program sitting at a prompt and a
+program halfway through work can render identically, and the difference is a
+fact only the program itself holds. Waiting on a screen pattern means guessing
+at a program's idle appearance. Waiting on a status means the program said so.
 
-Matching is therefore **exact**, never a pattern: a partial match would be
+#### Olympus MUST NOT interpret the value
+
+Olympus MUST NOT interpret the value, and MUST NOT define a vocabulary of
+states. The value is stored and returned exactly as given.
+
+What counts as busy, blocked or finished is a property of the program in the
+session, not of the terminal. Enumerating states would name the concerns of
+whatever is driving Olympus rather than the thing Olympus drives, which §0 rules
+out.
+
+Matching is therefore **exact**, never a pattern. A partial match would be
 Olympus reading structure into a string it has promised not to read.
 
-**An unset status is empty, not an error**, the same tri-state rule as presence
-(§3.5). A caller must be able to tell "has reported nothing" from "could not
-ask".
+#### An unset status is empty, not an error
 
-**A backend that cannot carry one MUST refuse both the write AND the read.**
-Refusing the write alone is not enough: a read that answers empty is
-indistinguishable from a session that has simply not reported yet, so a caller
-cannot tell "not yet" from "never, on this backend". Accepting the write and
-answering empty is the worst outcome of the three — a caller waiting on a state
-that can never arrive has no failure to react to, only silence.
+This is the same tri-state rule as presence (§3.5). A caller must be able to
+tell "has reported nothing" from "could not ask".
 
-It is a capability rather than a degraded-operation warning for the same reason
-control keys are: the caller's whole approach changes. With it, coordinate on
-reported state; without it, fall back to screen patterns and their guesswork.
+#### A backend that cannot carry one MUST refuse both the write AND the read
 
-The store must outlive the process that wrote it — the reporter is inside the
-session and the reader is outside, and they never run at the same moment. On
-tmux this is a session-scoped user option, which tmux keeps and never acts on.
-zmx has no per-session metadata of any kind, so it declares the capability false.
-herdr keeps display-only metadata on the server for a workspace and for a pane
-alike, and hands it back on the row, which is the same shape of store as tmux's
-user option: written by one process, read by another, outliving both. A
-session's status is the workspace's metadata; a pane target's is the pane's own
-(§3.6).
+Refusing the write alone is not enough. A read that answers empty is
+indistinguishable from a session that has not reported yet, so a caller cannot
+tell "not yet" from "never, on this backend".
+
+Accepting the write and answering empty is the worst outcome of the three. A
+caller waiting on a state that can never arrive has no failure to react to, only
+silence.
+
+It is a capability rather than a degraded-operation warning because the caller's
+whole approach changes. With it, coordinate on reported state. Without it, fall
+back to screen patterns and their guesswork.
+
+#### Where the status is stored
+
+The store must outlive the process that wrote it. The reporter is inside the
+session and the reader is outside, and they never run at the same moment.
+
+| Backend | Store |
+|---|---|
+| tmux | a session-scoped user option, which tmux keeps and never acts on |
+| zmx | none: no per-session metadata of any kind, so the capability is false |
+| herdr | display-only server metadata, handed back on the row. A session's status is the workspace's metadata; a pane target's is the pane's own (§3.6) |
+
+herdr's store has the same shape as tmux's user option: written by one process,
+read by another, outliving both.
+
+#### Not a capability: whether a session outlives its command
 
 Capabilities MUST NOT include whether a session outlives its command. That is a
-property of the **caller's** own wrapper — does the shell it spawned keep running
-after the tracked command exits — not of backend mechanics. Putting it here
+property of the **caller's** own wrapper (does the shell it spawned keep running
+after the tracked command exits), not of backend mechanics. Putting it here
 misattributes a consumer-side design choice to the backend.
 
 ### 13.2 Servers
 
-A server is the level above sessions. Every backend can run several, each
-behind its own socket, and every other operation in this specification
-addresses exactly one of them: a tmux socket, a herdr socket, a zmx directory.
-Enumerating them and selecting one BY NAME is a capability, `servers`, because
-what a name resolves to is backend-local and a caller has to know whether the
-question can be asked at all before asking it.
+A server is the level above sessions. Every backend can run several, each behind
+its own socket, and every other operation in this specification addresses
+exactly one of them: a tmux socket, a herdr socket, a zmx directory.
 
-What a row *is* differs per backend and MUST be disclosed rather than
-reported as equivalent, the same way §3.4 treats pane fields:
+Enumerating servers and selecting one BY NAME is a capability, `servers`. What a
+name resolves to is backend-local, and a caller has to know whether the question
+can be asked at all before asking it.
 
-- **tmux**: a socket NAME in tmux's per-user directory (`$TMUX_TMPDIR/tmux-<uid>`,
-  else `/tmp/tmux-<uid>`) — the same resolution `-L` performs, and the
-  directory MUST be the one tmux itself resolves, so a caller who moved
-  `TMUX_TMPDIR` scans the servers they address. Running is measured by asking
-  the server, never inferred from the file: killing a server does not unlink its
-  socket, so a file with nothing behind it is a known server that is stopped. A
-  server started with a socket PATH is not discoverable — there is no registry
-  of those — and is absent from the listing by construction. `default` is the
-  row tmux addresses with no `-L`; Olympus's own default is a different socket
-  (§17.2). Selecting a name with no socket file behind it is not-found, like
-  an unknown name on every other backend — it used to pass straight through to
-  `-L`, and every verb on it then behaved as if the server were merely stopped
-  (`stop` on a server that never existed reported `gone`, a success). A caller
-  who means to CREATE a server names its socket with `--socket`, which takes
-  any name; `--server` only ever selects.
-- **herdr**: a named session, as `herdr session list` reports it. The listing
-  runs against the operator's real configuration directory, which is where
-  named sessions live, and therefore carries neither the socket override nor
-  the state redirect every other invocation carries.
-- **zmx**: exactly one row, the socket directory in use, named `default` and
-  running when the directory exists. There is nothing to stop apart from its
-  sessions.
-- **meja**: unsupported. Its profiles resolve under its own store and nothing in
-  its CLI enumerates them, so a server there is addressed by knowing its socket
-  path and by nothing else.
+What a row *is* differs per backend and MUST be disclosed rather than reported
+as equivalent, the same way §3.4 treats pane fields.
+
+#### tmux
+
+- **A row is a socket NAME** in tmux's per-user directory (`$TMUX_TMPDIR/tmux-<uid>`,
+  else `/tmp/tmux-<uid>`), the same resolution `-L` performs. The directory
+  MUST be the one tmux itself resolves, so a caller who moved `TMUX_TMPDIR` scans
+  the servers they address.
+- **Running is measured by asking the server**, never inferred from the file.
+  Killing a server does not unlink its socket, so a file with nothing behind it
+  is a known server that is stopped.
+- **A server started with a socket PATH is not discoverable.** There is no
+  registry of those, so it is absent from the listing by construction.
+- **`default`** is the row tmux addresses with no `-L`. Olympus's own default is
+  a different socket (§17.2).
+- **Selecting a name with no socket file behind it is not-found**, like an
+  unknown name on every other backend. Passing it through to `-L` would make
+  every verb behave as if the server were merely stopped, so `stop` on a server
+  that never existed would report `gone`, a success.
+- **`--server` only ever selects.** A caller who means to CREATE a server names
+  its socket with `--socket`, which takes any name.
+
+#### herdr
+
+A row is a named session, as `herdr session list` reports it. The listing runs
+against the operator's real configuration directory, which is where named
+sessions live. It therefore carries neither the socket override nor the state
+redirect every other invocation carries.
+
+#### zmx
+
+Exactly one row: the socket directory in use, named `default`, running when the
+directory exists. There is nothing to stop apart from its sessions.
+
+#### meja
+
+Unsupported. Its profiles resolve under its own store and nothing in its CLI
+enumerates them, so a server there is addressed by knowing its socket path and
+by nothing else.
 
 ### 13.3 A server's prefix is reported, never changed
 
-A multiplexer's own key bindings sit behind a prefix key, and a caller that
-hands a human a terminal onto a server — a browser with a soft keyboard, say —
-has to know it to offer it, since a chord a keyboard cannot form is a binding
-a human cannot reach. The server row therefore carries `prefix`, read from the
-server's configuration: on tmux the global `prefix` option, asked of a running
-server (a stopped one cannot answer, and the row says nothing); on herdr the
-`[keys] prefix` of the config.toml the server resolves under — the session's
-own where it has one, else the operator's — with herdr's default where none is
-set; on meja the constant the program fixes (`C-b`, documented as
-unconfigurable). zmx has no prefix. `info` carries the same key for a present
-session, so a caller holding a target learns it without a server listing —
-which meja cannot give.
+The server row carries `prefix`, read from the server's configuration. `info`
+carries the same key for a present session, so a caller holding a target learns
+it without a server listing, which meja cannot give.
 
-The spelling is tmux's whichever backend answered — `C-b`, `C-Space`, `M-a`,
-`F19` — so a caller turns one form into bytes rather than one per backend.
+#### Why
 
-It is read and never written. Which key a server binds, and what it binds
-behind it, is the operator's configuration, and Olympus configures only
-servers it starts (§17.5); a caller wanting a different prefix edits the
-configuration, not the server through Olympus.
+A multiplexer's own key bindings sit behind a prefix key. A caller that hands a
+human a terminal onto a server (a browser with a soft keyboard, say) has to know
+the prefix to offer it, since a chord a keyboard cannot form is a binding a
+human cannot reach.
 
-**Selecting a server by name resolves INTO the backend's ordinary address**, in
-one place, so the lock key (§11) identifies the server the same way whichever
-spelling chose it. A name given together with an explicit address is USAGE:
-two answers to one question, and whichever lost would leave the caller on a
-server they did not mean. An unknown name is not-found.
+#### Where each backend reads it
 
-**On herdr, a server selected by name MUST be addressed by its socket alone.**
-A named session's socket lives inside the operator's configuration tree, and
-the state-home derivation §2.9 requires of a socket PATH would put Olympus's
-own configuration and state directories inside that tree. So the socket-only
-environment applies to every invocation, and **nothing Olympus would write goes
-under the directory the socket sits in**: no state home, no managed
-configuration. The derived client socket still has to fit the platform budget,
-and an over-long one is refused by name before any invocation.
+| Backend | Source |
+|---|---|
+| tmux | the global `prefix` option, asked of a running server. A stopped one cannot answer, and the row says nothing |
+| herdr | `[keys] prefix` of the config.toml the server resolves under: the session's own where it has one, else the operator's. herdr's default where none is set |
+| meja | the constant the program fixes, `C-b`, documented as unconfigurable |
+| zmx | no prefix |
 
-**A create MAY start such a server, and starting it is not owning it.** It
-boots on the operator's own configuration — the socket-only environment carries
-no redirect, so it reads exactly what their own `herdr server` would — no pins
-are laid down, no ownership is recorded, and the ownership-scoped stop of
-§2.9.1 still refuses it. What the tree gains is what herdr itself puts there,
-which is the operator's server doing its own business.
+The spelling is tmux's whichever backend answered (`C-b`, `C-Space`, `M-a`,
+`F19`), so a caller turns one form into bytes rather than one per backend.
 
-This rule used to read the other way: a named server that was not answering was
-unavailable, never something to boot. The hazard it named was real but
-misplaced — it is the *writing* that must not happen, not the boot — and the
-refusal made the one server a caller cannot start the very one they named. On a
-box whose herdr comes up with the operator rather than with the machine, that
-is every session on it after a reboot, and the caller is told only that a
+#### Read, never written
+
+Which key a server binds, and what it binds behind it, is the operator's
+configuration. Olympus configures only servers it starts (§17.5). A caller
+wanting a different prefix edits the configuration, not the server through
+Olympus.
+
+#### Selecting a server by name resolves INTO the backend's ordinary address
+
+The resolution happens in one place, so the lock key (§11) identifies the server
+the same way whichever spelling chose it.
+
+- **A name given together with an explicit address is USAGE.** It is two answers
+  to one question, and whichever lost would leave the caller on a server they did
+  not mean.
+- **An unknown name is not-found.**
+
+#### On herdr, a server selected by name MUST be addressed by its socket alone
+
+The socket-only environment applies to every invocation, and **nothing Olympus
+would write goes under the directory the socket sits in**: no state home, no
+managed configuration. The derived client socket still has to fit the platform
+budget, and an over-long one is refused by name before any invocation.
+
+##### Why
+
+A named session's socket lives inside the operator's configuration tree. The
+state-home derivation §2.9 requires of a socket PATH would put Olympus's own
+configuration and state directories inside that tree.
+
+#### A create MAY start such a server, and starting it is not owning it
+
+The server boots on the operator's own configuration. The socket-only
+environment carries no redirect, so it reads exactly what their own
+`herdr server` would. No pins are laid down, no ownership is recorded, and the
+ownership-scoped stop of §2.9.1 still refuses it. What the tree gains is what
+herdr itself puts there, which is the operator's server doing its own business.
+
+##### Why
+
+The hazard is the *writing*, not the boot. Refusing to boot a named server
+would make the one server a caller cannot start the very one they named. On a
+box whose herdr comes up with the operator rather than with the machine, that is
+every session on it after a reboot, and the caller would be told only that a
 socket has nothing behind it.
 
-**Stopping a server takes every session on it**, so it is its own operation
-and never a side effect of stopping a session. The layer above the backend
-checks the name against the listing first: unknown is not-found, not running
-is reported `gone` without the server being told anything, and a running
-server that was stopped is `killed` — the same idempotence §2.8 gives a
-session. On herdr this is `session stop` by name, deliberately distinct from
-the ownership-scoped stop of §2.9.1: a caller naming a server has named the
-thing they mean to take down.
+#### Stopping a server takes every session on it
 
----
+Stopping a server is its own operation, never a side effect of stopping a
+session. The layer above the backend checks the name against the listing first:
+
+| Server | Result |
+|---|---|
+| unknown | not-found |
+| not running | `gone`, without the server being told anything |
+| running, then stopped | `killed` |
+
+This is the same idempotence §2.8 gives a session. On herdr this is
+`session stop` by name, deliberately distinct from the ownership-scoped stop of
+§2.9.1: a caller naming a server has named the thing they mean to take down.
 
 ### 13.4 A server can be told to come up, and told only that
+
+Starting a server is its own operation, and it MUST NOT create anything on the
+server it starts: no session, no window, no pane. What comes up with the server
+is whatever the backend restores of its own accord, and a caller reads that from
+a listing afterwards like any other state.
+
+#### Why
 
 Every other operation here refuses to boot a server. Creation is what starts
 one, the way tmux's first `new-session` does, and a listing or a probe that
 started what it was asked about would answer with a thing it had just made
-(§13.2). That rule leaves a machine that has just rebooted with no way to say
-"come up" — and it is the moment when saying so matters most, because a backend
-that RESTORES what it was running does that when its server boots. herdr does:
-its named session comes back with the panes it was running when it stopped.
-Without a verb for it, the only way to reach that restore was to create a
-session nobody asked for.
+(§13.2).
 
-So starting a server is its own capability, and it MUST NOT create anything on
-the server it starts: no session, no window, no pane. What comes up with the
-server is whatever the backend restores of its own accord, and a caller reads
-that from a listing afterwards like any other state.
+That leaves a machine that has just rebooted with no way to say "come up". That
+is when saying so matters most, because a backend that RESTORES what it was
+running does that when its server boots. herdr does: its named session comes
+back with the panes it was running when it stopped. Without this operation, the
+only way to reach that restore would be to create a session nobody asked for.
 
-A server that is already answering MUST be left alone — not restarted, not
-reconfigured, not claimed — and reported as running rather than refused, the
-same idempotence `stop` gives a session (§2.8). Starting one is not owning it
-either: a server addressed by name comes up on the operator's own
-configuration, with none of Olympus's pins written into their tree, and Stop
-still refuses it (§2.9.1, §13.2).
+#### An answering server is left alone
 
-A backend whose server has no independent existence answers unsupported: tmux
-and zmx come up with their first session and have nothing to start on their
-own.
+A server that is already answering MUST be left alone (not restarted, not
+reconfigured, not claimed) and reported as running rather than refused. This is
+the same idempotence `stop` gives a session (§2.8).
+
+Starting a server is not owning it. A server addressed by name comes up on the
+operator's own configuration, with none of Olympus's pins written into their
+tree, and Stop still refuses it (§2.9.1, §13.2).
+
+#### Backends without an independent server answer unsupported
+
+tmux and zmx come up with their first session and have nothing to start on their
+own. meja has no server listing to select from (§13.2). Only herdr starts a
+server.
 
 ### 13.5 Which client shows what is the server's to report
 
-A caller holding one client per person — a web terminal with one bare attach
-per browser — has to answer "which session, window and pane is this person's
-client showing now". It cannot answer from what it asked for: a person moves
-the client with its own keys (a pane focused inside a split, a zoom), and on a
-server whose clients each keep their own view nothing else holds the answer.
-So the listing is the SERVER'S report, read when asked, and Olympus MUST NOT
+The `clients` listing is the SERVER'S report, read when asked. Olympus MUST NOT
 answer it from the targets its own attaches were given, which describe where a
 client was put, not where it is.
 
-The listing, `clients`, is one row per client the server reports, in the
-server's order: its `id`, its `tag` where it was launched with one, the
-`session_id`, `window_id` and `pane_id` it shows (the focused pane of the
-window it shows, which is where what it sends goes), `zoomed` (that window
-shows the pane alone) and `view_applied` (the client has applied the view the
-server holds for it, so what it sends now reaches that pane). A field the
-server does not report MUST be omitted, never answered false or empty:
-`zoomed: false` and `view_applied: false` are answers, and a server that
+#### Why
+
+A caller holding one client per person (a web terminal with one bare attach per
+browser) has to answer "which session, window and pane is this person's client
+showing now". It cannot answer from what it asked for. A person moves the client
+with its own keys (a pane focused inside a split, a zoom), and on a server whose
+clients each keep their own view nothing else holds the answer.
+
+#### Row fields
+
+One row per client the server reports, in the server's order:
+
+| Field | Meaning |
+|---|---|
+| `id` | the client's id |
+| `tag` | its tag, where it was launched with one |
+| `session_id` | the session it shows |
+| `window_id` | the window it shows |
+| `pane_id` | the focused pane of the window it shows, which is where what it sends goes |
+| `zoomed` | that window shows the pane alone |
+| `view_applied` | the client has applied the view the server holds for it, so what it sends now reaches that pane |
+
+A field the server does not report MUST be omitted, never answered false or
+empty. `zoomed: false` and `view_applied: false` are answers, and a server that
 cannot give them must not be read as giving them.
 
-On herdr a session is a workspace and a window is a tab (§3.6), and only a
-server that advertises `client_view_focus` reports where each client is, over
-`client.list` (§8.10). Its rows carry `pane_id` and `zoomed` only where it also
-advertises `client_view_ack`, and `view_applied` only for a client there whose
-row says `snapshot_acks: true`. Measured against such a server: a bare client
-launched onto a split tab is listed on the tab's focused pane, and after a
-`pane focus` on the server moves that tab's focus to the other pane, the same
-client is listed on the other pane, on the same workspace and tab; and after
-the client's own focus-pane key (the prefix, then `h`, written to the client
-in the kitty spelling it reads keys in) it is listed back on the first. A server
-that does not advertise the capability cannot say, and the listing is
-UNSUPPORTED there, as it is on every other backend: an empty list would claim
+#### herdr
+
+On herdr a session is a workspace and a window is a tab (§3.6). Only a server
+that advertises `client_view_focus` reports where each client is, over
+`client.list` (§8.10).
+
+- Rows carry `pane_id` and `zoomed` only where the server also advertises
+  `client_view_ack`.
+- Rows carry `view_applied` only for a client there whose row says
+  `snapshot_acks: true`.
+
+Measured against such a server:
+
+1. A bare client launched onto a split tab is listed on the tab's focused pane.
+2. After a `pane focus` on the server moves that tab's focus to the other pane,
+   the same client is listed on the other pane, on the same workspace and tab.
+3. After the client's own focus-pane key (the prefix, then `h`, written to the
+   client in the kitty spelling it reads keys in), it is listed back on the
+   first.
+
+#### Where the listing is unsupported
+
+A server that does not advertise the capability cannot say, and the listing is
+UNSUPPORTED there, as it is on every other backend. An empty list would claim
 there are no clients. No server running is an empty list (§3.3).
 
-The capability is asked, never inferred from the version, and it is not a
+#### Not a field of `capabilities`
+
+The server capability is asked, never inferred from the version. It is not a
 field of `capabilities` (§13): those are static facts of a backend, and this is
 a fact of one running server, which two servers on one backend answer
 differently. The listing itself is the probe.
 
-A tag filter answers the one client carrying it, as a listing of one, and a
-tag no client carries is SESSION_NOT_FOUND: a caller asking where its own
-client is must tell "not there" from "there". A tag is what the server holds
-it to — one to 128 bytes of UTF-8 with no control character — and one outside
-that is USAGE before the server is asked (§12).
+#### Tag filter
 
-A caller names its client with the attach's client tag (`--client-tag`,
-§8.10), since an interactive attach has no channel to report a generated name
-back. The tag MUST be refused as USAGE wherever no tagged client is launched —
-any backend but herdr, an attach that is not bare, and a herdr server that does
-not advertise `client_view_focus` — rather than dropped, because a caller that
-then asks where its client is would look for a name nobody carries. herdr does
-not hold tags unique, so two attaches given one tag are two clients the filter
-cannot tell apart; which tag is whose is the caller's to keep.
+A tag filter answers the one client carrying it, as a listing of one. A tag no
+client carries is SESSION_NOT_FOUND: a caller asking where its own client is must
+tell "not there" from "there".
+
+A tag is what the server holds it to: one to 128 bytes of UTF-8 with no control
+character. One outside that is USAGE before the server is asked (§12).
+
+#### Naming a client
+
+A caller names its client with the attach's client tag (`--client-tag`, §8.10),
+since an interactive attach has no channel to report a generated name back.
+
+The tag MUST be refused as USAGE wherever no tagged client is launched:
+
+- any backend but herdr;
+- an attach that is not bare;
+- a herdr server that does not advertise `client_view_focus`.
+
+It is refused rather than dropped because a caller that then asks where its
+client is would look for a name nobody carries.
+
+herdr does not hold tags unique, so two attaches given one tag are two clients
+the filter cannot tell apart. Which tag is whose is the caller's to keep.
 
 ## 14. Exit-marker inspection
 
-Parsing a caller-supplied completion echo out of a session that outlives its
-command (the wrapper pattern `echo output; cmd; echo DONE:$?; sleep N`).
+Exit-marker inspection parses a caller-supplied completion echo out of a session
+that outlives its command (the wrapper pattern
+`echo output; cmd; echo DONE:$?; sleep N`).
 
-The marker format is **caller-supplied**, always. Olympus has no opinion on it,
-and there MUST NOT be a default marker: a fixed default invites collision with
-ordinary program output or stale scrollback, and weakens the caller-controlled
-uniqueness the design assumes.
+### The marker is always caller-supplied
 
-**The marker is the whole prefix, separator included.** For the wrapper above,
-the marker is `DONE:` — not `DONE`. Olympus takes the exit code from the token
-immediately after the marker string and does not skip a separator of its own,
-because skipping one would be an opinion about the format it has just promised
-not to have.
+Olympus has no opinion on the marker format, and there MUST NOT be a default
+marker. A fixed default invites collision with ordinary program output or stale
+scrollback, and weakens the caller-controlled uniqueness the design assumes.
 
-This is worth stating because getting it wrong fails **silently**: a marker that
-never matches is reported as not-found, which is a legitimate answer meaning
-"that command has not finished", so a reaper waiting on it simply never fires.
-A caller passing `DONE` while echoing `DONE:$?` waits forever and sees no error.
+### The marker is the whole prefix, separator included
 
-**The exit code is the leading whitespace-delimited token after the marker prefix,
-not the whole rest of the line.** After a TUI process exits, the wrapper's echo
-lands on a rendered row still carrying leftover screen content to its right,
-because the exiting TUI never cleared to end of line:
+For the wrapper above, the marker is `DONE:`, not `DONE`. Olympus takes the exit
+code from the token immediately after the marker string and does not skip a
+separator of its own. Skipping one would be an opinion about the format it has
+promised not to have.
+
+#### Why this is stated
+
+Getting it wrong fails **silently**. A marker that never matches is reported as
+not-found, a legitimate answer meaning "that command has not finished", so a
+reaper waiting on it never fires. A caller passing `DONE` while echoing
+`DONE:$?` waits forever and sees no error.
+
+### The exit code is the leading token after the prefix
+
+The exit code is the leading whitespace-delimited token after the marker prefix,
+not the whole rest of the line. The token itself stays strict: `MARK:0abc` is
+still malformed, and mid-line occurrences are still not line-anchored.
+
+#### Why
+
+After a TUI process exits, the wrapper's echo lands on a rendered row still
+carrying leftover screen content to its right, because the exiting TUI never
+cleared to end of line:
 
 ```
 TASK_COMPLETED:0 Esc to cancel
 ```
 
 Requiring the entire remainder to parse as an integer classifies every such
-legitimate exit as malformed, so the exit code stays null forever and any consumer
-whose reaper treats a missing marker as "still running" never reaps anything — a
-false negative in the safe direction that silently disables the feature the marker
-exists for.
+legitimate exit as malformed. The exit code stays null forever, and any consumer
+whose reaper treats a missing marker as "still running" never reaps anything.
 
-The token itself stays strict: `MARK:0abc` is still malformed, and mid-line
-occurrences are still not line-anchored.
+### A content question, not a run question
 
-This answers a **content** question ("what marker, if any, is on screen"), distinct
-from a detached run's **desired-state** question ("did the injected run line
+This answers a **content** question ("what marker, if any, is on screen"). A
+detached run answers a **desired-state** question ("did the injected run line
 finish"). The two read different evidence and neither substitutes for the other.
 
 ---
@@ -3302,11 +4129,11 @@ finish"). The two read different evidence and neither substitutes for the other.
 
 Olympus's MCP server targets MCP revision **`2026-07-28`** and is built on the
 **official Go SDK**, `github.com/modelcontextprotocol/go-sdk`, pinned at
-**v1.7.0** — the first release whose latest supported revision is `2026-07-28`.
+**v1.7.0**: the first release whose latest supported revision is `2026-07-28`.
 
 Protocol framing MUST NOT be hand-rolled. The SDK is one of the three budgeted
-dependencies precisely so this door tracks the spec by upgrading a pin rather than
-by editing wire code.
+dependencies so that this door tracks the spec by upgrading a pin rather than by
+editing wire code.
 
 ### 15.2 What this revision changes
 
@@ -3316,77 +4143,81 @@ by editing wire code.
   self-contained. Every request declares its protocol version in its `_meta`
   field, and the server accepts or rejects each request independently.
 - **Servers MUST implement `server/discover`**, returning supported versions,
-  capabilities, and instructions. Clients MAY call it before anything else but
-  are not required to — a client may invoke any RPC inline and handle the error.
+  capabilities and instructions. Clients MAY call it before anything else but
+  are not required to. A client may invoke any RPC inline and handle the error.
 - **An unsupported requested version MUST be answered with
-  `UnsupportedProtocolVersionError`** — JSON-RPC code **`-32022`** — whose data
-  lists both the versions the server supports and the one requested, so the client
-  can retry with a mutually supported version.
+  `UnsupportedProtocolVersionError`**, JSON-RPC code **`-32022`**. Its data lists
+  both the versions the server supports and the one requested, so the client can
+  retry with a mutually supported version.
 - **Optional extensions** are negotiated through an `extensions` map in
-  capabilities, keyed by prefixed identifiers. If one party supports an extension
-  and the other does not, the supporting party MUST either revert to core behavior
-  or reject with an appropriate error.
+  capabilities, keyed by prefixed identifiers. If one party supports an
+  extension and the other does not, the supporting party MUST either revert to
+  core behavior or reject with an appropriate error.
 
 ### 15.3 Dual-era support, and why it costs nothing
 
-The spec calls a server **modern** if it uses per-request metadata, **legacy** if
-it uses the `initialize` handshake, and **dual-era** if it serves both. Olympus is
-dual-era **by construction**, because SDK v1.7.0 already:
+The MCP spec calls a server **modern** if it uses per-request metadata,
+**legacy** if it uses the `initialize` handshake, and **dual-era** if it serves
+both. Olympus is dual-era **by construction**, because SDK v1.7.0 already:
 
 - registers `server/discover` unconditionally in the server's method table;
 - emits `-32022` with the supported-version list on an unsupported version;
 - still answers legacy `initialize`, **capping that path at `2025-11-25`**.
 
-Three details of that machinery are sharper than "unconditionally" suggests, and
-the conformance tests depend on all three:
-
-- **`server/discover` is registered unconditionally but SERVED conditionally.** A
-  request that does not itself declare `2026-07-28` or later gets
-  method-not-found. That is what lets a client probe an older server and learn it
-  is legacy, rather than getting a confusing partial answer.
-- **A modern request carries its whole identity in `_meta`**, not just a version:
-  the client capabilities key is **required**, and a request omitting it is
-  rejected as invalid params rather than defaulted. There is no handshake to have
-  carried it earlier, which is precisely why it must ride on every request.
-- **`-32022` applies only within the modern era.** A version string ordering
-  *below* `2026-07-28` is not a malformed modern request — it is a legacy-era
-  request, and the legacy gate handles it. Only an unknown version at or above the
-  modern revision produces the unsupported-version error.
-
-**The default advertised capabilities are not empty.** The SDK advertises
-`{"logging":{}}` when capabilities are left unset, for historical reasons.
-Olympus MUST override that with an explicit empty set: logging is deprecated
-(§15.5), and a client must not be told this server offers it.
-
-That cap is correct, not a limitation to work around: `2026-07-28` deprecates
-`initialize` itself, so an `initialize` request *is* the client selecting legacy
-semantics. A dual-era server picks its era from how the client opens, which is
-exactly what the SDK does.
-
-The stdio transport declares no version restriction — it does not implement the
-SDK's optional protocol-version-supporter interface — so every revision the SDK
-knows, including `2026-07-28`, is advertised by discover.
-
-Olympus MUST NOT suppress either era: a modern client negotiates `2026-07-28`, a
+Olympus MUST NOT suppress either era. A modern client negotiates `2026-07-28`, a
 legacy client gets `2025-11-25`, and both are served.
+
+#### The legacy cap is correct
+
+`2026-07-28` deprecates `initialize` itself, so an `initialize` request *is* the
+client selecting legacy semantics. A dual-era server picks its era from how the
+client opens, which is what the SDK does.
+
+#### Three sharper details the conformance tests depend on
+
+- **`server/discover` is registered unconditionally but SERVED conditionally.**
+  A request that does not itself declare `2026-07-28` or later gets
+  method-not-found. That lets a client probe an older server and learn it is
+  legacy, rather than getting a confusing partial answer.
+- **A modern request carries its whole identity in `_meta`**, not just a
+  version. The client capabilities key is **required**, and a request omitting
+  it is rejected as invalid params rather than defaulted. There is no handshake
+  to have carried it earlier, which is why it must ride on every request.
+- **`-32022` applies only within the modern era.** A version string ordering
+  *below* `2026-07-28` is not a malformed modern request. It is a legacy-era
+  request, and the legacy gate handles it. Only an unknown version at or above
+  the modern revision produces the unsupported-version error.
+
+#### The advertised capabilities MUST be explicitly empty
+
+The SDK advertises `{"logging":{}}` when capabilities are left unset. Olympus
+MUST override that with an explicit empty set: logging is deprecated (§15.5),
+and a client must not be told this server offers it.
+
+#### Discover advertises every revision the SDK knows
+
+The stdio transport declares no version restriction. It does not implement the
+SDK's optional protocol-version-supporter interface, so every revision the SDK
+knows, including `2026-07-28`, is advertised by discover.
 
 ### 15.4 Statelessness is the protocol's model, not only ours
 
 Non-negotiable #4 ("no daemon, no persistent state") and the modern era's
-stateless request model agree, and that agreement is load-bearing.
+stateless request model agree, and both depend on that agreement.
 
 Every tool handler MUST be self-contained: no backend handle cached per session,
-no state keyed by connection, nothing assuming a prior call happened. This is the
-same property §6.7 demands of detached runs, reached from a different direction.
+no state keyed by connection, nothing assuming a prior call happened. This is
+the same property §6.7 demands of detached runs, reached from a different
+direction.
 
 Do not introduce session-scoped state to make a tool feel more convenient. It
 breaks the transport model and the run contract at once.
 
 ### 15.5 Deprecated features Olympus MUST NOT adopt
 
-**Roots, sampling, and logging are all deprecated as of `2026-07-28`**
-(SEP-2577). They remain functional during a deprecation window of at least twelve
-months, which is exactly what makes them a trap: they work today and are dead
+**Roots, sampling and logging are all deprecated as of `2026-07-28`**
+(SEP-2577). They remain functional during a deprecation window of at least
+twelve months, which is what makes them a trap: they work today and are dead
 ends.
 
 Olympus is a pure tool server. It MUST NOT depend on any of them, and MUST NOT
@@ -3398,114 +4229,143 @@ transport leaves alone.
 - **Typed parameters and results**, so the SDK generates JSON schemas and
   populates structured content. Hand-marshalled untyped results are a regression
   from what the SDK gives for free.
-- **The door translates; it does not decide.** Tool names and result shapes mirror
-  the ergonomic layer and the CLI. A default invented here is a second contract.
+- **The door translates; it does not decide.** Tool names and result shapes
+  mirror the ergonomic layer and the CLI. A default invented here is a second
+  contract.
 - **Instructions MUST be set** on the server. With no handshake, discover's
-  instructions are how a modern client learns what this server is for; leaving
+  instructions are how a modern client learns what this server is for. Leaving
   them empty removes the only description a stateless client receives.
 - **A version tool MUST exist**, reporting the same literal the server identity
   carries, so a consumer can floor-check without shelling out.
-- **An operation failure is a tool error carrying the §12 code**, never a JSON-RPC
-  protocol error. Protocol errors are reserved for protocol problems; conflating
-  them makes a session that was fine look broken.
+- **An operation failure is a tool error carrying the §12 code**, never a
+  JSON-RPC protocol error. Protocol errors are reserved for protocol problems.
+  Conflating them makes a session that was fine look broken.
+
+The registered surface is 34 tools, pinned in `ToolNames` in
+`internal/mcp/tools.go` and listed in api §1.
 
 ### 15.7 Conformance requirements
 
 The MCP door's tests MUST assert:
 
 1. `server/discover` advertises `2026-07-28`.
-2. A modern-era request — per-request `_meta`, no handshake — completes a real
+2. A modern-era request (per-request `_meta`, no handshake) completes a real
    tool call end to end.
 3. A legacy `initialize` still negotiates `2025-11-25` and serves the same tools.
 4. An unknown requested version yields `-32022` carrying the supported list.
 5. No advertised capability includes a deprecated feature (§15.5).
-6. The registered tool list is pinned, so a tool cannot silently appear or vanish.
+6. The registered tool list is pinned, so a tool cannot silently appear or
+   vanish.
 
-Assertion 3 is not optional politeness: most deployed clients are still legacy,
-and a change that quietly breaks them would otherwise pass a modern-only suite.
+Assertion 3 is not optional politeness. Most deployed clients are still legacy,
+and a change that breaks them would otherwise pass a modern-only suite.
 
 ---
 
 ## 16. Testing requirements
 
-Beyond §2.9's isolation rules:
+These apply beyond §2.9's isolation rules.
 
-- **Warm the shell before timing-sensitive assertions.** Several behaviors are
-  exercised by typing into a session created milliseconds earlier, then polling a
-  fixed deadline. Under load the login shell may not be reading input yet when the
-  keys arrive, so a one-shot send is lost and the deadline expires — surfacing as
-  a flake that rotates between tests rather than reproducing in one.
+### Warm the shell before timing-sensitive assertions
 
-  The guard is to block until the shell has **provably** executed a command, by
-  re-sending a probe until its *expanded* output appears. The probe MUST be
-  expansion-based: the typed line shows the format string verbatim, so only the
-  substituted output proves execution rather than echo.
+Block until the shell has **provably** executed a command, by re-sending a probe
+until its *expanded* output appears. The probe MUST be expansion-based: the
+typed line shows the format string verbatim, so only the substituted output
+proves execution rather than echo.
 
-  **The probe MUST be sent with the atomic submit of §4.7, never composed out of
-  injection and a separate terminator.** No production caller composes those two
-  — every inject-then-submit path goes through one verb that owns its terminator
-  and retries it (§4.4) — so a harness composing them itself would be proving a
-  path nothing ships, and the conformance suite exists to exercise the operation
-  callers actually use. Atomic delivery is also the only shape that is safe to
-  re-send: this probe is retried until its expansion appears, and §4.7 is the
-  guarantee that a retried invocation leaves no typed-but-unsubmitted line for
-  the next attempt to concatenate onto.
+#### Why
 
-- **Assert the substituted output, never the typed string.** PTY echo paints typed
-  bytes onto the screen, so asserting on a literal string proves only that it was
-  typed. Use `printf 'marker-%d\n' 42` and assert on `marker-42`.
+Several behaviors are exercised by typing into a session created milliseconds
+earlier, then polling a fixed deadline. Under load the login shell may not be
+reading input yet when the keys arrive, so a one-shot send is lost and the
+deadline expires. This surfaces as a flake that rotates between tests rather
+than reproducing in one.
 
-  This binds the NEGATIVE assertion too, and there the trap is counting rather
-  than matching. "The text appears once, so it was not executed" measures how
-  many times the text was *typed*, and §7.4 licenses two: a verified send whose
-  first window is lost to load resends the same text, and the second copy on the
-  input line reads as an execution that never happened. Measured on meja under
-  load, a line holding `echo unsubmitted-markerecho unsubmitted-marker` failed a
-  did-not-submit assertion with nothing ever submitted. Assert that the
-  expansion is ABSENT instead; that is the only evidence execution leaves, and
-  it is unaffected by how many times the source line was typed.
+#### The probe MUST use the atomic submit of §4.7
 
-- **A probe that must survive a resend is ONE simple command, never a sequence.**
-  §7.4's resend types the same text a second time onto a line that still holds
-  the first (§4.4), so the shell runs the concatenation. A sequence doubled that
-  way ends in a complete trailing copy of its LAST command, which runs on its
-  own: `sh -c 'exit 3'; echo MARK:$?` twice over prints `MARK:3sh -c exit 3`
-  and then `MARK:0`, so the newest marker on screen carries a code no command
-  returned. Measured identically in sh, bash and zsh. Doubling ONE simple
-  command glues into its argument list instead, where the assertion still
-  holds: `printf 'MARK:%d\n' 3` twice over prints `MARK:0`, `MARK:0`, `MARK:3`,
-  and the last marker is still the requested one.
+The probe MUST NOT be composed out of injection and a separate terminator.
 
-- **Two captures of a live session are never equal by settling; retry the
-  PAIR.** A rule that compares captures — history against viewport on a
-  native-scrollback backend, for instance — is asserting a property of one
-  screen, but reads two, and the session repaints between them: a prompt lands
-  after the last line of output, a row is redrawn. Settling before the first
-  read says nothing about the second. Take both, retry the pair while they
-  disagree, and fail only when no pair agrees within the budget — one
-  disagreeing pair is the race, a whole budget of them is the defect.
+- **No production caller composes those two.** Every inject-then-submit path
+  goes through one verb that owns its terminator and retries it (§4.4). A
+  harness composing them would prove a path nothing ships, and the conformance
+  suite exists to exercise the operation callers actually use.
+- **Atomic delivery is the only shape that is safe to re-send.** This probe is
+  retried until its expansion appears, and §4.7 guarantees that a retried
+  invocation leaves no typed-but-unsubmitted line for the next attempt to
+  concatenate onto.
 
-- **Anchor sessions on a shared tmux socket.** Killing the last session on a
-  socket tears down the whole server, so tests that kill sessions MUST keep an
-  anchor session alive.
+### Assert the substituted output, never the typed string
 
-- **Assert plausibility, not exact values, for environment-dependent fields.** The
-  shell binary genuinely differs across environments (`sh`, `bash`, `zsh`), and a
-  wrong tmux format variable expands to empty *with exit 0*. Assert `created_at`
-  unconditionally against a plausible epoch window rather than gating on non-zero,
-  and assert `current_command` non-empty rather than equal to a fixed string.
+PTY echo paints typed bytes onto the screen, so asserting on a literal string
+proves only that it was typed. Use `printf 'marker-%d\n' 42` and assert on
+`marker-42`.
 
-- **Race-shaped fixes need reproducing tests, not passing ones.** §2.2's chained
-  option ordering and §8.5's inode re-verification both fail *intermittently* when
-  reverted. A test that passes once against the fix proves nothing; it must
-  reproduce the interleaving.
+#### The negative assertion too
+
+For "not executed", the trap is counting rather than matching. "The text appears
+once, so it was not executed" measures how many times the text was *typed*, and
+§7.4 licenses two: a verified send whose first window is lost to load resends
+the same text, and the second copy on the input line reads as an execution that
+never happened.
+
+Measured on meja under load: a line holding
+`echo unsubmitted-markerecho unsubmitted-marker` failed a did-not-submit
+assertion with nothing ever submitted.
+
+Assert that the expansion is ABSENT instead. That is the only evidence execution
+leaves, and it is unaffected by how many times the source line was typed.
+
+### A probe that must survive a resend is ONE simple command
+
+§7.4's resend types the same text a second time onto a line that still holds the
+first (§4.4), so the shell runs the concatenation.
+
+| Probe | Doubled output | Newest marker |
+|---|---|---|
+| a sequence: `sh -c 'exit 3'; echo MARK:$?` | `MARK:3sh -c exit 3`, then `MARK:0` | `MARK:0`, a code no command returned |
+| one simple command: `printf 'MARK:%d\n' 3` | `MARK:0`, `MARK:0`, `MARK:3` | `MARK:3`, the requested one |
+
+A doubled sequence ends in a complete trailing copy of its LAST command, which
+runs on its own. A doubled simple command glues into its argument list instead,
+where the assertion still holds. Measured identically in sh, bash and zsh.
+
+### Two captures of a live session: retry the PAIR
+
+A rule that compares captures (history against viewport on a native-scrollback
+backend, for instance) asserts a property of one screen but reads two, and the
+session repaints between them: a prompt lands after the last line of output, a
+row is redrawn. Settling before the first read says nothing about the second.
+
+Take both, retry the pair while they disagree, and fail only when no pair agrees
+within the budget. One disagreeing pair is the race. A whole budget of them is
+the defect.
+
+### Anchor sessions on a shared tmux socket
+
+Killing the last session on a socket tears down the whole server, so tests that
+kill sessions MUST keep an anchor session alive.
+
+### Assert plausibility for environment-dependent fields
+
+The shell binary differs across environments (`sh`, `bash`, `zsh`), and a wrong
+tmux format variable expands to empty *with exit 0*.
+
+- Assert `created_at` unconditionally against a plausible epoch window, rather
+  than gating on non-zero.
+- Assert `current_command` non-empty, rather than equal to a fixed string.
+
+### Race-shaped fixes need reproducing tests
+
+§2.2's chained option ordering and §8.5's inode re-verification both fail
+*intermittently* when reverted. A test that passes once against the fix proves
+nothing. It must reproduce the interleaving.
 
 ---
 
 ## 17. Reserved identifiers, isolation, and defaults
 
-Everything Olympus writes into a shared namespace — a backend's session list, a
-tmux server's option tables, a temporary directory — is a name other software can
+Everything Olympus writes into a shared namespace (a backend's session list, a
+tmux server's option tables, a temporary directory) is a name other software can
 collide with. This section is the single registry of those names and of the
 tunable values used above.
 
@@ -3536,57 +4396,75 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view, where the caller names no tag of its own (§8.10, §13.5) |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 
-The view-session prefix is load-bearing beyond cosmetics: enumerating views (§9.5)
-selects on it, so changing it orphans every view created by an older binary.
+#### The view-session prefix MUST NOT change
 
-Two entries deliberately carry no `olympus-` prefix. The lock file already lives
-inside `olympus-locks/`, and the run id is embedded in a sentinel marker that
-carries its own prefix — repeating it would add length to a name whose length is
-budgeted (§2.5) without adding any separation.
+Enumerating views (§9.5) selects on the prefix, so changing it orphans every
+view created by an older binary.
+
+#### Two names carry no `olympus-` prefix
+
+- **The lock file** already lives inside `olympus-locks/`.
+- **The run id** is embedded in a sentinel marker that carries its own prefix.
+
+Repeating the prefix would add length to a name whose length is budgeted (§2.5)
+without adding any separation.
 
 ### 17.2 Isolation posture differs by backend, and users MUST be told
 
-A genuine asymmetry, sharper because the default backend is zmx (§0.1):
+This asymmetry is sharper because the default backend is zmx (§0.1).
 
-- **tmux**: Olympus defaults to its **own socket**, never touching the operator's
-  default tmux server unless explicitly pointed at it. Sessions Olympus creates
-  are invisible to a plain `tmux ls`.
-
-  tmux addresses a server two ways and they are NOT interchangeable. A socket
-  **name** is resolved by tmux inside a per-user directory it chooses; a socket
-  **path** is used verbatim. Both MUST be offered: the name is the familiar
-  form, and the path is what lets the socket live somewhere the caller controls
-  — a project directory, a mounted volume, a directory with tighter permissions
-  than the shared one. A path also means the socket disappears with the
-  directory holding it, which a name does not: killing a server does not unlink
-  its socket file.
-
-  The two MUST NOT collapse to one identifier. Whichever form is in effect is
-  what a lock key and the diagnostic identify the server by, and a name and a
-  path are different servers whose sessions cannot see each other.
-- **zmx**: there is **no socket equivalent**. Sessions are global to one daemon
-  per user, selected by environment (§2.9), so Olympus shares the operator's live
-  daemon and its sessions appear in the operator's own `zmx list` alongside
-  everything else.
-- **herdr**: Olympus defaults to its **own socket path**, never the operator's
-  server. A session Olympus created in somebody's live herdr would appear in
-  their workspace list and their sidebar, which is a change well outside the
-  target they named — so the posture matches tmux's, not zmx's, and pointing
-  `--socket-path` at the operator's socket is how a caller opts into the other.
-
-  That opt-in is a supported mode rather than an escape hatch, and §2.9.1 says
-  what changes when it is taken: the server is driven and never started,
-  reconfigured or stopped.
-
-  A socket NAME is not offered, because herdr has none: it addresses a server by
-  path only. And the path decides more here than which server answers — the
-  configuration and state directories are derived from it (§2.9), so it also
-  decides which `config.toml` a server Olympus starts reads and where the saved
-  layout lands.
+| Backend | Default posture | Visible to the operator's own tools |
+|---|---|---|
+| tmux | Olympus's **own socket** | no: invisible to a plain `tmux ls` |
+| zmx | the operator's live daemon; there is **no socket equivalent** | yes: in their `zmx list` |
+| herdr | Olympus's **own socket path** | no |
 
 No posture is wrong, but they are opposite, and a user who learns one will be
 surprised by the other. The diagnostic (§0.6) MUST report which is in effect and
 where.
+
+#### tmux
+
+Olympus never touches the operator's default tmux server unless explicitly
+pointed at it.
+
+tmux addresses a server two ways, and they are NOT interchangeable:
+
+- **A socket name** is resolved by tmux inside a per-user directory it chooses.
+- **A socket path** is used verbatim.
+
+Both MUST be offered. The name is the familiar form. The path lets the socket
+live somewhere the caller controls: a project directory, a mounted volume, a
+directory with tighter permissions than the shared one. A path also means the
+socket disappears with the directory holding it, which a name does not, since
+killing a server does not unlink its socket file.
+
+The two MUST NOT collapse to one identifier. Whichever form is in effect is what
+a lock key and the diagnostic identify the server by, and a name and a path are
+different servers whose sessions cannot see each other.
+
+#### zmx
+
+Sessions are global to one daemon per user, selected by environment (§2.9). So
+Olympus shares the operator's live daemon, and its sessions appear in the
+operator's own `zmx list` alongside everything else.
+
+#### herdr
+
+Olympus never uses the operator's server by default. A session Olympus created
+in somebody's live herdr would appear in their workspace list and their sidebar,
+a change well outside the target they named. So the posture matches tmux's, not
+zmx's.
+
+Pointing `--socket-path` at the operator's socket is how a caller opts into the
+other posture. That opt-in is a supported mode rather than an escape hatch, and
+§2.9.1 says what changes when it is taken: the server is driven and never
+started, reconfigured or stopped.
+
+A socket NAME is not offered, because herdr addresses a server by path only. The
+path decides more than which server answers. The configuration and state
+directories are derived from it (§2.9), so it also decides which `config.toml` a
+server Olympus starts reads and where the saved layout lands.
 
 ### 17.3 Default values
 
@@ -3619,36 +4497,47 @@ contract.
 | follow poll interval | 50ms | §5.6 |
 | write-lock retry interval | 25ms | §11.1 |
 
-Two are **per-attempt, not total**: the verified-send budget is spent twice
-(§7.4), and the graceful-kill timeout bounds only the poll phase, so total wall
-time is `presses*gap + timeout` (§2.8).
+Two are **per-attempt, not total**:
 
-Env-overridable values MUST be read at call time, never cached at process start —
-the same rule §1.1 applies to `LANG`, for the same reason.
+- The verified-send budget is spent twice (§7.4).
+- The graceful-kill timeout bounds only the poll phase, so total wall time is
+  `presses*gap + timeout` (§2.8).
+
+Env-overridable values MUST be read at call time, never cached at process start.
+This is the same rule §1.1 applies to `LANG`, for the same reason.
 
 ### 17.4 What Olympus deliberately does not do
 
 Recorded so they are not re-proposed as missing features:
 
-- **No command registry.** §6.7 — statelessness is load-bearing.
-- **No pane splitting, and no windows.** Every session Olympus creates is
-  single-window and single-pane, which is the only reason §9.4's side effect is
-  unobservable. Windows and panes are *reported* — every pane row carries its
-  window index — and never created: there is no verb, no tool and no method that
-  makes either. tmux and meja have windows, and so does herdr, whose tabs they
-are (§3.6); zmx has neither windows nor panes,
-  and its pane row is synthesized from the session, so its window index is
-  always 0. What follows when somebody else adds a window is §10's business.
+- **No command registry.** Statelessness is a design constraint (§6.7).
+- **No pane splitting, and no windows.** See below.
 - **No embedded multiplexer, and no PTY-only degraded mode.** §0.7.
 - **No Windows target.** The attach path is Unix-PTY-bound.
-- **No default exit marker.** §14 — a fixed default invites collision.
+- **No default exit marker.** A fixed default invites collision (§14).
+
+#### No pane splitting, and no windows
+
+Every session Olympus creates is single-window and single-pane, which is the
+only reason §9.4's side effect is unobservable. Windows and panes are *reported*
+(every pane row carries its window index) and never created: there is no verb,
+no tool and no method that makes either.
+
+| Backend | Windows |
+|---|---|
+| tmux | yes |
+| meja | yes |
+| herdr | yes: its tabs are the windows (§3.6) |
+| zmx | neither windows nor panes; its pane row is synthesized from the session, so the window index is always 0 |
+
+What follows when somebody else adds a window is §10's business.
 
 ### 17.5 A private socket is not a private configuration
 
 tmux fixes a server's configuration **at boot**, from the operator's
-`tmux.conf`. The socket only decides *which* server that is. A backend
-addressed by `-L olympus` or by `-S <path>` therefore inherits every line of the
-operator's configuration, and this is measurable rather than theoretical:
+`tmux.conf`. The socket only decides *which* server that is. A backend addressed
+by `-L olympus` or by `-S <path>` therefore inherits every line of the
+operator's configuration. This is measurable:
 
 | option | server on a private socket | `-f /dev/null` |
 |---|---|---|
@@ -3659,56 +4548,64 @@ Most of that inheritance is **wanted**. A session Olympus drives is still a
 terminal a human may end up sitting in (§0.8), and someone who attaches should
 find their own prefix, bindings and theme. Olympus MUST NOT take those away.
 
-Two options are different, because Olympus's own correctness rests on them:
+#### The two options Olympus's correctness rests on
 
 - **`default-command`** chooses the shell a session's pane runs, and the run
   protocol's exit marker (§6.2) is written *by that shell*. Under `csh`,
   `echo "OLY_D_<id>_$?_"` becomes `OLY_D_<id>_1`: `csh` reads `$?_` as "is the
   variable `_` set", so the real exit status is replaced by a `1` and the
-  closing delimiter disappears. A caller is then told a command that failed
-  with 3 succeeded, or the marker never parses and the run reports a timeout
-  for a command that finished.
+  closing delimiter disappears. A caller is then told a command that failed with
+  3 succeeded, or the marker never parses and the run reports a timeout for a
+  command that finished.
 - **`history-limit`** decides what a capture of N lines can actually return
   (§5.2). Unpinned, the same request reads a different depth on every machine,
   and a truncated history is indistinguishable from a short session.
 
 #### Olympus configures only servers it STARTS
 
+Olympus MUST pin these on a server it is starting, and MUST NOT pin them on one
+that is already running. The test is whether anything is listening before the
+create runs.
+
+No state has to be kept to remember the decision. A second create on Olympus's
+own server finds it already up and skips the pins, which is correct, because the
+first create's pins are server-global and still in force.
+
+##### Why
+
 Both options are set with `set-option -g`, which reaches **every session on the
 server**. On a server the operator already runs, a caller who asked Olympus to
-drive one session would have all their other sessions changed underneath them —
+drive one session would have all their other sessions changed underneath them,
 an effect well outside the target they named (§0.4). Disclosure explains an
 action; it does not change who bears it.
 
-So: Olympus MUST pin these on a server it is starting, and MUST NOT pin them on
-one that is already running. The test is simply whether anything is listening
-before the create runs. No state has to be kept to remember the decision — a
-second create on Olympus's own server finds it already up and skips the pins,
-which is correct, because the first create's pins are server-global and still in
-force.
+#### What the pins are
 
-`default-command` is pinned to empty, which restores tmux's own behaviour — the
-operator's login shell — so what is removed is only a config file's ability to
-substitute a *different* shell behind Olympus's back.
+- **`default-command` is pinned to empty.** That restores tmux's own behaviour,
+  the operator's login shell, so what is removed is only a config file's ability
+  to substitute a *different* shell behind Olympus's back.
+- **`default-shell` is deliberately NOT pinned.** tmux has no notion of a
+  non-interactive pane, so pinning it would hand a human who attaches a bare `sh`
+  prompt instead of their own shell. That is a real cost to one audience for a
+  guarantee it does not deliver, since a login shell may be non-POSIX either way.
+  That the run protocol assumes a POSIX-compatible shell is stated here and
+  reported by the diagnostic, not enforced by confiscating the operator's shell.
 
-`default-shell` is deliberately NOT pinned. tmux has no notion of a
-non-interactive pane, so pinning it would hand a human who attaches a bare `sh`
-prompt instead of their own shell — a real cost to one audience for a guarantee
-it does not actually deliver, since a login shell may be non-POSIX either way.
-That the run protocol assumes a POSIX-compatible shell is stated here and
-reported by the diagnostic, not enforced by confiscating the operator's shell.
+#### The pins MUST come first, in the same invocation
 
-**The pins MUST be applied ahead of the command whose behaviour depends on
-them, in the same invocation.** A pane reads `default-command` and
-`history-limit` when it *spawns*: applying them after `new-session` configures
-the next session and leaves this one exactly as misconfigured as before — a fix
-that measures as working while fixing nothing.
+The pins MUST be applied ahead of the command whose behaviour depends on them,
+in the same invocation. A pane reads `default-command` and `history-limit` when
+it *spawns*. Applying them after `new-session` configures the next session and
+leaves this one as misconfigured as before: a fix that measures as working while
+fixing nothing.
 
-They MUST be applied as options rather than through tmux's `-f`. Configuration
-is per-server and fixed at boot, so `-f` is silently ignored on a server that is
-already running. `-f` also cannot reproduce tmux's own configuration search
-order, which prefers the XDG location over `~/.tmux.conf` — replacing the file
-would mean re-implementing that order and getting it wrong on some machine.
+#### The pins MUST be options, not `-f`
+
+- **`-f` is ignored on a running server.** Configuration is per-server and fixed
+  at boot.
+- **`-f` cannot reproduce tmux's configuration search order**, which prefers the
+  XDG location over `~/.tmux.conf`. Replacing the file would mean
+  re-implementing that order and getting it wrong on some machine.
 
 #### Ownership MUST be recorded, never inferred
 
@@ -3716,40 +4613,44 @@ A server Olympus starts MUST be marked, with `@olympus_managed` on the server
 scope, in the same chain that starts it. A server Olympus merely finds never
 receives the mark, because that chain never runs there.
 
-Inferring ownership by comparing the pinned VALUES is wrong, and fails on the
-most likely case rather than an exotic one: an operator who sets a large
-`history-limit` themselves — an entirely ordinary thing to set — would have a
-server Olympus never touched reported as one Olympus started and configured.
 The mark is a user option, which tmux stores and never acts on, so a server that
 carries it behaves no differently for having it.
 
-**There is a race.** A server can be started by somebody else between Olympus's
-check and its `new-session`, and the pins would then land on theirs. The window
-is narrow and the outcome is no worse than applying them unconditionally, which
-is what the rule replaces — but it is recorded here rather than left to be
-discovered.
+##### Why
+
+Inferring ownership by comparing the pinned VALUES fails on the most likely case
+rather than an exotic one. An operator who sets a large `history-limit`
+themselves, an ordinary thing to set, would have a server Olympus never touched
+reported as one Olympus started and configured.
+
+##### There is a race
+
+A server can be started by somebody else between Olympus's check and its
+`new-session`, and the pins would then land on theirs. The window is narrow, and
+the outcome is no worse than applying the pins unconditionally.
 
 #### What this does not cover
 
 Hooks and plugins in the operator's configuration run when the server boots,
 before any Olympus command can intervene. A `session-created` hook therefore
-executes in Olympus's sessions, and a plugin manager loads into Olympus's
-server. Only replacing the configuration file outright would prevent it, at the
-cost above. Callers needing that isolation MUST boot the server themselves with
-`-f`, on a socket of their own.
+executes in Olympus's sessions, and a plugin manager loads into Olympus's server.
+Only replacing the configuration file outright would prevent it, at the cost
+above. Callers needing that isolation MUST boot the server themselves with `-f`,
+on a socket of their own.
 
 On a server Olympus did not start, `history-limit` is whatever that server was
 given, and `default-command` may name a shell the run protocol cannot read an
-exit code through. Neither is corrected, and both are **reported**: `doctor`
+exit code through. Neither is corrected, and both are **reported**. `doctor`
 states whether the answering server was started by Olympus and what the two
-options are actually set to — not what Olympus would have pinned. That
-distinction is the whole point of the report, since only the effective values
-decide how a run behaves.
+options are actually set to, not what Olympus would have pinned. Only the
+effective values decide how a run behaves, which is why the report shows them.
 
-**Pinning MUST be disclosed** (§0.6). A tool that silently overrides a line in
-somebody's `tmux.conf` turns "my configuration is being ignored" into an
-unanswerable question, which is exactly the failure the diagnostic exists to
-prevent. `doctor` names every pinned option and its value, in both output modes.
+#### Pinning MUST be disclosed
+
+A tool that silently overrides a line in somebody's `tmux.conf` turns "my
+configuration is being ignored" into an unanswerable question, which is the
+failure the diagnostic (§0.6) exists to prevent. `doctor` names every pinned
+option and its value, in both output modes.
 
 Backends with no configuration file pin nothing, and MUST report nothing rather
 than an empty claim.
@@ -3757,20 +4658,25 @@ than an empty claim.
 #### herdr inverts this section's premise, and still discloses
 
 herdr's configuration follows its configuration DIRECTORY, and §2.9 has already
-moved that directory alongside the socket — so a private socket here IS a private
-configuration, which is exactly what tmux cannot give. Nothing of the operator's
-is inherited and nothing of theirs is overwritten.
+moved that directory alongside the socket. So a private socket here IS a private
+configuration, which tmux cannot give. Nothing of the operator's is inherited
+and nothing of theirs is overwritten.
 
 Two options are still pinned on a server Olympus starts, and still disclosed.
-Both turn off a background NETWORK check the server would otherwise run at boot,
-for its own updates and for remote agent-detection manifests. Neither has
-anything to do with driving a terminal, and a tool that silently decides when a
-program may reach the network turns "why did this call home" into an
-unanswerable question — which is the failure this disclosure exists to prevent,
-regardless of whose file is being written.
+Both turn off a background NETWORK check the server would otherwise run at boot:
+one for its own updates, one for remote agent-detection manifests. Neither has
+anything to do with driving a terminal.
 
-The ordering rule of §17.5 applies unchanged: configuration is read at boot, so
+##### Why
+
+A tool that silently decides when a program may reach the network turns "why did
+this call home" into an unanswerable question. That is the failure this
+disclosure exists to prevent, regardless of whose file is being written.
+
+##### Ordering
+
+The ordering rule of §17.5 applies unchanged. Configuration is read at boot, so
 the file MUST be written before the server that reads it starts. Writing it
-afterwards configures the NEXT server and leaves this one exactly as unpinned as
-before. An existing file in that directory is left alone — a caller who put one
-there chose it.
+afterwards configures the NEXT server and leaves this one as unpinned as before.
+An existing file in that directory is left alone: a caller who put one there
+chose it.

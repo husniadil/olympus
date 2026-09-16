@@ -13,7 +13,7 @@ shape of a new operation depends on what it means everywhere.
 
 Library, CLI, MCP, or all three.
 
-**Does either backend already do this?**
+**Does a backend already do this?**
 
-If one can and the other cannot, that is a capability question rather than a
-missing feature — see the matrix in `olympus doctor`.
+If some backends can and others cannot, that is a capability question rather
+than a missing feature. See the capability matrix in `olympus doctor`.

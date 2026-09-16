@@ -1,121 +1,128 @@
 # Adding a backend
 
-Olympus drives a multiplexer it does not embed. Four ship — zmx, tmux, meja,
-herdr — and the interface they implement is public, along with the conformance
-suite that judges them. A fifth is a normal contribution, not a fork.
+Olympus drives a multiplexer it does not embed. Four ship: zmx, tmux, meja and
+herdr. The interface they implement is public, and so is the conformance suite
+that judges them, so a fifth is a normal contribution, not a fork.
 
-This is the route, written from what the third and fourth ones actually cost
-rather than from what the interface looks like.
+This is the route, written from what the third and fourth backends cost rather
+than from what the interface looks like.
 
 ---
 
-## 1. Before you write any code: spike it
+## 1. Spike before you write code
 
-The interface will fit almost anything. That is the problem — it fits, and then
-one structural difference makes half of it behave unlike the others.
+Measure the multiplexer by hand before implementing anything. Write down what
+surprised you: that list is your capability declaration.
 
-meja is the example. Through 0.0.25 every INPUT command it accepts requires an
-attached client and refuses outright without one; observation works headlessly,
-driving does not. Nothing in `backend.Backend` hints at that, and no amount of
-reading its help would have replaced measuring it. The integration is built
-around a transient headless client per injection, which is a design, not an
-adapter — and it was chosen only after the cost was measured (68 ms cold, 23 ms
-warm).
+### Why
 
-There is a second lesson on top of the first. meja 0.0.26 dropped that rule for
-ordinary input, and the integration survived unchanged because it ATTEMPTS the
-operation and attaches a client only when refused — a shape that asks the
-backend what is true instead of encoding what was true when it was written. A
-capability probed at the moment of use costs one failed call; the same
-capability hardcoded costs a rewrite when it moves.
+The interface fits almost anything. Then one structural difference makes half
+of it behave unlike the other backends, and nothing in `backend.Backend` hints
+at it.
 
-So before implementing:
+meja is the example. Through 0.0.25 every input command it accepts needs an
+attached client, while observation works headlessly. The integration is built
+around a transient headless client per injection, chosen after measuring the
+cost: 68 ms cold, 23 ms warm.
+
+### Probe at the moment of use
+
+Attempt an operation and fall back only when refused, rather than encoding what
+the backend does today.
+
+#### Why
+
+meja 0.0.26 dropped the client requirement for ordinary input. The integration
+survived unchanged because it attempts the injection and attaches a client only
+on refusal. A probed capability costs one failed call when it moves; a
+hardcoded one costs a rewrite.
+
+### What to measure
 
 - **Start a session, send text, capture it back.** By hand, from a shell.
-- **Send a control byte to `cat -v`** and read what arrives. This is how you
-  learn whether control keys actually reach the pane. A backend that accepts a
-  key and drops it is worse than one that rejects it: the caller sees success and
-  waits for an effect that will never come.
-- **Resize a client and ask the session `tput cols; tput lines`.** Expect the
-  answer to differ from what you asked — tmux reserves a row for its status line,
-  meja does too. Learn the offset now, not from a failing test later.
-- **Kill the server and list sessions.** No server running must be an empty list,
-  never an error (§3.3).
-- **List sessions on a server nobody has used yet.** It may not be empty. herdr's
-  server opens a workspace of its own the moment it starts, so "everything the
-  multiplexer knows about" and "everything Olympus created" are different sets,
-  and the second one needs a marker — a name, a label — to select on. Deciding
-  that late means changing what a session IS.
-- **Try to spawn a command.** Not every multiplexer lets you choose a pane's
-  process; herdr does not, and no amount of reading its help says so as plainly
-  as the absence of an argv in its creation request. If yours cannot, say so
-  through a capability and REFUSE the field (§2.3.1) — typing the argv into a
-  shell instead passes most of the suite while echoing the command line into the
-  session and reinterpreting every metacharacter.
-- **Run something that repaints in place** — an editor, not a `printf` of escape
-  sequences. A synthetic alt-screen test proves nothing about editors: it never
-  presses a control key and never repaints, which are exactly the paths that
-  break.
-
-Write down what surprised you. That list is your capability declaration.
+- **Send a control byte to `cat -v`** and read what arrives. A backend that
+  accepts a key and drops it is worse than one that rejects it: the caller sees
+  success and waits for an effect that never comes.
+- **Resize a client and ask the session `tput cols; tput lines`.** Expect a
+  different answer: tmux and meja both reserve a row for a status line.
+- **Kill the server and list sessions.** No server running must be an empty
+  list, never an error (§3.3).
+- **List sessions on a server nobody has used yet.** It may not be empty.
+  herdr's server opens a workspace of its own at start, so "everything the
+  multiplexer knows" and "everything Olympus created" differ, and the second
+  needs a marker to select on.
+- **Try to spawn a command.** herdr cannot choose a pane's process. If yours
+  cannot, declare it through a capability and refuse the field (§2.3.1). Typing
+  the argv into a shell instead echoes the command line and reinterprets every
+  metacharacter.
+- **Run something that repaints in place:** an editor, not a `printf` of escape
+  sequences. A synthetic alt-screen test never presses a control key and never
+  repaints, which are the paths that break.
 
 ---
 
-## 2. Isolation is a hard requirement, and it is the easiest thing to get wrong
+## 2. Isolation is a hard requirement
 
-**Tests must never touch the operator's live sessions.** Not "should" — this is
-non-negotiable #5, and the reviewers will check it first.
+**Tests must never touch the operator's live sessions.** This is non-negotiable
+5 in `CLAUDE.md`, and reviewers check it first.
 
-Session-name prefixes are **not** sufficient. What is required is a server nobody
-else addresses, and how you get one is backend-specific:
+Session-name prefixes are not enough. A test needs a server nobody else
+addresses, and how you get one is backend-specific:
 
 | Backend | Isolation |
 |---|---|
-| tmux | a socket at a private **path** inside a directory the test owns |
-| zmx | `ZMX_DIR` pointed at a private temp dir — it has no socket flag at all |
+| tmux | a socket at a private path inside a directory the test owns |
+| zmx | `ZMX_DIR` pointed at a private temp dir; it has no socket flag |
 | meja | `-S <path>`, never `-L <profile>` |
-| herdr | a private socket path **and** the configuration and state directories moved with it |
+| herdr | a private socket path, and the configuration and state directories moved with it |
 
-Two traps that have already been paid for:
+If your backend offers no way to isolate a server, say so in the pull request.
+A backend that cannot be tested without touching the operator's sessions cannot
+ship.
 
-- **A named socket is not enough for tmux.** Killing a server does not unlink its
-  socket, so a named one accumulates in the directory shared with the operator's
-  own servers. Put it inside a directory the test owns, so it disappears with the
-  test.
-- **Where your backend keeps *state* may not follow where you pointed its
-  socket.** meja keeps session recovery files beside the socket, so a named
-  profile would leave persisted sessions in the operator's own store, to come
-  back on their next restore. Check this explicitly; do not assume one flag moves
-  everything.
+### A named tmux socket is not enough
 
-- **A private socket can still write the operator's files, and this is the worst
-  version of the trap above.** herdr keeps the unnamed session's persisted layout
-  in its CONFIGURATION directory, chosen from the environment with no reference
-  to the socket. A test server on a private socket therefore overwrites
-  `~/.config/herdr/session.json` — destroying the operator's saved workspaces —
-  while touching none of their live sessions, so every check about session names
-  and sockets passes and the damage happens anyway.
+Killing a server does not unlink its socket, so a named one accumulates in the
+directory shared with the operator's own servers. Put it inside a directory the
+test owns, so it disappears with the test.
 
-  The way to find this is not to reason about it: start a server pointed at a
-  private everything, run one session, and then `find` the directories it was
-  supposed to be isolated FROM. Whatever appears there is what your isolation
-  does not cover.
+### State may not follow the socket
 
-  The fix has a shape worth copying: derive the state location from the socket
-  rather than exposing a second option for it. A pairing that can be half-applied
-  will be, and the caller who half-applies it has no way of knowing.
+Check where the backend keeps state, not only where its socket is. One flag
+rarely moves everything.
 
-If your backend offers no way to isolate a server, say so in the pull request
-rather than working around it. A backend that cannot be tested without touching
-the operator's sessions cannot ship, and that is a finding about the backend, not
-a problem to be clever about.
+#### Why
+
+- **meja** keeps session recovery files beside the socket. A named profile
+  would leave persisted sessions in the operator's store, restored on their
+  next start.
+- **herdr** keeps the unnamed session's layout in its configuration directory,
+  chosen from the environment with no reference to the socket. A test server on
+  a private socket would overwrite `~/.config/herdr/session.json`, destroying
+  the operator's saved workspaces while every check on names and sockets passes.
+
+### Find leaks by looking, not by reasoning
+
+Start a server pointed at a private everything, run one session, then `find` the
+directories it was supposed to be isolated from. Whatever appears there is what
+your isolation does not cover.
+
+### Derive state from the socket
+
+Derive the state location from the socket path rather than exposing a second
+option for it. herdr's `WithSocketPath` does this.
+
+#### Why
+
+A pairing of two options that can be half-applied will be, and the caller who
+half-applies it has no way of knowing.
 
 ---
 
 ## 3. Write the tests first, against the shipped suite
 
-`backend/backendtest` is exported for exactly this. It is not a convenience — it
-is the definition of correct, and it was written before the backends it tests.
+`backend/backendtest` is exported for this. It is the definition of correct, and
+it was written before the backends it tests.
 
 ```go
 func TestConformance(t *testing.T) {
@@ -130,19 +137,18 @@ func TestConformance(t *testing.T) {
 }
 ```
 
-Two things about that config:
-
 - **`New` must build a backend on a private server**, per section 2. The suite
-  runs its cases in parallel and each builds its own, so isolation is what makes
-  concurrency safe as well as what keeps the operator's sessions untouched.
+  runs cases in parallel and each builds its own, so isolation also makes the
+  concurrency safe.
 - **`Expectations` are declarations you are held to, not switches that skip.**
-  Declaring `InterruptIneffective` asserts the session *survives* the interrupt.
-  A backend that quietly gains the ability fails the suite and gets to update its
-  declaration — which is the point. A skip would have let the improvement pass
-  unnoticed.
+  Declaring `InterruptIneffective` asserts the session survives the interrupt.
+  A backend that gains the ability fails the suite and updates its declaration,
+  where a skip would have let the change pass unnoticed.
 
-Skip loudly when your binary is absent, and **check that it runs rather than that
-it exists**:
+### Skip when the binary does not run
+
+Skip loudly when your binary is absent, and check that it runs rather than that
+it exists:
 
 ```go
 if err := exec.Command("yourmux", "version").Run(); err != nil {
@@ -150,145 +156,153 @@ if err := exec.Command("yourmux", "version").Run(); err != nil {
 }
 ```
 
-A `exec.LookPath` succeeds against a version-manager shim left behind by an
-uninstalled tool, which then fails every call. That produces a wall of broken
-cases instead of one honest skip. This has happened here.
+#### Why
+
+`exec.LookPath` succeeds against a version-manager shim left by an uninstalled
+tool, which then fails every call. The result is a wall of broken cases instead
+of one honest skip.
 
 ---
 
 ## 4. Capabilities are measured, never assumed
 
 `Capabilities()` is a static declaration with no context and no subprocess
-(§13). Callers **branch on it** instead of catching `UNSUPPORTED`, so a wrong
-answer is not a cosmetic error — it routes real logic down the wrong path.
+(§13). Every field must be something you measured in section 1.
 
-Every field must be something you measured in section 1. Two rules learned the
-expensive way:
+If your backend cannot do something, return `UNSUPPORTED` and declare it false.
+The declaration lets a caller avoid the error; the error gives a caller who
+ignored the declaration a truthful answer.
 
-- **Name the mechanism, not the symptom.** A capability was once added saying a
-  backend's capture showed stale frames. Wrong: repaints ARE captured correctly;
-  what that backend drops is the control KEY that would have caused one. The
-  spike that settled it took three commands. Getting this wrong bakes a
-  misdiagnosis into a semver-bound field.
-- **A rule inherited from another backend can carry an assumption yours does not
-  share.** Check whose audience a rationale names before adopting it.
+### Why
 
-If your backend cannot do something at all, return `UNSUPPORTED` *and* declare it
-false. The declaration is how a caller avoids the error; the error is how a
-caller who ignored the declaration still gets a truthful answer.
+Callers branch on capabilities instead of catching `UNSUPPORTED`. A wrong answer
+routes real logic down the wrong path.
+
+### Name the mechanism, not the symptom
+
+A capability was once shipped saying a backend's capture showed stale frames.
+Repaints were captured correctly; what that backend dropped was the control key
+that would have caused one. Capabilities are semver-bound, so a misdiagnosis
+there is permanent.
+
+### Check whose audience a rule names
+
+A rule inherited from another backend can carry an assumption yours does not
+share. Before adopting a rationale, check that the audience it names applies.
 
 ---
 
 ## 5. Map errors onto the shared vocabulary
 
-Codes are semver-bound (§12): `USAGE`, `SESSION_NOT_FOUND`, `BACKEND_UNAVAILABLE`,
-`TIMEOUT`, `CONFLICT`, `UNSUPPORTED`, `UNEXPECTED`.
+Codes are semver-bound (§12): `USAGE`, `SESSION_NOT_FOUND`,
+`BACKEND_UNAVAILABLE`, `TIMEOUT`, `CONFLICT`, `UNSUPPORTED`, `UNEXPECTED`.
 
-The distinction that matters most is `USAGE` against `UNEXPECTED`. `UNEXPECTED`
-tells a program that retrying will not help and nothing it controls is at fault.
-If one corrected argument fixes it, it is `USAGE` — and this matters most exactly
-where backends disagree, because a session name one backend refuses is one the
-others accept. There the caller really is being told about their input.
+### USAGE against UNEXPECTED
 
-Two more:
+If one corrected argument fixes it, it is `USAGE`. `UNEXPECTED` tells a program
+that retrying will not help and nothing it controls is at fault.
 
-- **An absent server must become an absent SESSION** for a target-addressed
-  operation. A caller holding a session name can match nothing against a socket
-  path. The collapse is sound: when the server is gone, every session on it is
-  gone with it.
-- **Do not collapse things that merely share a code.** meja's "requires an
-  attached client" shares `BACKEND_UNAVAILABLE` with an absent server but means
-  something else — the session is there and the client was not — so treating it as
-  absence would report a live session as missing.
+#### Why
+
+This matters most where backends disagree. A session name one backend refuses
+is one the others accept, so the caller really is being told about their input.
+
+### An absent server is an absent session
+
+For a target-addressed operation, a missing server becomes
+`SESSION_NOT_FOUND`.
+
+#### Why
+
+A caller holding a session name can match nothing against a socket path. When
+the server is gone, every session on it is gone too.
+
+### Do not collapse things that share a code
+
+meja's "requires an attached client" shares `BACKEND_UNAVAILABLE` with an absent
+server, but the session is there. Treating it as absence would report a live
+session as missing.
 
 ---
 
 ## 6. Wire it into the three doors
 
-Defaults are decided **once**, in the ergonomic layer. A door that invents its own
-default has introduced a second contract. Adding a backend should touch:
+Defaults are decided once, in the ergonomic layer. Adding a backend touches:
 
-- `resolve.go` — the preference order, and which addressing options apply
-- `olympus.go` — the arm of `open` that builds the handle and records its lock
-  scope, and the arm of `resolveTarget` that says how the backend spells a pane id
-- `doctor.go` — a version floor, an install hint, and the `buildBackend` arm the
-  diagnostic uses to probe it and report where its sessions live
-- `warnings.go` — any degraded-operation disclosure
+| File | What to add |
+|---|---|
+| `resolve.go` | the preference order, which addressing options apply, and an install hint (`installHint`) |
+| `olympus.go` | the arm of `open` that builds the handle and records its lock scope, and the arm of `resolveTarget` that spells a pane id |
+| `doctor.go` | a version floor (`floors`) and the `buildBackend` arm the diagnostic uses to probe it and report where its sessions live |
+| `warnings.go` | any degraded-operation disclosure |
 
-and nothing in the CLI or MCP command definitions. If you find yourself adding a
-flag for your backend alone, that is a sign the option belongs in the ergonomic
-layer's addressing table instead.
+Nothing in the CLI or MCP command definitions changes. A flag for your backend
+alone is a sign the option belongs in the ergonomic layer's addressing table.
 
-Check your work mechanically rather than by eye. A twenty-line script that diffs
-flag sets against tool names once found seven missing MCP parameters and a whole
-verb that a careful read had declared complete.
+### Why
+
+A door that invents its own default has introduced a second contract.
+
+### Compare surfaces mechanically
+
+Diff flag sets against tool names with a script rather than by eye. A
+twenty-line script once found seven missing MCP parameters and a whole verb in a
+surface a careful read had called complete.
 
 ---
 
 ## 7. Neutrality
 
 No exported identifier, file, or package name refers to a specific consumer,
-product, or vendor. The scope is **names**, not comments: explaining that a
-submit is paced because a particular REPL treats text-plus-terminator as a paste
-is accurate prose, not a violation.
+product, or vendor. The scope is names, not comments: explaining that a submit
+is paced because a particular REPL treats text-plus-terminator as a paste is
+accurate prose.
 
 ---
 
 ## 8. What a reviewable pull request contains
 
-- [ ] The conformance suite green, and the spike notes that justify each
+- [ ] The conformance suite green, and the spike notes behind each
       `Capabilities()` field
-- [ ] Isolation proven, with the mechanism named — including where the backend
-      keeps state, not only its socket
-- [ ] A version floor, with a sentence on what was measured against it. "The
-      version every measurement behind this backend was taken against" is the
-      honest form; support below it is best-effort because nothing was checked
-      there.
+- [ ] Isolation proven, with the mechanism named, including where the backend
+      keeps state
+- [ ] A version floor, stated as the version every measurement was taken
+      against; support below it is best-effort
 - [ ] Error mapping, with the `USAGE`/`UNEXPECTED` split defensible case by case
-- [ ] `make test-full` green — the fast `make test` deliberately skips every case
-      that drives a terminal, so it cannot tell you anything about a backend
-- [ ] Spec amendments in the **same commit** as the code that proved them needed
+- [ ] `make test-full` green. `make test` skips every case that drives a
+      terminal, so it says nothing about a backend
+- [ ] Spec amendments in the same commit as the code that proved them needed
 
-That last one is the house rule, and it runs both ways: if implementing your
-backend shows a rule in `docs/terminal-behavior.md` is wrong, incomplete or
-unimplementable, change it and say what moved. The specs lead, but they are not
-immune to evidence — and a spec that has drifted from the code is worse than none,
-because it is still believed.
+If implementing your backend shows a rule in `docs/terminal-behavior.md` is
+wrong, incomplete or unimplementable, change it and say what moved. A spec that
+has drifted from the code is worse than none, because it is still believed.
 
 ---
 
-## Things that will cost you a day if you skip them
+## Traps that cost a day
 
-Each of these was found by a failure here, not by reading.
+Each was found by a failure, not by reading.
 
-- **A verified send proves the text LANDED, not that it RAN.** Capturing straight
-  after one races the shell's expansion. Wait for the substituted output.
+- **A verified send proves the text landed, not that it ran.** Capturing
+  straight after one races the shell's expansion. Wait for the substituted
+  output.
 - **Trailing whitespace is not portable.** tmux preserves a prompt's trailing
   space; zmx normalizes it away. Write `^>>>\s*$`, never `^>>> $`.
-- **A prompt is not guaranteed to start a line.** A program that paints by cursor
-  positioning can leave its prompt appended to the shell's echo, so an anchored
-  pattern fails against text plainly on screen (§7.3.1).
-- **Format output may be sanitized, and version-dependently.** tmux 3.5a escapes
-  a `0x1f` field separator into the four characters `\037` and turns a tab into
-  `_`; 3.7b passes both through. Parse defensively or every listing comes back
-  empty on a supported version.
+- **A prompt is not guaranteed to start a line.** A program that paints by
+  cursor positioning can leave its prompt appended to the shell's echo, so an
+  anchored pattern fails against text on screen (§7.3.1).
+- **Format output may be sanitized, depending on version.** tmux 3.5a escapes a
+  `0x1f` field separator into the four characters `\037` and turns a tab into
+  `_`; 3.7b passes both through. Parse defensively.
 - **Cancelling a context kills the child, not its grandchildren.** They inherit
-  the output pipe, and the read blocks on the pipe rather than the process. Set
-  `WaitDelay` on every command, or a cancelled call can hang forever past its own
-  deadline — measured at 30 s against 3 s.
-- **"I cannot test that" deserves one check first.** `command -v` before
-  declaring a limit. Driving a real editor end to end found two defects that a
-  synthetic test could not have.
-
-- **A unit test that reaches the create path may start a real server.** One here
-  asserted that ordinary session names are ACCEPTED, by calling Create and
-  checking the error — and every accepted name booted a server that nothing ever
-  stopped. It left no failure behind, only processes. Assert against the
-  validator, not through the operation, and check `ps` after a test run rather
-  than trusting that cleanup ran.
-
+  the output pipe, and the read blocks on the pipe. Set `WaitDelay` on every
+  command, or a cancelled call can hang past its own deadline.
+- **Check before declaring "I cannot test that".** Run `command -v` first.
+  Driving a real editor end to end found two defects a synthetic test could not.
+- **A unit test that reaches the create path may start a real server.** Assert
+  against the validator, not through the operation, and check `ps` after a test
+  run.
 - **Ask the backend a real question to decide whether it is up.** A socket file
-  that exists proves nothing: it survives its server, and a server mid-boot
-  accepts a connection before it can serve. The cheapest request the backend
-  already parses is the honest probe, and it is what makes an idempotent
-  "ensure a server" safe to call on every create.
+  survives its server, and a server mid-boot accepts a connection before it can
+  serve. The cheapest request the backend parses is the honest probe, and it
+  makes an idempotent "ensure a server" safe on every create.
