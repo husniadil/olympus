@@ -1,0 +1,14 @@
+  word word word
+  word word word
+  word word word word word word word word word word word word word word word  Reply only with the single word long-ok.
+⏺ long-ok
+✻ Baked for 4s · done 2:02 PM
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Rewind
+   Restore the code and/or conversation to the point before…
+     Use the Bash tool to run exactly: sleep 6. Then immediately use the AskUserQuestion tool once to ask which colour I prefer, Red or Blue. Nothing else.
+     No code changes
+     word word word
+     No code changes
+   ❯ (current)
+   Enter to continue · Esc to cancel

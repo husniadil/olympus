@@ -24,6 +24,15 @@ func Composer(agent string, in Input) (text string, drawn bool) {
 	return body, true
 }
 
+// HasComposer reports whether an agent draws an input box its manifest names
+// (behavior §7.5). For such an agent, a screen with no box on it is one where
+// something else has the keyboard: a rewind list, a model picker, a
+// transcript viewer.
+func HasComposer(agent string) bool {
+	m, ok := Lookup(agent)
+	return ok && m.namesComposer()
+}
+
 // namesComposer reports whether any of the manifest's rules reads the box an
 // agent draws around its input. That is the manifest's own statement that the
 // agent draws one.

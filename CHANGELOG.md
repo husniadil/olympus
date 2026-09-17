@@ -13,6 +13,12 @@ All notable changes to this project are documented here. The format follows
   one of 2,000 as `[Pasted Content N chars]`. No echo matched either: the send
   timed out and its resend left the paste twice. A placeholder that was not
   there before typing is now the echo. Behavior spec §7.6.
+- **A send into an agent with something open over its input is refused.** A
+  send into Claude Code showing its rewind list or its model picker was
+  reported delivered, matched against the list, and its Enter would have
+  answered that. An agent that draws an input box and shows none is now
+  refused with `AGENT_BLOCKED`, typing nothing, and a box that goes while the
+  echo is polled for is waited on. Behavior spec §7.5, §7.6.
 
 ## [0.30.0]
 

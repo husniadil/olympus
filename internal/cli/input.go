@@ -66,7 +66,7 @@ func (a *App) sendCmd() *cobra.Command {
 		Use:   "send <target> <text>",
 		Short: "Deliver text, confirm it landed, then submit it",
 		Long: "Deliver text, confirm it is on screen, and only then submit it." +
-			"\n\nA target whose agent is waiting on a person — a permission prompt, a question — is refused with AGENT_BLOCKED (exit 8) and nothing is typed, since the Enter would answer the prompt. Answer it with press. If the prompt opens after the text was typed, the send stops before the Enter and the error is marked typed: the text may still be in the input box, so sending again would type it twice. Where the agent draws an input box, the text is looked for inside that box rather than anywhere on the screen." +
+			"\n\nA target whose agent is waiting on a person — a permission prompt, a question — is refused with AGENT_BLOCKED (exit 8) and nothing is typed, since the Enter would answer the prompt. Answer it with press. So is an agent that draws an input box and shows none, since something is open over it (a rewind list, a picker): close it with press. If the prompt opens after the text was typed, the send stops before the Enter and the error is marked typed: the text may still be in the input box, so sending again would type it twice. Where the agent draws an input box, the text is looked for inside that box rather than anywhere on the screen." +
 			"\n\nWith --atomic the text and its terminator are delivered as one unit instead, which is retry-safe but skips the on-screen check. The two cannot be combined: verifying needs a separate terminator, and any cross-invocation retry of a verified send re-types the text and doubles it." +
 			scriptsNote,
 		Args: cobra.ExactArgs(2),

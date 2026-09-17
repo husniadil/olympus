@@ -129,6 +129,42 @@ func TestSendDoesNotTakeAnOldPastePlaceholderAsTheEcho(t *testing.T) {
 	}
 }
 
+// §7.5: an agent that draws a box and shows none has something else open, and
+// the send is refused before typing. Measured on Claude Code 2.1.274: with its
+// rewind list open, a send was reported delivered, matched against the list.
+func TestSendRefusesAnAgentShowingNoInputBox(t *testing.T) {
+	for _, screen := range []string{"rewind.txt", "model-picker.txt"} {
+		f := &fakeBackend{text: composerScreen(t, screen)}
+		paneRunning(f, "claude")
+		s := &Session{ol: fakeOlympus(f), name: "build"}
+
+		err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
+		if !errors.Is(err, ErrBlocked) || TypedOf(err) {
+			t.Fatalf("%s: error is %v, want an untyped AGENT_BLOCKED", screen, err)
+		}
+		if len(f.typed) != 0 || f.submits != 0 {
+			t.Errorf("%s: typed %d and submitted %d, want nothing", screen, len(f.typed), f.submits)
+		}
+	}
+}
+
+// §7.6: a box that goes while the echo is polled for is not replaced by the
+// whole screen, which may hold the same words in an overlay's list.
+func TestSendDoesNotMatchAnOverlayOpenedMidDelivery(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "rewind.txt") }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if f.submits != 0 {
+		t.Errorf("submitted %d times into an overlay, want 0", f.submits)
+	}
+}
+
 // §7.5: a question that opens while the echo is polled for stops the send. Its
 // option holds the sent text, which a match on the box alone would count.
 func TestSendStopsWhenAQuestionOpensMidDelivery(t *testing.T) {

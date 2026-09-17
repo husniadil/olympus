@@ -2259,6 +2259,14 @@ left in the input box.
 An atomic send (§4.7) is refused by the same reading before its one write. It
 has no echo to poll, so that reading is all it gets.
 
+An agent whose manifest names its input box (`prompt_box_body`) and whose
+capture shows no box has something else open over its input: a rewind list, a
+model picker, a transcript viewer. A verified or atomic send into it MUST fail
+with `AGENT_BLOCKED` and type nothing, since an Enter there answers what is
+open. Measured on Claude Code 2.1.274, the box is drawn while the agent is idle,
+working, holding a paste placeholder and listing slash commands, and is absent
+under its rewind list, its model picker and its transcript viewer.
+
 The state is read off the capture the send is about to type into, never off
 the agent listing's status. On a backend that detects agents natively the
 listing still names which agent it is.
@@ -3660,7 +3668,7 @@ added.
 | `TIMEOUT` | 5 | An operation did not complete or match before its budget elapsed. |
 | `CONFLICT` | 6 | A lock or attach slot is held by someone else. |
 | `UNSUPPORTED` | 7 | The backend has no concept for this operation at all. |
-| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person, and the input was refused before anything was typed, or stopped before its terminator when the prompt opened after typing (§7.5). |
+| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person or shows something open over its input box, and the input was refused before anything was typed, or stopped before its terminator when the prompt opened after typing (§7.5). |
 | `UNEXPECTED` | 1 | Anything not carrying one of the above. |
 
 ### Two distinctions that MUST be preserved

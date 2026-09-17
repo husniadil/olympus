@@ -54,9 +54,16 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 		in := agentstate.Input{Screen: o.detectionScreen(capture.Text)}
 		screenPastes = agentstate.Pastes(in.Screen)
 		for _, agent := range agents {
-			if box, drawn := agentstate.Composer(agent, in); drawn {
+			box, drawn := agentstate.Composer(agent, in)
+			if drawn {
 				boxPastes = agentstate.Pastes(box)
 				break
+			}
+			// An agent that draws a box and shows none has something else
+			// taking the keys (§7.5): the Enter would answer that instead.
+			if agentstate.HasComposer(agent) {
+				return nil, backend.Errorf(backend.CodeAgentBlocked,
+					"the %s agent in %s is not showing its input box, so nothing was typed: something is open over it, such as a rewind list or a picker; close it with press, or send once the box is back", agent, target)
 			}
 		}
 	}
@@ -72,6 +79,11 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 					return true, nil
 				}
 				return engine.ScreenContains(box, head) || engine.ScreenContains(box, tail), nil
+			}
+			// No box on this capture: nothing on the rest of the screen is
+			// the echo (§7.6), so the poll waits for the box to come back.
+			if agentstate.HasComposer(agent) {
+				return false, nil
 			}
 		}
 		if screenPastes >= 0 && agentstate.Pastes(in.Screen) > screenPastes {
