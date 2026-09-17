@@ -51,10 +51,11 @@ legs:
 
 | Leg | tmux | zmx | meja | herdr |
 |---|---|---|---|---|
-| Newest | system package | 0.7.0 | 0.0.26 | 0.8.2 |
+| Newest | system package | 0.7.0 | 0.0.26 | 0.9.1 |
 | Floor | 3.3, built from source | 0.6.0 | 0.0.25 | 0.8.2 |
 
-herdr's floor and newest release are the same version, so both legs run 0.8.2.
+herdr's floor is below 0.9.0, where each client got a view of its own, so the
+floor leg runs the server steering and the newest leg the walk.
 
 - macOS is not in the matrix. The darwin build is still checked by the
   cross-compile `go vet` inside `make test-full`, but the conformance suite on

@@ -73,7 +73,7 @@ jobs:
         env:
           ZMX_VERSION: "0.7.0"
           MEJA_VERSION: "0.0.26"
-          HERDR_VERSION: "0.8.2"
+          HERDR_VERSION: "0.9.1"
 
       # The gate is what CI runs on every push, and a tag is the one commit
       # where skipping it would be least forgivable.
