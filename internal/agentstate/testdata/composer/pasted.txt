@@ -1,0 +1,12 @@
+⏺ User declined to answer questions
+  ⎿  · Which colour do you prefer? (Red / Blue)
+
+✻ Sautéed for 13s · done 1:54 PM
+
+──────────────────────────────────────────────────────── probe ─
+❯ [Pasted text #60][Pasted text #61][Pasted text #62]
+──────────────────────────────────────────────────────────────────
+  local · /tmp/probe
+  +0/−0
+  Claude Opus 5 (1M context) · medium · 6% · v2.1.274
+  paste again to expand

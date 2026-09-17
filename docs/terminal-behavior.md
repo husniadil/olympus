@@ -2312,6 +2312,12 @@ a capture where no box is drawn — the §7.2 whole-screen match applies.
 
 §7.1's two needles apply inside the box as they do on the screen.
 
+An agent may draw a long paste as a placeholder instead of its text (Claude
+Code's `[Pasted text #N]`). A text drawn that way has nothing to match, so a
+placeholder in the box that was not there before typing MUST count as the echo.
+The box is read for placeholders in the capture taken before typing (§7.5).
+Where that capture failed, placeholders are not counted.
+
 #### Why
 
 An agent's transcript repeats what was typed at it earlier. A whole-screen
@@ -2329,6 +2335,7 @@ box in every case the whole-screen match already passed:
 | One line of 1,646 characters | Tail; the head had scrolled above the box |
 | Three lines | Head and tail |
 | Sixty-two lines | Tail; the box shows its last lines, with no paste placeholder |
+| One line of about 3,000 characters | Neither; the box shows `[Pasted text #N]` placeholders, and before the rule the send timed out and its resend left the text twice |
 
 A question fills the same region, and the manifest's rule for a live box
 matches the line of its highlighted option. Measured, the box read for a

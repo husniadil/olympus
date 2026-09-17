@@ -79,6 +79,39 @@ func TestSendSubmitsOnceTheBoxHoldsTheText(t *testing.T) {
 	}
 }
 
+// §7.6: a text the agent collapsed into a paste placeholder cannot be matched,
+// and a placeholder that was not there before typing is its echo. Before this
+// rule a send of about 3,000 characters timed out and its resend left the
+// text in the box twice (measured on Claude Code 2.1.274).
+func TestSendTakesANewPastePlaceholderAsTheEcho(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "pasted.txt") }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), strings.Repeat("word ", 600), VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if len(f.typed) != 1 || f.submits != 1 {
+		t.Errorf("typed %d and submitted %d, want one of each", len(f.typed), f.submits)
+	}
+}
+
+// §7.6: placeholders already in the box before typing are not the echo.
+func TestSendDoesNotTakeAnOldPastePlaceholderAsTheEcho(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "pasted.txt")}
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), strings.Repeat("word ", 600), VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if f.submits != 0 {
+		t.Errorf("submitted %d times on placeholders that were already there, want 0", f.submits)
+	}
+}
+
 // §7.5: a question that opens while the echo is polled for stops the send. Its
 // option holds the sent text, which a match on the box alone would count.
 func TestSendStopsWhenAQuestionOpensMidDelivery(t *testing.T) {

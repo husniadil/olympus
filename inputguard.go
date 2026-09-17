@@ -41,9 +41,21 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 
 	// A capture that fails here is not a refusal: the watch reads every
 	// capture again while the echo is polled for, and stops there.
+	//
+	// The same capture counts the box's paste placeholders (§7.6). Without
+	// it they are unknown, and a placeholder is not taken as the echo.
+	pastesBefore := -1
 	if capture, err := o.backend.Screen(ctx, target, backend.ScreenOpts{}); err == nil {
 		if err := blocked(capture.Text, false); err != nil {
 			return nil, err
+		}
+		pastesBefore = 0
+		in := agentstate.Input{Screen: o.detectionScreen(capture.Text)}
+		for _, agent := range agents {
+			if box, drawn := agentstate.Composer(agent, in); drawn {
+				pastesBefore = agentstate.Pastes(box)
+				break
+			}
 		}
 	}
 
@@ -54,6 +66,9 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 		in := agentstate.Input{Screen: o.detectionScreen(screen)}
 		for _, agent := range agents {
 			if box, drawn := agentstate.Composer(agent, in); drawn {
+				if pastesBefore >= 0 && agentstate.Pastes(box) > pastesBefore {
+					return true, nil
+				}
 				return engine.ScreenContains(box, head) || engine.ScreenContains(box, tail), nil
 			}
 		}

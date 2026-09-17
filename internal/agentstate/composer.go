@@ -1,6 +1,9 @@
 package agentstate
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Composer reads the input box an agent draws, where its manifest names one
 // (behavior §7.6): the text in that box, and whether a box was drawn at all.
@@ -31,4 +34,15 @@ func (m *Manifest) namesComposer() bool {
 		}
 	}
 	return false
+}
+
+// pastePlaceholder is what Claude Code draws in its box in place of pasted
+// text too long to show: "[Pasted text #3]", numbered across the session.
+var pastePlaceholder = regexp.MustCompile(`\[Pasted text #\d+`)
+
+// Pastes counts the paste placeholders in a box (behavior §7.6). A text the
+// agent collapsed into one cannot be matched, so a placeholder that was not
+// there before typing is the only sign it arrived.
+func Pastes(box string) int {
+	return len(pastePlaceholder.FindAllStringIndex(box, -1))
 }

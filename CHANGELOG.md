@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A long send into Claude Code is delivered once.** Claude Code draws a
+  paste of about 3,000 characters as `[Pasted text #N]`, which no echo
+  matched: the send timed out and its resend left the text in the box twice.
+  A placeholder that was not in the box before typing is now the echo.
+  Behavior spec §7.6.
+
 ## [0.30.0]
 
 ### Fixed

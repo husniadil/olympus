@@ -77,3 +77,21 @@ func TestComposerIsNotDrawnWhereNoBoxIsNamed(t *testing.T) {
 		t.Error("a box was read off a shell's screen")
 	}
 }
+
+// §7.6: Claude Code's paste placeholders, counted in the box they sit in.
+func TestPastesCountsThePlaceholdersInTheBox(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "composer", "pasted.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	box, drawn := Composer("claude", Input{Screen: string(b)})
+	if !drawn {
+		t.Fatal("no box read off the pasted screen")
+	}
+	if got := Pastes(box); got != 3 {
+		t.Errorf("Pastes = %d, want 3 in %q", got, box)
+	}
+	if got := Pastes("a draft with no placeholder"); got != 0 {
+		t.Errorf("Pastes on plain text = %d, want 0", got)
+	}
+}
