@@ -184,6 +184,53 @@ func TestSendAsksForARedrawWhenTheBoxGoesMidDelivery(t *testing.T) {
 	}
 }
 
+// §7.5: a redraw that shows a prompt drawn wrong is refused as the prompt,
+// before typing: a question reads as a box, and only its blocked state says
+// it is not one.
+func TestSendRefusesAPromptARedrawShows(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "misdrawn.txt")}
+	f.onRedraw = func(f *fakeBackend) { f.text = composerScreen(t, "question.txt") }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrBlocked) || TypedOf(err) || f.redraws != 1 || len(f.typed) != 0 {
+		t.Fatalf("error %v, redrew %d, typed %d; want an untyped AGENT_BLOCKED after one redraw and nothing typed", err, f.redraws, len(f.typed))
+	}
+}
+
+// §7.5: a box drawn wrong twice in one delivery is redrawn twice, and the
+// text is submitted once.
+func TestSendRedrawsABoxDrawnWrongTwice(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "misdrawn.txt") }
+	f.onRedraw = func(f *fakeBackend) {
+		if f.redraws == 1 {
+			f.text = composerScreen(t, "idle-earlier-text.txt")
+			// The redraw's own read finds the box, and the capture after it
+			// finds it drawn wrong again.
+			captures := 0
+			f.onScreen = func(f *fakeBackend) {
+				if captures++; captures == 2 {
+					f.onScreen = nil
+					f.text = composerScreen(t, "misdrawn.txt")
+				}
+			}
+			return
+		}
+		f.text = composerScreen(t, "misdrawn-redrawn.txt")
+	}
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), "Reply with the single word ok.", VerifyBudget(time.Second)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if f.redraws != 2 || len(f.typed) != 1 || f.submits != 1 {
+		t.Errorf("redrew %d, typed %d and submitted %d, want two redraws, one send and one terminator", f.redraws, len(f.typed), f.submits)
+	}
+}
+
 // §7.5: an overlay is still there after a redraw, so the send is refused as
 // before, before typing or typed.
 func TestSendRefusesAnOverlayARedrawDoesNotClear(t *testing.T) {

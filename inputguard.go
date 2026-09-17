@@ -78,6 +78,11 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 			// A screen drawn wrong reads the same as a box that is not
 			// there, so the agent is asked to draw it again first (§7.5).
 			if again, ok := o.redrawn(ctx, target, drawn); ok {
+				// A redraw can show a prompt that was drawn wrong too, and
+				// a question reads as a box.
+				if err := blocked(again, false); err != nil {
+					return nil, err
+				}
 				screen = again
 			}
 		}
@@ -100,15 +105,14 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 	// placeholder: a count that rose is taken only once the next capture shows
 	// the same count, so the Enter does not land while pieces still arrive.
 	lastRisen := -1
-	redrawAsked := false
 	return func(screen, head, tail string) (bool, error) {
 		if err := blocked(screen, true); err != nil {
 			return false, err
 		}
-		if _, ok, hasBox := composer(screen); hasBox && !ok && !redrawAsked {
-			// Asked once a delivery: a box that stays gone after a redraw
-			// has something open over it.
-			redrawAsked = true
+		if _, ok, hasBox := composer(screen); hasBox && !ok {
+			// Asked each time the box reads as gone: one that stays gone
+			// after a redraw has something open over it, and the send stops
+			// below.
 			if again, ok := o.redrawn(ctx, target, drawn); ok {
 				if err := blocked(again, true); err != nil {
 					return false, err

@@ -2275,8 +2275,9 @@ where the backend can ask the pane's process to redraw (a herdr server that
 advertises `pane_redraw`), Olympus MUST ask once and read the screen again for
 up to one second. A box drawn by then is read as if it had been there, and the
 send goes on. A box still absent is refused as above. A backend that cannot
-ask refuses at once. During the echo poll the redraw is asked for at most once
-a delivery. On herdr the request shrinks the pane's PTY one row for a moment
+ask refuses at once. During the echo poll a redraw is asked for each time the
+box reads as absent, so one drawn wrong twice is redrawn twice, and the first
+that leaves it absent stops the delivery. On herdr the request shrinks the pane's PTY one row for a moment
 and restores it, so the process gets a real size change, and herdr's own
 screen is not resized.
 

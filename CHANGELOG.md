@@ -13,8 +13,8 @@ All notable changes to this project are documented here. The format follows
   and every send to it was refused as `AGENT_BLOCKED` until something made it
   draw again. Before refusing, Olympus now asks a herdr server that advertises
   `pane_redraw` (the fork's `0.9.0+agm.4`) to have the pane redraw, and reads
-  the screen again for up to a second. A rewind list or a picker is still
-  refused. Behavior spec §7.5.
+  the screen again for up to a second. A rewind list, a picker or a prompt
+  that the redraw shows is still refused. Behavior spec §7.5.
 
 ## [0.31.0]
 
