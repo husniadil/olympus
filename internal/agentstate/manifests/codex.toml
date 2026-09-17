@@ -1,7 +1,7 @@
 id = "codex"
-version = "2026.08.28.1"
+version = "2026.09.14.1"
 min_engine_version = 3
-updated_at = "2026-08-28T00:00:00Z"
+updated_at = "2026-09-14T00:00:00Z"
 
 [[rules]]
 id = "osc_title_blocked"
@@ -47,6 +47,15 @@ all = [
 ]
 
 [[rules]]
+id = "startup_update"
+state = "blocked"
+priority = 950
+region = "bottom_non_empty_lines(20)"
+visible_blocker = true
+contains = ["Update available!", "Update now"]
+regex = ['Skip\s+until\s+next\s+version', 'Press enter to continue\s*\z']
+
+[[rules]]
 id = "live_strong_blocker"
 state = "blocked"
 priority = 900
@@ -54,13 +63,24 @@ region = "after_last_prompt_marker"
 visible_blocker = true
 any = [
   { contains = ["press enter to confirm or esc to cancel"] },
-  # olympus: codex's "Hooks need review" dialog ends this way instead, and
-  # text typed into it moved its choice (measured on codex-cli 0.154.0). Not
-  # upstream.
-  { contains = ["press enter to confirm or esc to go back"] },
   { contains = ["enter to submit answer"] },
   { contains = ["enter to submit all"] },
   { contains = ["allow command?"] },
+]
+
+# olympus: codex's "Hooks need review" dialog, which no upstream rule reads.
+# Text typed into it moved its choice (measured on codex-cli 0.154.0). Its
+# footer is kept to the dialog's own title, since codex's pickers may end the
+# same way. Not upstream.
+[[rules]]
+id = "hooks_review"
+state = "blocked"
+priority = 900
+region = "bottom_non_empty_lines(12)"
+visible_blocker = true
+all = [
+  { contains = ["hooks need review"] },
+  { contains = ["press enter to confirm or esc to go back"] },
 ]
 
 [[rules]]
@@ -68,6 +88,8 @@ id = "weak_blocker"
 state = "blocked"
 priority = 600
 region = "whole_recent_without_current_prompt_marker"
+# Sparkles can replace the space after ›. A later response marker makes that prompt stale.
+not = [{ regex = ['(?m)^›[⠁⠂⠄⠈⠐⠠⡀⢀][^\n]*(?:\n(?:[^•■✗✓\n][^\n]*)?)*\z'] }]
 any = [
   { contains = ["[y/n]"] },
   { contains = ["yes (y)"] },
@@ -79,10 +101,13 @@ any = [
 id = "screen_working_fallback"
 state = "working"
 priority = 500
-region = "bottom_non_empty_lines(3)"
+region = "before_current_prompt_marker"
 visible_working = true
-line_regex = ['^[•◦]\s+Working \([^)]*esc to interrupt\)(?: · .*)?$']
-not = [{ contains = ["■ Conversation interrupted"] }]
+# Cheap negative filter before the multiline search.
+contains = ["esc to interrupt"]
+# Animations can hide the bullet, and queued inputs can sit below a dynamic activity label.
+# Require the live timer/control suffix with no later response or interruption marker.
+regex = ['(?m)^(?:[•◦][ \t]+)?[^\s›•◦■✗✓─][^\r\n]* \((?:[0-9]+[hm] )*[0-9]+s • esc to interrupt\)(?: · [^\r\n]*)?(?:\r?\n(?:[^•◦›■✗✓─\r\n][^\r\n]*|•[ \t]+(?:Queued\s+follow-up\s+inputs|Messages\s+to\s+be\s+submitted\s+after\s+next\s+tool\s+call(?:\s+\(press\s+esc\s+to\s+interrupt\s+and\s+send\s+immediately\))?|Messages\s+to\s+be\s+submitted\s+at\s+end\s+of\s+turn)|›[⠁⠂⠄⠈⠐⠠⡀⢀][^\r\n]*)?)*\s*\z']
 
 [[rules]]
 id = "osc_title_idle"

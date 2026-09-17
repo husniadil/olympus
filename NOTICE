@@ -7,8 +7,9 @@ This product includes agent-detection manifests from herdr
 (https://github.com/herdrdev/herdr), licensed under the Apache License,
 Version 2.0, Copyright the herdr authors. They are the files under
 internal/agentstate/manifests/, vendored verbatim from herdr commit
-9d4f05e5edc783ed4d9b27b1c629d45797298493 (2026-09-02) except where a regular
-expression was rewritten for Go's RE2 syntax, or a Codex rule was changed to
-read a dialog upstream's does not, each such line carrying a comment that
-records the upstream pattern. The Apache 2.0 license text is at
+9d4f05e5edc783ed4d9b27b1c629d45797298493 (2026-09-02), except codex.toml,
+which is herdr's published manifest version 2026.09.14.1. Each departure (a
+regular expression rewritten for Go's RE2 syntax, or a Codex rule changed to
+read a dialog upstream's does not) carries a comment that records the
+upstream pattern. The Apache 2.0 license text is at
 internal/agentstate/manifests/LICENSE-herdr.

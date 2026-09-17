@@ -1394,9 +1394,12 @@ Both wait on a person, and both MUST read as `blocked`.
   bottom rows are blank (measured on herdr 0.9.0).
 - The hooks dialog ends "press enter to confirm or esc to go back", which the
   confirmation rule did not list. Text typed into it moved its choice from
-  Review hooks to Trust all (measured on codex-cli 0.154.0).
+  Review hooks to Trust all (measured on codex-cli 0.154.0). It is read by its
+  title and that footer together, since Codex's pickers may end the same way.
 
 Each changed line in `codex.toml` carries a comment with upstream's.
+`codex.toml` itself is herdr's published manifest 2026.09.14.1, newer than the
+commit the other manifests are vendored from.
 
 #### What the agent said is asked for, never assumed
 

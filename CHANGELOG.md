@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
   typed into it and moved its choice. Both are `blocked` now, and a send into
   either is refused with `AGENT_BLOCKED`. Behavior spec §3.7.
 
+### Changed
+
+- **Codex's rules are herdr's published 2026.09.14.1.** Its working line is
+  read above the current prompt, and a queued follow-up no longer hides it.
+
 ## [0.29.0]
 
 ### Added

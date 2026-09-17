@@ -230,6 +230,16 @@ func TestVendoredManifestsReadTheScreens(t *testing.T) {
 			want: Result{State: Blocked, Rule: "trust_directory"},
 		},
 		{
+			// A picker's footer alone is not the hooks dialog.
+			name:  "codex picker with the same footer",
+			agent: "codex",
+			in: Input{Screen: "  Select Model\n" +
+				"› 1. gpt-5.6-sol (current)\n" +
+				"  2. gpt-5.6-luna\n\n" +
+				"  Press enter to confirm or esc to go back\n"},
+			want: Result{State: Unknown},
+		},
+		{
 			// Upstream's own guard: the same words quoted in a prompt are not
 			// the dialog, since the line starts with the prompt marker.
 			name:  "codex trust words quoted in a prompt",
@@ -249,7 +259,7 @@ func TestVendoredManifestsReadTheScreens(t *testing.T) {
 				"  2. Trust all and continue\n" +
 				"  3. Continue without trusting (hooks won't run)\n\n" +
 				"  Press enter to confirm or esc to go back\n"},
-			want: Result{State: Blocked, Rule: "live_strong_blocker"},
+			want: Result{State: Blocked, Rule: "hooks_review"},
 		},
 		{
 			name:  "claude live turn",
