@@ -30,8 +30,8 @@ func TestEveryVendoredManifestLoads(t *testing.T) {
 			files = append(files, entry.Name())
 		}
 	}
-	if len(files) != 21 {
-		t.Errorf("%d manifests embedded, want the 21 vendored: %v", len(files), files)
+	if len(files) != 22 {
+		t.Errorf("%d manifests embedded, want the 22 vendored: %v", len(files), files)
 	}
 
 	// Every manifest is reachable by the canonical name the agent listing
@@ -39,7 +39,7 @@ func TestEveryVendoredManifestLoads(t *testing.T) {
 	// the product (antigravity.toml, github-copilot.toml) and its ids after
 	// the agent (agy, copilot).
 	want := []string{"agy", "amp", "claude", "cline", "codex", "copilot", "cursor", "devin", "droid",
-		"gemini", "grok", "hermes", "kilo", "kimi", "kiro", "maki", "muse", "opencode", "pi", "qodercli", "qwen"}
+		"gemini", "grok", "hermes", "kilo", "kimi", "kiro", "letta", "maki", "muse", "opencode", "pi", "qodercli", "qwen"}
 	if got := Agents(); !reflect.DeepEqual(got, want) {
 		t.Errorf("manifests are keyed %v, want %v", got, want)
 	}

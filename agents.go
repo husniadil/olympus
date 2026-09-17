@@ -46,6 +46,8 @@ var agentAliases = map[string]string{
 	"kimi-code":       "kimi",
 	"kiro":            "kiro",
 	"kiro-cli":        "kiro",
+	"letta":           "letta",
+	"letta-code":      "letta",
 	"droid":           "droid",
 	"amp":             "amp",
 	"amp-local":       "amp",
@@ -78,6 +80,7 @@ var agentPackages = []struct{ dir, agent string }{
 	{"claude-code", "claude"},
 	{"@openai/codex", "codex"},
 	{"@google/gemini-cli", "gemini"},
+	{"@letta-ai/letta-code", "letta"},
 }
 
 // Kinds is the agent vocabulary: every canonical name the agent listing can
