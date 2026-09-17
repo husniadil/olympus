@@ -35,11 +35,12 @@ any = [
 id = "trust_directory"
 state = "blocked"
 priority = 950
-region = "top_non_empty_lines(20)"
+region = "bottom_non_empty_lines(20)"
 visible_blocker = true
-# olympus: the line may follow the shell line that started codex, which a
-# snapshot ending at the last drawn row still holds (measured on herdr 0.9.0,
-# a pane whose bottom rows were blank). Upstream:
+# olympus: the dialog is read from the bottom and its first line may follow
+# other lines: the shell lines above it stay in a snapshot ending at the last
+# drawn row (measured on herdr 0.9.0), and a tall pane can hold twenty of them.
+# Upstream: region = "top_non_empty_lines(20)" and
 # { regex = ['\A> You are in [^\r\n]+(?:\r?\n|$)'] },
 all = [
   { regex = ['(?m)^> You are in [^\r\n]+(?:\r?\n|$)'] },

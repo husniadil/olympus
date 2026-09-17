@@ -249,6 +249,20 @@ func TestVendoredManifestsReadTheScreens(t *testing.T) {
 			want: Result{State: Unknown},
 		},
 		{
+			// A tall pane with a shell session above: more than twenty lines
+			// before the dialog.
+			name:  "codex trust dialog under a long shell history",
+			agent: "codex",
+			in: Input{Screen: strings.Repeat("$ make test\nok  \tpkg\t0.1s\n", 13) +
+				"╰─ ❯ codex\n" +
+				"> You are in /private/tmp/probe\n\n" +
+				"  Do you trust the contents of this directory?\n\n" +
+				"› 1. Yes, continue\n" +
+				"  2. No, quit\n\n" +
+				"  Press enter to continue\n"},
+			want: Result{State: Blocked, Rule: "trust_directory"},
+		},
+		{
 			name:  "codex hooks review",
 			agent: "codex",
 			in: Input{Screen: "╰─ ❯ codex\n\n" +

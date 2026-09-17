@@ -1388,10 +1388,11 @@ snapshot, so here nothing matching is `unknown`.
 Codex asks whether to trust a directory, and then whether to trust its hooks.
 Both wait on a person, and both MUST read as `blocked`.
 
-- The trust dialog's first line may follow the shell line that started Codex, so
-  it is matched at the start of any line of the region rather than of the
-  region. herdr's detection snapshot holds that shell line when the pane's
-  bottom rows are blank (measured on herdr 0.9.0).
+- The trust dialog's first line may follow the shell lines above it, so it is
+  read from the bottom twenty non-blank lines and matched at the start of any
+  line rather than of the region. herdr's detection snapshot holds those shell
+  lines when the pane's bottom rows are blank (measured on herdr 0.9.0), and a
+  tall pane can hold more than twenty of them.
 - The hooks dialog ends "press enter to confirm or esc to go back", which the
   confirmation rule did not list. Text typed into it moved its choice from
   Review hooks to Trust all (measured on codex-cli 0.154.0). It is read by its
