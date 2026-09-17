@@ -1,6 +1,7 @@
 package agentstate
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -56,4 +57,12 @@ var pastePlaceholder = regexp.MustCompile(`\[Pasted (?:text #\d+|Content \d+ cha
 // sign it arrived.
 func Pastes(text string) int {
 	return len(pastePlaceholder.FindAllStringIndex(text, -1))
+}
+
+// PastedContent counts Codex's placeholder for a paste of exactly n
+// characters, "[Pasted Content n chars]". Codex is read on its whole screen,
+// where an older paste can scroll away and its transcript can quote the same
+// words, so only a placeholder naming this text's length is its echo.
+func PastedContent(screen string, n int) int {
+	return strings.Count(screen, fmt.Sprintf("[Pasted Content %d chars]", n))
 }

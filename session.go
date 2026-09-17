@@ -208,9 +208,10 @@ func VerifyBudget(d time.Duration) SendOption {
 // Send delivers text, waits until it is observed on screen, and only then
 // submits it — holding the lock across all three (behavior §11.2).
 //
-// Where the target holds an agent waiting on a person it types nothing and
-// fails with ErrBlocked (§7.5), and where that agent draws an input box the
-// echo is looked for inside it (§7.6).
+// Where the target holds an agent waiting on a person, or one that draws an
+// input box and shows none, it types nothing and fails with ErrBlocked
+// (§7.5), and where that agent draws an input box the echo is looked for
+// inside it (§7.6).
 func (s *Session) Send(ctx context.Context, text string, opts ...SendOption) error {
 	cfg := sendConfig{
 		delivery: engine.Delivery{
@@ -226,8 +227,8 @@ func (s *Session) Send(ctx context.Context, text string, opts ...SendOption) err
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	cfg.delivery.Inspect = func(ctx context.Context) (engine.Watch, error) {
-		return s.ol.inspectInput(ctx, s.name)
+	cfg.delivery.Inspect = func(ctx context.Context, text string) (engine.Watch, error) {
+		return s.ol.inspectInput(ctx, s.name, text)
 	}
 	return cfg.delivery.Verified(ctx, s.name, text, cfg.submit)
 }
@@ -247,7 +248,7 @@ func (s *Session) SendAtomic(ctx context.Context, text string) error {
 	return engine.WithLock(ctx, s.ol.locks, s.key(), s.ol.lockWait, func() error {
 		// The refusal of §7.5 holds here too, and it is all there is: with no
 		// echo to poll, nothing reads the screen after the write.
-		if _, err := s.ol.inspectInput(ctx, s.name); err != nil {
+		if _, err := s.ol.inspectInput(ctx, s.name, text); err != nil {
 			return err
 		}
 		return s.ol.backend.SendAtomic(ctx, s.name, text)

@@ -2260,10 +2260,13 @@ An atomic send (§4.7) is refused by the same reading before its one write. It
 has no echo to poll, so that reading is all it gets.
 
 An agent whose manifest names its input box (`prompt_box_body`) and whose
-capture shows no box has something else open over its input: a rewind list, a
-model picker, a transcript viewer. A verified or atomic send into it MUST fail
-with `AGENT_BLOCKED` and type nothing, since an Enter there answers what is
-open. Measured on Claude Code 2.1.274, the box is drawn while the agent is idle,
+capture shows no box has something else open over its input (a rewind list, a
+model picker, a transcript viewer), or has not drawn the box yet. A verified or
+atomic send into it MUST fail with `AGENT_BLOCKED` and type nothing, since an
+Enter there answers what is open. A box that goes while the echo is polled for
+stops the delivery the way a prompt does: no resend, no terminator, and
+`AGENT_BLOCKED` marked `typed`. The box is read off the whole capture, not the
+detection tail, since a tall draft can push its top rule out of the tail. Measured on Claude Code 2.1.274, the box is drawn while the agent is idle,
 working, holding a paste placeholder and listing slash commands, and is absent
 under its rewind list, its model picker and its transcript viewer.
 
@@ -2326,6 +2329,12 @@ that way has nothing to match, so a placeholder that was not there before
 typing MUST count as the echo: in the box where one is drawn, and on the whole
 screen where it is not. Placeholders are counted in the capture taken before
 typing (§7.5). Where that capture failed, they are not counted.
+
+A paste can arrive in pieces, each its own placeholder, so a count that rose
+counts only once the next capture shows the same count. On the whole screen
+only a placeholder naming the text's own length counts (Codex's `[Pasted
+Content N chars]`), since an older one can scroll away and a transcript can
+quote one.
 
 #### Why
 

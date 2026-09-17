@@ -2,6 +2,7 @@ package olympus
 
 import (
 	"context"
+	"unicode/utf8"
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/internal/agentstate"
@@ -16,7 +17,7 @@ import (
 // A target that holds no known agent keeps the whole-screen match, and so
 // does a listing that cannot be read: the guard exists for agents, and a
 // shell must not stop accepting input because a process table could not be.
-func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch, error) {
+func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine.Watch, error) {
 	agents := o.agentsAt(ctx, target)
 	if len(agents) == 0 {
 		return nil, nil
@@ -38,55 +39,76 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 		}
 		return nil
 	}
+	// The box is read off the whole capture, not the detection tail: on a
+	// backend whose capture is its scrollback, a tall draft pushes the box's
+	// top rule out of the tail, and the box would read as gone.
+	composer := func(screen string) (string, bool, bool) {
+		in := agentstate.Input{Screen: trimLineEnds(screen)}
+		for _, agent := range agents {
+			if box, drawn := agentstate.Composer(agent, in); drawn {
+				return box, true, true
+			}
+			if agentstate.HasComposer(agent) {
+				return "", false, true
+			}
+		}
+		return "", false, false
+	}
+	chars := utf8.RuneCountInString(text)
 
 	// A capture that fails here is not a refusal: the watch reads every
 	// capture again while the echo is polled for, and stops there.
 	//
-	// The same capture counts the box's paste placeholders (§7.6). Without
-	// it they are unknown, and a placeholder is not taken as the echo.
-	// Counted in the box where one is drawn, and on the whole screen where it
-	// is not (an agent whose manifest names no box, such as Codex).
-	boxPastes, screenPastes := -1, -1
+	// The same capture counts the paste placeholders already shown (§7.6):
+	// in the box where one is drawn, and on the whole screen where the agent
+	// names none (Codex). Without it they are unknown, and no placeholder is
+	// taken as the echo.
+	boxPastes, codexPastes := -1, -1
 	if capture, err := o.backend.Screen(ctx, target, backend.ScreenOpts{}); err == nil {
 		if err := blocked(capture.Text, false); err != nil {
 			return nil, err
 		}
-		in := agentstate.Input{Screen: o.detectionScreen(capture.Text)}
-		screenPastes = agentstate.Pastes(in.Screen)
-		for _, agent := range agents {
-			box, drawn := agentstate.Composer(agent, in)
-			if drawn {
-				boxPastes = agentstate.Pastes(box)
-				break
-			}
+		box, drawn, hasBox := composer(capture.Text)
+		switch {
+		case drawn:
+			boxPastes = agentstate.Pastes(box)
+		case hasBox:
 			// An agent that draws a box and shows none has something else
-			// taking the keys (§7.5): the Enter would answer that instead.
-			if agentstate.HasComposer(agent) {
-				return nil, backend.Errorf(backend.CodeAgentBlocked,
-					"the %s agent in %s is not showing its input box, so nothing was typed: something is open over it, such as a rewind list or a picker; close it with press, or send once the box is back", agent, target)
-			}
+			// taking the keys, or has not drawn it yet (§7.5): an Enter
+			// would answer whatever is there.
+			return nil, backend.Errorf(backend.CodeAgentBlocked,
+				"the %s agent in %s is not showing its input box, so nothing was typed: it may still be starting, or something is open over it such as a rewind list or a picker; send again once the box is back, or close what is open with press", agents[0], target)
+		default:
+			codexPastes = agentstate.PastedContent(trimLineEnds(capture.Text), chars)
 		}
 	}
 
+	// A paste can reach the agent in pieces, each drawn as its own
+	// placeholder: a count that rose is taken only once the next capture shows
+	// the same count, so the Enter does not land while pieces still arrive.
+	lastRisen := -1
 	return func(screen, head, tail string) (bool, error) {
 		if err := blocked(screen, true); err != nil {
 			return false, err
 		}
-		in := agentstate.Input{Screen: o.detectionScreen(screen)}
-		for _, agent := range agents {
-			if box, drawn := agentstate.Composer(agent, in); drawn {
-				if boxPastes >= 0 && agentstate.Pastes(box) > boxPastes {
-					return true, nil
-				}
-				return engine.ScreenContains(box, head) || engine.ScreenContains(box, tail), nil
+		box, drawn, hasBox := composer(screen)
+		switch {
+		case drawn:
+			if n := agentstate.Pastes(box); boxPastes >= 0 && n > boxPastes {
+				settled := n == lastRisen
+				lastRisen = n
+				return settled, nil
 			}
-			// No box on this capture: nothing on the rest of the screen is
-			// the echo (§7.6), so the poll waits for the box to come back.
-			if agentstate.HasComposer(agent) {
-				return false, nil
-			}
+			return engine.ScreenContains(box, head) || engine.ScreenContains(box, tail), nil
+		case hasBox:
+			// The box went after the text was typed: something opened over
+			// it, and a resend would type into that.
+			err := backend.Errorf(backend.CodeAgentBlocked,
+				"the %s agent in %s stopped showing its input box after the text was typed, so it was not submitted: something opened over it, and the text may be in its input box, so read the screen before sending again", agents[0], target)
+			err.Typed = true
+			return false, err
 		}
-		if screenPastes >= 0 && agentstate.Pastes(in.Screen) > screenPastes {
+		if codexPastes >= 0 && agentstate.PastedContent(trimLineEnds(screen), chars) > codexPastes {
 			return true, nil
 		}
 		return engine.ScreenContains(screen, head) || engine.ScreenContains(screen, tail), nil

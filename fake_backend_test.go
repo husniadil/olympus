@@ -47,6 +47,9 @@ type fakeBackend struct {
 	// generated inside the engine, so this is the only way a test can put that
 	// run's own markers on the screen.
 	onType func(f *fakeBackend, text string)
+	// onScreen runs before each capture answers, so a case can change the
+	// screen from one poll to the next.
+	onScreen func(f *fakeBackend)
 }
 
 // fakeOlympus wires a fake under the ergonomic layer, with no lock: these cases
@@ -103,6 +106,9 @@ func (f *fakeBackend) SendAtomic(context.Context, string, string) error {
 
 func (f *fakeBackend) Screen(_ context.Context, target string, opts backend.ScreenOpts) (backend.Capture, error) {
 	f.screenOpts = append(f.screenOpts, opts)
+	if f.onScreen != nil {
+		f.onScreen(f)
+	}
 	if f.screenErr != nil {
 		return backend.Capture{}, f.screenErr
 	}

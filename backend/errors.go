@@ -32,8 +32,9 @@ const (
 	// answer, unsupported means the question does not apply.
 	CodeUnsupported Code = "UNSUPPORTED"
 	// CodeAgentBlocked is an agent waiting on a person — a permission prompt,
-	// a question — refusing input that would have landed in that prompt
-	// rather than in its composer. Nothing was submitted: either nothing was
+	// a question — or showing something open over its input box (a rewind
+	// list, a picker), refusing input that would have landed there rather
+	// than in its composer. Nothing was submitted: either nothing was
 	// typed, or the prompt opened after typing and the terminator was never
 	// sent. An answer to the prompt is a deliberate keypress, never a side
 	// effect of sending text.

@@ -148,20 +148,91 @@ func TestSendRefusesAnAgentShowingNoInputBox(t *testing.T) {
 	}
 }
 
-// §7.6: a box that goes while the echo is polled for is not replaced by the
-// whole screen, which may hold the same words in an overlay's list.
-func TestSendDoesNotMatchAnOverlayOpenedMidDelivery(t *testing.T) {
+// §7.5: a box that goes while the echo is polled for stops the send, typed,
+// with no resend: the whole screen may hold the same words in an overlay's
+// list, and a resend would type into it.
+func TestSendStopsWhenAnOverlayOpensMidDelivery(t *testing.T) {
 	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
 	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "rewind.txt") }
 	paneRunning(f, "claude")
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 
 	err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrBlocked) || !TypedOf(err) {
+		t.Fatalf("error is %v, want a typed AGENT_BLOCKED", err)
+	}
+	if len(f.typed) != 1 || f.submits != 0 {
+		t.Errorf("typed %d and submitted %d, want one send and no terminator", len(f.typed), f.submits)
+	}
+}
+
+// §7.6: on a backend whose capture is its scrollback, the box is read off the
+// whole capture. A draft taller than the detection tail pushed the box's top
+// rule out of it, and a normal screen was refused.
+func TestSendReadsTheBoxOffTheWholeScrollback(t *testing.T) {
+	screen := composerScreen(t, "idle-earlier-text.txt")
+	draft := strings.Repeat("a line of the draft\n", 30)
+	f := &fakeBackend{text: screen}
+	f.caps.NativeScrollback = true
+	f.onType = func(f *fakeBackend, _ string) {
+		f.text = strings.Replace(screen, "❯\n", "❯ "+draft+"the tall draft ends here\n", 1)
+	}
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), "the tall draft ends here", VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if f.submits != 1 {
+		t.Errorf("submitted %d, want 1", f.submits)
+	}
+}
+
+// §7.6: a paste that arrives in pieces is taken once its placeholders stop
+// growing, so the Enter does not land among the pieces.
+func TestSendWaitsForAPasteToStopArriving(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	pasted := composerScreen(t, "pasted.txt")
+	one := strings.Replace(pasted, "[Pasted text #60][Pasted text #61][Pasted text #62]", "[Pasted text #60]", 1)
+	captures := 0
+	f.onType = func(f *fakeBackend, _ string) {
+		f.onScreen = func(f *fakeBackend) {
+			captures++
+			if captures == 1 {
+				f.text = one
+			} else {
+				f.text = pasted
+			}
+		}
+	}
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), strings.Repeat("word ", 600), VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if f.submits != 1 || captures < 3 {
+		t.Errorf("submitted %d after %d captures, want one after the count held", f.submits, captures)
+	}
+}
+
+// §7.6: Codex's placeholder counts only when it names this text's length, so
+// an older paste leaving the screen or a quoted placeholder is not the echo.
+func TestSendTakesOnlyCodexsPlaceholderOfThisLength(t *testing.T) {
+	quoted := strings.Replace(composerScreen(t, "codex-idle.txt"), "› Ask Codex", "• see [Pasted Content 1999 chars] in the log\n\n› Ask Codex", 1)
+	f := &fakeBackend{text: quoted}
+	f.onType = func(f *fakeBackend, _ string) {
+		f.text = strings.Replace(quoted, "› Ask Codex to do anything", "› [Pasted Content 1999 chars]", 1)
+	}
+	paneRunning(f, "codex")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), strings.Repeat("w", 2000), VerifyBudget(shortBudget))
 	if !errors.Is(err, ErrTimeout) {
-		t.Fatalf("error is %v, want a timeout", err)
+		t.Fatalf("error is %v, want a timeout: no placeholder names 2000 characters", err)
 	}
 	if f.submits != 0 {
-		t.Errorf("submitted %d times into an overlay, want 0", f.submits)
+		t.Errorf("submitted %d on another length's placeholder, want 0", f.submits)
 	}
 }
 

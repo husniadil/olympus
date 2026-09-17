@@ -258,7 +258,7 @@ func TestATerminatorThatKeepsFailingIsSurfaced(t *testing.T) {
 func TestAnInspectionThatRefusesTypesNothing(t *testing.T) {
 	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("$ " + text) }}
 	d := delivery(t, f, nil)
-	d.Inspect = func(context.Context) (engine.Watch, error) {
+	d.Inspect = func(context.Context, string) (engine.Watch, error) {
 		return nil, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")
 	}
 
@@ -280,7 +280,7 @@ func TestTheInspectionRunsInsideTheLock(t *testing.T) {
 
 	var attemptErr error
 	d := delivery(t, f, locks)
-	d.Inspect = func(context.Context) (engine.Watch, error) {
+	d.Inspect = func(context.Context, string) (engine.Watch, error) {
 		_, attemptErr = locks.Acquire(ctx, key("build"), 10*time.Millisecond)
 		return nil, nil
 	}
@@ -309,7 +309,7 @@ func TestAWatchDecidesWhatCountsAsObserved(t *testing.T) {
 		f := &fakeBackend{screen: "earlier: make build"}
 		f.onType = func(f *fakeBackend, text string) { f.setScreen("earlier: make build\n> " + text) }
 		d := delivery(t, f, nil)
-		d.Inspect = func(context.Context) (engine.Watch, error) { return inBox, nil }
+		d.Inspect = func(context.Context, string) (engine.Watch, error) { return inBox, nil }
 		if err := d.VerifiedSubmit(context.Background(), "build", "make build"); err != nil {
 			t.Fatalf("VerifiedSubmit: %v", err)
 		}
@@ -321,7 +321,7 @@ func TestAWatchDecidesWhatCountsAsObserved(t *testing.T) {
 	t.Run("the same text elsewhere does not", func(t *testing.T) {
 		f := &fakeBackend{screen: "earlier: make build"}
 		d := delivery(t, f, nil)
-		d.Inspect = func(context.Context) (engine.Watch, error) { return inBox, nil }
+		d.Inspect = func(context.Context, string) (engine.Watch, error) { return inBox, nil }
 		err := d.VerifiedSubmit(context.Background(), "build", "make build")
 		if !errors.Is(err, backend.ErrTimeout) {
 			t.Fatalf("error is %v, want a timeout", err)
@@ -338,7 +338,7 @@ func TestAWatchDecidesWhatCountsAsObserved(t *testing.T) {
 func TestAWatchThatRefusesStopsWithoutResendOrSubmit(t *testing.T) {
 	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("Do you want to proceed?") }}
 	d := delivery(t, f, nil)
-	d.Inspect = func(context.Context) (engine.Watch, error) {
+	d.Inspect = func(context.Context, string) (engine.Watch, error) {
 		return func(screen, _, _ string) (bool, error) {
 			if strings.Contains(screen, "proceed?") {
 				return false, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")

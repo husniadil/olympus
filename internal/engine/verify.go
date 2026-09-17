@@ -21,7 +21,7 @@ type Delivery struct {
 	// (behavior §7.5). An error refuses the delivery with nothing typed. A
 	// Watch it returns replaces the whole-screen match for this delivery; a
 	// nil one keeps it.
-	Inspect func(ctx context.Context) (Watch, error)
+	Inspect func(ctx context.Context, text string) (Watch, error)
 }
 
 // A Watch reads one capture and says whether the delivered text shows where
@@ -58,7 +58,7 @@ func (d Delivery) Verified(ctx context.Context, target, text string, submit bool
 	return WithLock(ctx, d.Locks, d.Key, d.LockWait, func() error {
 		var watch Watch
 		if d.Inspect != nil {
-			w, err := d.Inspect(ctx)
+			w, err := d.Inspect(ctx, text)
 			if err != nil {
 				return err
 			}
