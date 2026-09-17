@@ -2,6 +2,7 @@ package olympus
 
 import (
 	"context"
+	"time"
 	"unicode/utf8"
 
 	"github.com/husniadil/olympus/backend"
@@ -54,6 +55,10 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 		}
 		return "", false, false
 	}
+	drawn := func(screen string) bool {
+		_, ok, _ := composer(screen)
+		return ok
+	}
 	chars := utf8.RuneCountInString(text)
 
 	// A capture that fails here is not a refusal: the watch reads every
@@ -68,9 +73,17 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 		if err := blocked(capture.Text, false); err != nil {
 			return nil, err
 		}
-		box, drawn, hasBox := composer(capture.Text)
+		screen := capture.Text
+		if _, ok, hasBox := composer(screen); hasBox && !ok {
+			// A screen drawn wrong reads the same as a box that is not
+			// there, so the agent is asked to draw it again first (§7.5).
+			if again, ok := o.redrawn(ctx, target, drawn); ok {
+				screen = again
+			}
+		}
+		box, boxDrawn, hasBox := composer(screen)
 		switch {
-		case drawn:
+		case boxDrawn:
 			boxPastes = agentstate.Pastes(box)
 		case hasBox:
 			// An agent that draws a box and shows none has something else
@@ -79,7 +92,7 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 			return nil, backend.Errorf(backend.CodeAgentBlocked,
 				"the %s agent in %s is not showing its input box, so nothing was typed: it may still be starting, or something is open over it such as a rewind list or a picker; send again once the box is back, or close what is open with press", agents[0], target)
 		default:
-			codexPastes = agentstate.PastedContent(trimLineEnds(capture.Text), chars)
+			codexPastes = agentstate.PastedContent(trimLineEnds(screen), chars)
 		}
 	}
 
@@ -87,13 +100,25 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 	// placeholder: a count that rose is taken only once the next capture shows
 	// the same count, so the Enter does not land while pieces still arrive.
 	lastRisen := -1
+	redrawAsked := false
 	return func(screen, head, tail string) (bool, error) {
 		if err := blocked(screen, true); err != nil {
 			return false, err
 		}
-		box, drawn, hasBox := composer(screen)
+		if _, ok, hasBox := composer(screen); hasBox && !ok && !redrawAsked {
+			// Asked once a delivery: a box that stays gone after a redraw
+			// has something open over it.
+			redrawAsked = true
+			if again, ok := o.redrawn(ctx, target, drawn); ok {
+				if err := blocked(again, true); err != nil {
+					return false, err
+				}
+				screen = again
+			}
+		}
+		box, boxDrawn, hasBox := composer(screen)
 		switch {
-		case drawn:
+		case boxDrawn:
 			if n := agentstate.Pastes(box); boxPastes >= 0 && n > boxPastes {
 				settled := n == lastRisen
 				lastRisen = n
@@ -155,4 +180,36 @@ func (o *Olympus) detectionScreen(screen string) string {
 		screen = tailLines(screen, detectionRows)
 	}
 	return screen
+}
+
+// redrawWait bounds how long a redrawn screen is read for the agent's box,
+// and redrawPoll is how often it is read in that time.
+const (
+	redrawWait = time.Second
+	redrawPoll = 50 * time.Millisecond
+)
+
+// redrawn asks the process in the target's pane to draw its screen again, and
+// reads the screen until drawn says the agent's box is on it (§7.5). A backend
+// that cannot ask, a request that fails, and a box still missing when the wait
+// is over are all false: the caller then treats the box as gone.
+func (o *Olympus) redrawn(ctx context.Context, target string, drawn func(string) bool) (string, bool) {
+	r, ok := o.backend.(backend.Redrawer)
+	if !ok || r.Redraw(ctx, target) != nil {
+		return "", false
+	}
+	deadline := time.Now().Add(redrawWait)
+	for {
+		if capture, err := o.backend.Screen(ctx, target, backend.ScreenOpts{}); err == nil && drawn(capture.Text) {
+			return capture.Text, true
+		}
+		if time.Now().After(deadline) {
+			return "", false
+		}
+		select {
+		case <-ctx.Done():
+			return "", false
+		case <-time.After(redrawPoll):
+		}
+	}
 }

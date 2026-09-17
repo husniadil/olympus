@@ -67,6 +67,14 @@ type Renamer interface {
 	Rename(ctx context.Context, target, name string) error
 }
 
+// A Redrawer can ask the process in a target's pane to draw its screen again,
+// for a screen read that caught it drawn wrong (behavior §7.5). Optional: a
+// backend that cannot ask does not implement it, and one that implements it
+// answers CodeUnsupported for a server that cannot.
+type Redrawer interface {
+	Redraw(ctx context.Context, target string) error
+}
+
 // A ServerStopper stops one server by name, with every session on it. It is
 // optional for the same reason ServerLister is, and independently: a backend
 // can enumerate servers it has no way to stop.

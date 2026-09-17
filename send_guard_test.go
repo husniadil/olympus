@@ -148,6 +148,65 @@ func TestSendRefusesAnAgentShowingNoInputBox(t *testing.T) {
 	}
 }
 
+// §7.5: a box read as missing is redrawn before the send is refused. Claude
+// Code 2.1.274 once drew its input line over the box's bottom rule, and every
+// send to it was refused until something made it draw again (measured).
+func TestSendAsksForARedrawBeforeRefusingAMissingBox(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "misdrawn.txt")}
+	f.onRedraw = func(f *fakeBackend) { f.text = composerScreen(t, "idle-earlier-text.txt") }
+	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "idle-draft.txt") }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), "draft words sitting here", VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if f.redraws != 1 || len(f.typed) != 1 || f.submits != 1 {
+		t.Errorf("redrew %d, typed %d and submitted %d, want one of each", f.redraws, len(f.typed), f.submits)
+	}
+}
+
+// §7.5: the same when the box is drawn wrong after the text was typed, which
+// is how it was caught: a redraw shows the text in the box, and it is
+// submitted once, never typed again.
+func TestSendAsksForARedrawWhenTheBoxGoesMidDelivery(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "misdrawn.txt") }
+	f.onRedraw = func(f *fakeBackend) { f.text = composerScreen(t, "misdrawn-redrawn.txt") }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), "Reply with the single word ok.", VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if f.redraws != 1 || len(f.typed) != 1 || f.submits != 1 {
+		t.Errorf("redrew %d, typed %d and submitted %d, want one of each", f.redraws, len(f.typed), f.submits)
+	}
+}
+
+// §7.5: an overlay is still there after a redraw, so the send is refused as
+// before, before typing or typed.
+func TestSendRefusesAnOverlayARedrawDoesNotClear(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "rewind.txt")}
+	f.onRedraw = func(*fakeBackend) {}
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+	err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrBlocked) || TypedOf(err) || f.redraws != 1 || len(f.typed) != 0 {
+		t.Fatalf("before typing: error %v, redrew %d, typed %d; want an untyped AGENT_BLOCKED after one redraw and nothing typed", err, f.redraws, len(f.typed))
+	}
+
+	f = &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "rewind.txt") }
+	f.onRedraw = func(*fakeBackend) {}
+	paneRunning(f, "claude")
+	s = &Session{ol: fakeOlympus(f), name: "build"}
+	err = s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrBlocked) || !TypedOf(err) || f.redraws != 1 || len(f.typed) != 1 || f.submits != 0 {
+		t.Fatalf("mid-delivery: error %v, redrew %d, typed %d, submitted %d; want a typed AGENT_BLOCKED after one redraw, one send and no terminator", err, f.redraws, len(f.typed), f.submits)
+	}
+}
+
 // §7.5: a box that goes while the echo is polled for stops the send, typed,
 // with no resend: the whole screen may hold the same words in an overlay's
 // list, and a resend would type into it.

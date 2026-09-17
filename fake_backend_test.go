@@ -50,6 +50,11 @@ type fakeBackend struct {
 	// onScreen runs before each capture answers, so a case can change the
 	// screen from one poll to the next.
 	onScreen func(f *fakeBackend)
+	// onRedraw, when set, makes the fake a backend that can ask for a
+	// redraw, and runs on each request; redraws counts them. Unset, Redraw
+	// answers unsupported, the way a server without pane_redraw does.
+	onRedraw func(f *fakeBackend)
+	redraws  int
 }
 
 // fakeOlympus wires a fake under the ergonomic layer, with no lock: these cases
@@ -116,6 +121,15 @@ func (f *fakeBackend) Screen(_ context.Context, target string, opts backend.Scre
 		return backend.Capture{Text: text}, nil
 	}
 	return backend.Capture{Text: f.text}, nil
+}
+
+func (f *fakeBackend) Redraw(context.Context, string) error {
+	if f.onRedraw == nil {
+		return backend.Errorf(backend.CodeUnsupported, "the fake cannot redraw")
+	}
+	f.redraws++
+	f.onRedraw(f)
+	return nil
 }
 
 func (f *fakeBackend) ScreenMeta(context.Context, string) (backend.ScreenMeta, error) {

@@ -40,6 +40,11 @@ func TestComposerReadsTheBoxAnAgentDraws(t *testing.T) {
 		// A question fills the box's region, so a box is read, and only the
 		// blocked state says it is not one (§7.5).
 		{screen: "question.txt", state: Blocked, drawn: true, holds: "Red"},
+		// Claude Code 2.1.274 drew its input line one row low, over the box's
+		// bottom rule, so only the words overwrote it and the box has no
+		// bottom: nothing reads as drawn until the agent draws it again.
+		{screen: "misdrawn.txt", state: Unknown, drawn: false},
+		{screen: "misdrawn-redrawn.txt", state: Idle, drawn: true, holds: "Reply with the single word ok."},
 	}
 	for _, c := range cases {
 		t.Run(c.screen, func(t *testing.T) {

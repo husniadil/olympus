@@ -34,6 +34,7 @@ func TestClientViewCapabilityIsReadFromThePong(t *testing.T) {
 		{"the view acknowledged as well", `{"id":"x","result":{"type":"pong","version":"0.9.0+agm.2","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":true}}}`, serverCaps{viewFocus: true, viewAck: true}},
 		{"the view acknowledged as false", `{"id":"x","result":{"type":"pong","version":"0.9.0","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":false}}}`, serverCaps{viewFocus: true}},
 		{"a pane focused for one client", `{"id":"x","result":{"type":"pong","version":"0.9.0+agm.3","protocol":22,"capabilities":{"client_view_focus":true,"client_view_ack":true,"client_view_pane":true}}}`, serverCaps{viewFocus: true, viewAck: true, viewPane: true}},
+		{"a pane redrawn", `{"id":"x","result":{"type":"pong","version":"0.9.0+agm.4","protocol":22,"capabilities":{"client_view_focus":true,"pane_redraw":true}}}`, serverCaps{viewFocus: true, redraw: true}},
 	}
 	for _, c := range cases {
 		got, err := parsePong(json.RawMessage(resultOf(t, c.pong)))
@@ -78,7 +79,7 @@ func newFakeAPI(t *testing.T, answer func(method string, params json.RawMessage)
 	}
 	t.Cleanup(func() { _ = l.Close() })
 	api := &fakeAPI{path: path, answer: answer, counts: map[string]*atomic.Int32{
-		"ping": {}, "client.list": {}, "client.view.focus": {}, "client.view.wait": {},
+		"ping": {}, "client.list": {}, "client.view.focus": {}, "client.view.wait": {}, "pane.redraw": {},
 	}}
 	go func() {
 		for {
@@ -554,5 +555,21 @@ func TestACallerClientTagIsUsageWhereItCannotNameTheClient(t *testing.T) {
 		if _, err := b.Attach(ctx, "w1", spec); backend.CodeOf(err) != backend.CodeUsage {
 			t.Errorf("a client tag on an attach that is not bare (%+v) is %q (%v), want %q", spec, backend.CodeOf(err), err, backend.CodeUsage)
 		}
+	}
+}
+
+// §7.5 A server that does not advertise pane_redraw is not asked to redraw:
+// Redraw answers unsupported before it resolves the target or sends anything.
+func TestRedrawIsUnsupportedWithoutTheCapability(t *testing.T) {
+	t.Parallel()
+	api := newFakeAPI(t, func(string, json.RawMessage) string {
+		return `{"id":"x","result":{"type":"pong","version":"0.9.0+agm.3","protocol":22,"capabilities":{"client_view_focus":true}}}`
+	})
+	b := New(WithSocketPath(api.path))
+	if err := b.Redraw(context.Background(), "w1:p1"); backend.CodeOf(err) != backend.CodeUnsupported {
+		t.Fatalf("Redraw = %v, want %s", err, backend.CodeUnsupported)
+	}
+	if n := api.counts["pane.redraw"].Load(); n != 0 {
+		t.Errorf("pane.redraw was sent %d times, want none", n)
 	}
 }

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A box drawn wrong is redrawn before a send is refused.** Claude Code once
+  drew its input line over its box's bottom rule, so the box read as absent
+  and every send to it was refused as `AGENT_BLOCKED` until something made it
+  draw again. Before refusing, Olympus now asks a herdr server that advertises
+  `pane_redraw` (the fork's `0.9.0+agm.4`) to have the pane redraw, and reads
+  the screen again for up to a second. A rewind list or a picker is still
+  refused. Behavior spec §7.5.
+
 ## [0.31.0]
 
 ### Fixed

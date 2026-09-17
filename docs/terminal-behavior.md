@@ -2270,6 +2270,24 @@ detection tail, since a tall draft can push its top rule out of the tail. Measur
 working, holding a paste placeholder and listing slash commands, and is absent
 under its rewind list, its model picker and its transcript viewer.
 
+A box can also read as absent when it is drawn wrong. Before either refusal,
+where the backend can ask the pane's process to redraw (a herdr server that
+advertises `pane_redraw`), Olympus MUST ask once and read the screen again for
+up to one second. A box drawn by then is read as if it had been there, and the
+send goes on. A box still absent is refused as above. A backend that cannot
+ask refuses at once. During the echo poll the redraw is asked for at most once
+a delivery. On herdr the request shrinks the pane's PTY one row for a moment
+and restores it, so the process gets a real size change, and herdr's own
+screen is not resized.
+
+Measured on Claude Code 2.1.274: its input line was drawn one row low, over the
+box's bottom rule, so only its words overwrote the rule
+(`──Reply─with─the─single─word─ok.──`) and the `❯` row was blank. The text was
+in its input, and one typed character drew the box again. A send was refused
+as typed before any Enter, and every later send as untyped. A signal of the
+same size and focus events did not make it redraw. A size change did, with the
+input intact.
+
 The state is read off the capture the send is about to type into, never off
 the agent listing's status. On a backend that detects agents natively the
 listing still names which agent it is.

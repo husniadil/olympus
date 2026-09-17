@@ -101,6 +101,9 @@ type serverCaps struct {
 	// viewPane is `client_view_pane`: `client.view.focus` takes a pane and
 	// focuses it on its tab for that client, without zooming it.
 	viewPane bool
+	// redraw is `pane_redraw`: `pane.redraw` has a pane's process draw its
+	// screen again.
+	redraw bool
 }
 
 // clientViews reports whether this backend's server moves one client's view
@@ -154,6 +157,7 @@ func parsePong(result json.RawMessage) (serverCaps, error) {
 			ClientViewFocus bool `json:"client_view_focus"`
 			ClientViewAck   bool `json:"client_view_ack"`
 			ClientViewPane  bool `json:"client_view_pane"`
+			PaneRedraw      bool `json:"pane_redraw"`
 		} `json:"capabilities"`
 	}
 	if err := json.Unmarshal(result, &pong); err != nil || pong.Type != "pong" {
@@ -166,6 +170,7 @@ func parsePong(result json.RawMessage) (serverCaps, error) {
 		viewFocus: pong.Capabilities.ClientViewFocus,
 		viewAck:   pong.Capabilities.ClientViewAck,
 		viewPane:  pong.Capabilities.ClientViewPane,
+		redraw:    pong.Capabilities.PaneRedraw,
 	}, nil
 }
 

@@ -1,0 +1,10 @@
+⏺ ok
+
+✻ Brewed for 3s · done 3:01 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+──Reply─with─the─single─word─ok.────────────────────────────────────────────────────────────────────────────────────────
+  local · /private/tmp
+  +0/−0
+  Claude Opus 5 (1M context) · medium · Senior Opus Engineer · — · 0/0 · $ 0.00 · 1s · v2.1.274
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

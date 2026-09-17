@@ -760,6 +760,29 @@ func (h *Herdr) Rename(ctx context.Context, target, name string) error {
 	return err
 }
 
+// Redraw has the process in a target's pane draw its screen again (§7.5).
+// herdr shrinks the pane's PTY one row for a moment and restores it, so the
+// process gets a real size change, and its own screen is not resized. Only a
+// server that advertises `pane_redraw` can; any other answers unsupported.
+func (h *Herdr) Redraw(ctx context.Context, target string) error {
+	caps, err := h.capabilities(ctx)
+	if err != nil {
+		return err
+	}
+	if !caps.redraw {
+		return backend.Errorf(backend.CodeUnsupported,
+			"this herdr server does not advertise pane_redraw, so it cannot ask a pane to redraw")
+	}
+	pane, err := h.resolvePane(ctx, target)
+	if err != nil {
+		return err
+	}
+	_, err = h.call(ctx, "pane.redraw", struct {
+		PaneID string `json:"pane_id"`
+	}{pane.PaneID})
+	return err
+}
+
 // command builds a herdr invocation with the isolation and hygiene rules
 // applied.
 func (h *Herdr) command(ctx context.Context, args ...string) *exec.Cmd {
