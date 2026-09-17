@@ -2,7 +2,6 @@ package olympus
 
 import (
 	"context"
-	"strings"
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/internal/agentstate"
@@ -22,13 +21,18 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 	if len(agents) == 0 {
 		return nil, nil
 	}
-	blocked := func(screen string) error {
+	blocked := func(screen string, typed bool) error {
 		in := agentstate.Input{Screen: o.detectionScreen(screen)}
 		for _, agent := range agents {
-			if agentstate.Detect(agent, in) == agentstate.Blocked {
-				return backend.Errorf(backend.CodeAgentBlocked,
-					"the %s agent in %s is waiting on a person, so nothing was typed: answer its prompt with press, or send once it is not waiting", agent, target)
+			if agentstate.Detect(agent, in) != agentstate.Blocked {
+				continue
 			}
+			if typed {
+				return backend.Errorf(backend.CodeAgentBlocked,
+					"the %s agent in %s started waiting on a person after the text was typed, so it was not submitted: the text may be in its prompt or its input box, so read the screen before answering with press", agent, target)
+			}
+			return backend.Errorf(backend.CodeAgentBlocked,
+				"the %s agent in %s is waiting on a person, so nothing was typed: answer its prompt with press, or send once it is not waiting", agent, target)
 		}
 		return nil
 	}
@@ -36,13 +40,13 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 	// A capture that fails here is not a refusal: the watch reads every
 	// capture again while the echo is polled for, and stops there.
 	if capture, err := o.backend.Screen(ctx, target, backend.ScreenOpts{}); err == nil {
-		if err := blocked(capture.Text); err != nil {
+		if err := blocked(capture.Text, false); err != nil {
 			return nil, err
 		}
 	}
 
 	return func(screen, head, tail string) (bool, error) {
-		if err := blocked(screen); err != nil {
+		if err := blocked(screen, true); err != nil {
 			return false, err
 		}
 		in := agentstate.Input{Screen: o.detectionScreen(screen)}
@@ -57,12 +61,16 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 
 // agentsAt names the agents a target holds.
 //
-// On a backend that lists agents itself a row belongs to the target when the
-// target is its pane, its session by name or id, or a level inside that
-// session (a tab, a pane). Elsewhere the target's panes are read, and only a
-// session of one pane is named: a capture addresses a session's active pane
+// Only a target of one pane is named: a capture addresses the active pane
 // (§10), and where there are several nothing says which one input lands in.
+// On a backend that lists agents itself the row for that pane names it, and
+// an agent in another pane of the same session is not on the screen read.
+// Elsewhere the pane's own process tree or foreground command names it.
 func (o *Olympus) agentsAt(ctx context.Context, target string) []string {
+	panes, err := o.Panes(ctx, target)
+	if err != nil || len(panes) != 1 {
+		return nil
+	}
 	var names []string
 	if lister, ok := o.backend.(backend.AgentLister); ok {
 		rows, err := lister.Agents(ctx)
@@ -70,16 +78,11 @@ func (o *Olympus) agentsAt(ctx context.Context, target string) []string {
 			return nil
 		}
 		for _, row := range rows {
-			if row.PaneID == target || row.SessionName == target || row.SessionID == target ||
-				(row.SessionID != "" && strings.HasPrefix(target, row.SessionID+":")) {
+			if row.PaneID == panes[0].ID {
 				names = append(names, row.Agent)
 			}
 		}
 		return names
-	}
-	panes, err := o.Panes(ctx, target)
-	if err != nil || len(panes) != 1 {
-		return nil
 	}
 	if name, _, ok := agentOf(panes[0], o.processTreeFor(ctx, panes)); ok {
 		names = append(names, name)

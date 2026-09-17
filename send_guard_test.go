@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +91,10 @@ func TestSendStopsWhenAQuestionOpensMidDelivery(t *testing.T) {
 	if len(f.typed) != 1 || f.submits != 0 {
 		t.Errorf("typed %d and submitted %d, want one send and no terminator", len(f.typed), f.submits)
 	}
+	// The text was typed, so the refusal must not tell the caller it was not.
+	if strings.Contains(err.Error(), "nothing was typed") {
+		t.Errorf("the error says nothing was typed after one send: %v", err)
+	}
 }
 
 // §7.6 scope: a pane with no known agent keeps the whole-screen match, and a
@@ -121,4 +126,45 @@ func TestSendAtomicRefusesAnAgentWaitingOnAPerson(t *testing.T) {
 	if f.atomic != 0 {
 		t.Errorf("wrote %d atomic sends into a waiting agent, want 0", f.atomic)
 	}
+}
+
+// listingFake is the fake with an agent listing of its own, as a backend that
+// detects agents natively has.
+type listingFake struct {
+	*fakeBackend
+	rows []backend.Agent
+}
+
+func (l *listingFake) Agents(context.Context) ([]backend.Agent, error) { return l.rows, nil }
+
+// §7.5 scope: on a backend that lists agents itself, a pane target is read
+// for the agent in that pane only. An agent in a sibling pane of the same
+// session is not on the screen the send reads, and must not refuse it.
+func TestSendReadsOnlyTheTargetPanesAgent(t *testing.T) {
+	rows := []backend.Agent{{PaneID: "w1:p3", SessionName: "work", SessionID: "w1", Agent: "claude"}}
+
+	t.Run("a shell pane beside the agent", func(t *testing.T) {
+		// The shell printed a capture of a prompt; the agent is elsewhere.
+		f := &fakeBackend{text: composerScreen(t, "permission.txt")}
+		f.onType = func(f *fakeBackend, text string) { f.text += "\n$ " + text }
+		f.panes = []backend.Pane{{ID: "w1:p2", SessionName: "work", SessionID: "w1", CurrentCommand: "zsh"}}
+		s := &Session{ol: &Olympus{backend: &listingFake{f, rows}}, name: "w1:p2"}
+
+		if err := s.Send(context.Background(), "make build", VerifyBudget(shortBudget)); err != nil {
+			t.Fatalf("Send to the shell pane: %v", err)
+		}
+		if f.submits != 1 {
+			t.Errorf("submitted %d times, want 1", f.submits)
+		}
+	})
+
+	t.Run("the agent's own pane", func(t *testing.T) {
+		f := &fakeBackend{text: composerScreen(t, "permission.txt")}
+		f.panes = []backend.Pane{{ID: "w1:p3", SessionName: "work", SessionID: "w1", CurrentCommand: "claude"}}
+		s := &Session{ol: &Olympus{backend: &listingFake{f, rows}}, name: "w1:p3"}
+
+		if err := s.Send(context.Background(), "yes", VerifyBudget(shortBudget)); !errors.Is(err, ErrBlocked) {
+			t.Fatalf("error is %v, want AGENT_BLOCKED", err)
+		}
+	})
 }

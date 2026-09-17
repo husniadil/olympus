@@ -33,8 +33,10 @@ const (
 	CodeUnsupported Code = "UNSUPPORTED"
 	// CodeAgentBlocked is an agent waiting on a person — a permission prompt,
 	// a question — refusing input that would have landed in that prompt
-	// rather than in its composer. Nothing was typed. An answer to the prompt
-	// is a deliberate keypress, never a side effect of sending text.
+	// rather than in its composer. Nothing was submitted: either nothing was
+	// typed, or the prompt opened after typing and the terminator was never
+	// sent. An answer to the prompt is a deliberate keypress, never a side
+	// effect of sending text.
 	CodeAgentBlocked Code = "AGENT_BLOCKED"
 	// CodeUnexpected is anything not carrying one of the above — read by a
 	// machine consumer as "Olympus broke, retrying will not help".

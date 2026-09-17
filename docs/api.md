@@ -252,7 +252,7 @@ never removed, only added to.
 | `TIMEOUT` | 5 | An operation that did not complete or match within its budget. |
 | `CONFLICT` | 6 | A lock or attach slot held by someone else. |
 | `UNSUPPORTED` | 7 | A backend with no concept for the operation at all. |
-| `AGENT_BLOCKED` | 8 | A verified send refused because the target's agent is waiting on a person. Nothing was typed. |
+| `AGENT_BLOCKED` | 8 | A send refused because the target's agent is waiting on a person. Nothing was submitted: nothing was typed, or the prompt opened after typing and the terminator was never sent. |
 | `UNEXPECTED` | 1 | Anything else: Olympus broke, and retrying will not help. |
 
 ### Every error reaches the envelope

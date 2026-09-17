@@ -2267,12 +2267,13 @@ been let through.
 
 - A prompt the manifest does not recognise is not refused, and the send falls
   back to §7.6's rules.
-- The target's agents are named from the agent listing (§3.7). On a backend
-  that detects agents itself, a row belongs to a target that is its pane, its
-  session by name or id, or a level inside that session. Elsewhere only a
-  session of one pane is named, since nothing says which of several panes
-  input lands in. A target whose agents cannot be listed holds none: a shell
-  does not stop taking input because a process table could not be read.
+- Only a target of one pane is read for an agent, since nothing says which
+  of several panes input lands in. On a backend that detects agents itself,
+  the listing's row for that pane names it (§3.7), and an agent in another
+  pane of the same session is not on the screen read. Elsewhere the pane's
+  process tree or foreground command names it. A target whose agents cannot
+  be listed holds none: a shell does not stop taking input because a process
+  table could not be read.
 - `type`, `paste` and `press` are not refused. They are raw input: a caller
   that presses a key into a prompt has chosen to.
 
@@ -3628,7 +3629,7 @@ added.
 | `TIMEOUT` | 5 | An operation did not complete or match before its budget elapsed. |
 | `CONFLICT` | 6 | A lock or attach slot is held by someone else. |
 | `UNSUPPORTED` | 7 | The backend has no concept for this operation at all. |
-| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person, and the input was refused before anything was typed (§7.5). |
+| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person, and the input was refused before anything was typed, or stopped before its terminator when the prompt opened after typing (§7.5). |
 | `UNEXPECTED` | 1 | Anything not carrying one of the above. |
 
 ### Two distinctions that MUST be preserved
