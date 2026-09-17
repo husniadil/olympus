@@ -4334,7 +4334,9 @@ transport leaves alone.
   carries, so a consumer can floor-check without shelling out.
 - **An operation failure is a tool error carrying the §12 code**, never a
   JSON-RPC protocol error. Protocol errors are reserved for protocol problems.
-  Conflating them makes a session that was fine look broken.
+  Conflating them makes a session that was fine look broken. Its first text
+  content is `CODE: message`. An `AGENT_BLOCKED` whose text was typed (§7.5)
+  adds a content of its own reading `typed: true`.
 
 The registered surface is 34 tools, pinned in `ToolNames` in
 `internal/mcp/tools.go` and listed in api §1.

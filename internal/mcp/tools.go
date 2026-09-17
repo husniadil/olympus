@@ -340,7 +340,7 @@ func register(s *sdk.Server) {
 			})
 		})
 
-	addTool(s, "send_text", "Deliver text, confirm it is on screen, and only then submit it. A target whose agent is waiting on a person is refused with AGENT_BLOCKED and nothing is typed; answer the prompt with press_keys.",
+	addTool(s, "send_text", "Deliver text, confirm it is on screen, and only then submit it. A target whose agent is waiting on a person is refused with AGENT_BLOCKED and nothing is typed; answer the prompt with press_keys. If the prompt opens after the text was typed, the error adds typed: true and the text may still be in the input box.",
 		func(ctx context.Context, ol *olympus.Olympus, in textParams) (acknowledged, []olympus.Warning, error) {
 			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (acknowledged, error) {
 				if in.Atomic {

@@ -265,7 +265,9 @@ machine-readable.
 
 ### An MCP operation failure is a tool error carrying the code
 
-It is never a JSON-RPC protocol error (behavior spec §15.6).
+It is never a JSON-RPC protocol error (behavior spec §15.6). Its first text
+content is `CODE: message`, and an `AGENT_BLOCKED` marked `typed` adds a text
+content reading `typed: true`.
 
 ### The Go door returns typed errors
 
