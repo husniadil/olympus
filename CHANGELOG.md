@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A send into an agent waiting on a person is refused.** Before this, a
+  verified send into a Claude Code pane showing a permission prompt or a
+  question typed into that prompt, and when the text was already on screen
+  the Enter answered it: measured, it approved a Bash command and chose a
+  question's first option. `send` and `send --atomic` now read the target
+  first and fail with `AGENT_BLOCKED`, exit 8, typing nothing; a verified
+  send also stops without a terminator if the prompt opens while its echo is
+  polled for. A caller that answered prompts with `send` answers them with
+  `press`. Go: `ErrBlocked`. Behavior spec §7.5.
+- **A send into an agent's input box looks for the echo in that box.** Where
+  the agent's manifest names the box it draws, the text already in its
+  transcript no longer counts as the echo of a send. Shells, REPLs and other
+  agents keep the whole-screen match. Behavior spec §7.6.
+
+### Added
+
+- **`AGENT_BLOCKED`**, exit 8, in the error vocabulary. Behavior spec §12.
+
 ## [0.27.0]
 
 ### Added

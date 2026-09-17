@@ -39,6 +39,7 @@ type fakeBackend struct {
 	focused []string
 	typed   []string
 	submits int
+	atomic  int
 	// submitFailures is how many of the next terminators are dropped.
 	submitFailures int
 	// onType runs after each Type, so a case that needs the screen to react
@@ -95,7 +96,10 @@ func (f *fakeBackend) Submit(context.Context, string) error {
 	return nil
 }
 
-func (f *fakeBackend) SendAtomic(context.Context, string, string) error { return nil }
+func (f *fakeBackend) SendAtomic(context.Context, string, string) error {
+	f.atomic++
+	return nil
+}
 
 func (f *fakeBackend) Screen(_ context.Context, target string, opts backend.ScreenOpts) (backend.Capture, error) {
 	f.screenOpts = append(f.screenOpts, opts)

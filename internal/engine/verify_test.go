@@ -251,3 +251,112 @@ func TestATerminatorThatKeepsFailingIsSurfaced(t *testing.T) {
 		t.Errorf("%d scripted failures were never reached, so the terminator was tried fewer than twice", f.submitFailures)
 	}
 }
+
+// §7.5: an inspection that refuses is the refusal, and nothing reaches the
+// pane. A prompt waiting on a person takes every keystroke typed at it, so a
+// refusal that typed first and complained afterwards would already be an answer.
+func TestAnInspectionThatRefusesTypesNothing(t *testing.T) {
+	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("$ " + text) }}
+	d := delivery(t, f, nil)
+	d.Inspect = func(context.Context) (engine.Watch, error) {
+		return nil, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")
+	}
+
+	err := d.VerifiedSubmit(context.Background(), "build", "make build")
+	if !errors.Is(err, backend.ErrBlocked) {
+		t.Fatalf("error is %v, want the inspection's refusal", err)
+	}
+	if typed, submits := f.counts(); typed != 0 || submits != 0 {
+		t.Errorf("typed %d and submitted %d after a refusal, want nothing", typed, submits)
+	}
+}
+
+// §7.5: the inspection happens under the same lock as the delivery, so no
+// other writer can change what it read between the reading and the typing.
+func TestTheInspectionRunsInsideTheLock(t *testing.T) {
+	locks := newLocks(t)
+	ctx := context.Background()
+	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("$ " + text) }}
+
+	var attemptErr error
+	d := delivery(t, f, locks)
+	d.Inspect = func(context.Context) (engine.Watch, error) {
+		_, attemptErr = locks.Acquire(ctx, key("build"), 10*time.Millisecond)
+		return nil, nil
+	}
+	if err := d.VerifiedSubmit(ctx, "build", "make build"); err != nil {
+		t.Fatalf("VerifiedSubmit: %v", err)
+	}
+	if !errors.Is(attemptErr, backend.ErrConflict) {
+		t.Errorf("a competing writer got %v during the inspection, want a conflict", attemptErr)
+	}
+}
+
+// §7.6: a watch replaces the whole-screen match. The same text already on the
+// screen from an earlier turn is not the echo of this one, and a watch that
+// knows where input lands does not count it.
+func TestAWatchDecidesWhatCountsAsObserved(t *testing.T) {
+	inBox := func(screen, head, tail string) (bool, error) {
+		for _, line := range strings.Split(screen, "\n") {
+			if strings.HasPrefix(line, "> ") && engine.ScreenContains(line, head) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	t.Run("the echo in the input counts", func(t *testing.T) {
+		f := &fakeBackend{screen: "earlier: make build"}
+		f.onType = func(f *fakeBackend, text string) { f.setScreen("earlier: make build\n> " + text) }
+		d := delivery(t, f, nil)
+		d.Inspect = func(context.Context) (engine.Watch, error) { return inBox, nil }
+		if err := d.VerifiedSubmit(context.Background(), "build", "make build"); err != nil {
+			t.Fatalf("VerifiedSubmit: %v", err)
+		}
+		if _, submits := f.counts(); submits != 1 {
+			t.Errorf("submitted %d times, want 1", submits)
+		}
+	})
+
+	t.Run("the same text elsewhere does not", func(t *testing.T) {
+		f := &fakeBackend{screen: "earlier: make build"}
+		d := delivery(t, f, nil)
+		d.Inspect = func(context.Context) (engine.Watch, error) { return inBox, nil }
+		err := d.VerifiedSubmit(context.Background(), "build", "make build")
+		if !errors.Is(err, backend.ErrTimeout) {
+			t.Fatalf("error is %v, want a timeout", err)
+		}
+		if _, submits := f.counts(); submits != 0 {
+			t.Errorf("submitted %d times on text the watch never saw in the input, want 0", submits)
+		}
+	})
+}
+
+// §7.5: a watch that sees the agent start waiting on a person mid-delivery
+// stops there. A resend would type the text into the prompt a second time,
+// and the terminator would answer it.
+func TestAWatchThatRefusesStopsWithoutResendOrSubmit(t *testing.T) {
+	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("Do you want to proceed?") }}
+	d := delivery(t, f, nil)
+	d.Inspect = func(context.Context) (engine.Watch, error) {
+		return func(screen, _, _ string) (bool, error) {
+			if strings.Contains(screen, "proceed?") {
+				return false, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")
+			}
+			return false, nil
+		}, nil
+	}
+
+	started := time.Now()
+	err := d.VerifiedSubmit(context.Background(), "build", "make build")
+	if !errors.Is(err, backend.ErrBlocked) {
+		t.Fatalf("error is %v, want the watch's refusal", err)
+	}
+	typed, submits := f.counts()
+	if typed != 1 || submits != 0 {
+		t.Errorf("typed %d and submitted %d, want one send and no terminator", typed, submits)
+	}
+	if elapsed := time.Since(started); elapsed >= d.Budget {
+		t.Errorf("the refusal took %s, so it waited on the verification budget", elapsed)
+	}
+}

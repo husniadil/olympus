@@ -2222,6 +2222,95 @@ return early on the first miss.
 The failure guarded is a dropped or coalesced first delivery, not a garbled
 second attempt.
 
+### 7.5 A verified send refuses an agent waiting on a person
+
+Before anything is typed, and inside the same lock as the delivery (§11.2), a
+verified send reads the target. Where the target's pane holds a known agent
+and that agent's manifest reads the capture as `blocked` (§3.7), the send
+fails with `AGENT_BLOCKED` (§12) and types nothing.
+
+The same reading is repeated on every capture while the echo is polled for. A
+capture read as `blocked` stops the delivery at once, with no resend and no
+terminator, and fails with `AGENT_BLOCKED`.
+
+An atomic send (§4.7) is refused by the same reading before its one write. It
+has no echo to poll, so that reading is all it gets.
+
+The state is read off the capture the send is about to type into, never off
+the agent listing's status. On a backend that detects agents natively the
+listing still names which agent it is.
+
+An answer to a prompt is a keypress the caller chooses (`press`), never a side
+effect of sending text.
+
+#### Why
+
+A blocked agent's screen is a permission prompt or a question, and its input
+is that prompt's. Measured against a Claude Code pane (2.1.273) in its
+default permission mode:
+
+| Sent while the pane showed | Result before this rule |
+|---|---|
+| A permission prompt, with the sent text already on screen | Verified at once, and the Enter approved the command |
+| A question with two options, with the sent text already on screen | Verified at once, and the Enter chose the first option |
+| A permission prompt, with text not on screen | Never verified; failed after both budgets with nothing submitted |
+
+The first two are a decision made for a person by a caller that meant to
+deliver a message.
+
+The listing's status is not what is read because it lags the screen. On herdr
+the native status turned `blocked` about 1.2 s after the prompt was on
+screen (measured, polling every 0.5 s), and a send in that window would have
+been let through.
+
+#### Scope
+
+- A prompt the manifest does not recognise is not refused, and the send falls
+  back to §7.6's rules.
+- The target's agents are named from the agent listing (§3.7). On a backend
+  that detects agents itself, a row belongs to a target that is its pane, its
+  session by name or id, or a level inside that session. Elsewhere only a
+  session of one pane is named, since nothing says which of several panes
+  input lands in. A target whose agents cannot be listed holds none: a shell
+  does not stop taking input because a process table could not be read.
+- `type`, `paste` and `press` are not refused. They are raw input: a caller
+  that presses a key into a prompt has chosen to.
+
+### 7.6 An agent's composer is where its echo is looked for
+
+Where the target's agent draws its input as a box its manifest names
+(`prompt_box_body`), the echo MUST be looked for inside that box, and nowhere
+else on the screen. The box counts only while the capture is not read as
+`blocked` (§7.5).
+
+Everywhere else — a shell, a REPL, an agent whose manifest names no such box,
+a capture where no box is drawn — the §7.2 whole-screen match applies.
+
+§7.1's two needles apply inside the box as they do on the screen.
+
+#### Why
+
+An agent's transcript repeats what was typed at it earlier. A whole-screen
+match counts that repetition as the echo of a text that has not arrived yet,
+and submits whatever is in the input line. It also counts text that happens
+to appear in a prompt the agent is showing: a question's option, a command
+awaiting approval.
+
+Measured against the same pane, text sent unsubmitted was found inside the
+box in every case the whole-screen match already passed:
+
+| Case | Inside the box |
+|---|---|
+| Typed while the agent was working | Head and tail |
+| One line of 1,646 characters | Tail; the head had scrolled above the box |
+| Three lines | Head and tail |
+| Sixty-two lines | Tail; the box shows its last lines, with no paste placeholder |
+
+A question fills the same region, and the manifest's rule for a live box
+matches the line of its highlighted option. Measured, the box read for a
+two-option question held the question and both options. That is why the box
+counts only while §7.5's reading is not `blocked`, rather than on its own.
+
 ---
 
 ## 8. Attach

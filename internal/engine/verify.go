@@ -17,7 +17,18 @@ type Delivery struct {
 	LockWait time.Duration
 	Budget   time.Duration
 	Poll     time.Duration
+	// Inspect, when set, runs inside the lock before anything is typed
+	// (behavior §7.5). An error refuses the delivery with nothing typed. A
+	// Watch it returns replaces the whole-screen match for this delivery; a
+	// nil one keeps it.
+	Inspect func(ctx context.Context) (Watch, error)
 }
+
+// A Watch reads one capture and says whether the delivered text shows where
+// input lands (behavior §7.6). head and tail are the normalized needles
+// (§7.1). An error stops the delivery at once: no resend and no terminator,
+// since both would type into whatever the watch saw.
+type Watch func(screen, head, tail string) (bool, error)
 
 // VerifiedSubmit sends text, waits until it is observed on screen, and only
 // then submits it.
@@ -45,7 +56,15 @@ func (d Delivery) VerifiedSubmit(ctx context.Context, target, text string) error
 // there is nothing to gain by releasing early.
 func (d Delivery) Verified(ctx context.Context, target, text string, submit bool) error {
 	return WithLock(ctx, d.Locks, d.Key, d.LockWait, func() error {
-		if err := d.deliver(ctx, target, text); err != nil {
+		var watch Watch
+		if d.Inspect != nil {
+			w, err := d.Inspect(ctx)
+			if err != nil {
+				return err
+			}
+			watch = w
+		}
+		if err := d.deliver(ctx, target, text, watch); err != nil {
 			return err
 		}
 		if !submit {
@@ -87,44 +106,52 @@ func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
 // that did land is not harmless: it doubles the input line and leaves it
 // unsubmitted, so a long text whose head has scrolled out of its input box
 // must not read as dropped.
-func (d Delivery) deliver(ctx context.Context, target, text string) error {
+func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch) error {
 	head, tail := Normalize(text), NormalizeTail(text)
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {
 		return err
 	}
-	if d.observed(ctx, target, head, tail) {
-		return nil
+	if seen, err := d.observed(ctx, target, head, tail, watch); seen || err != nil {
+		return err
 	}
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {
 		return err
 	}
-	if d.observed(ctx, target, head, tail) {
-		return nil
+	if seen, err := d.observed(ctx, target, head, tail, watch); seen || err != nil {
+		return err
 	}
 
 	return backend.Errorf(backend.CodeTimeout,
 		"text sent to %s was never observed on screen, after one resend", target)
 }
 
-// observed polls the screen for either needle within one attempt budget.
-func (d Delivery) observed(ctx context.Context, target, head, tail string) bool {
+// observed polls the screen for either needle within one attempt budget, by
+// the watch where there is one and over the whole screen where there is not.
+// Only a watch's own error stops it early.
+func (d Delivery) observed(ctx context.Context, target, head, tail string, watch Watch) (bool, error) {
 	deadline := time.Now().Add(d.Budget)
 	for {
 		capture, err := d.Backend.Screen(ctx, target, backend.ScreenOpts{})
 		// A capture failure is not a match, and not a reason to stop: the
 		// budget is what bounds this, so a transient read failure costs one
 		// poll rather than the whole attempt.
-		if err == nil && (ScreenContains(capture.Text, head) || ScreenContains(capture.Text, tail)) {
-			return true
+		if err == nil {
+			if watch == nil {
+				if ScreenContains(capture.Text, head) || ScreenContains(capture.Text, tail) {
+					return true, nil
+				}
+			} else if seen, werr := watch(capture.Text, head, tail); seen || werr != nil {
+				return seen && werr == nil, werr
+			}
 		}
 		if time.Now().After(deadline) {
-			return false
+			return false, nil
 		}
 		select {
 		case <-ctx.Done():
-			return false
+			return false, nil
 		case <-time.After(d.Poll):
 		}
 	}

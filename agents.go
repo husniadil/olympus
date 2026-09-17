@@ -328,24 +328,7 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 		return nil, err
 	}
 
-	// The process table is read once per call, and only when a pane has a
-	// pid to walk from. If `ps` cannot be run the verb does not fail: the
-	// foreground-command match still answers, as it does for a pane with no
-	// pid at all, and the listing is worth more than the missing depth. The
-	// degradation is not disclosed on the result because Agents carries no
-	// warnings; what a caller sees is a listing that may miss an agent
-	// running under a shell.
-	var tree *processTree
-	for _, pane := range panes {
-		if pane.PID == 0 {
-			continue
-		}
-		table, err := o.readProcesses(ctx)
-		if err == nil {
-			tree = newProcessTree(table)
-		}
-		break
-	}
+	tree := o.processTreeFor(ctx, panes)
 
 	// A capture addresses a session, whose screen is its active pane's
 	// (§10). That is the pane's own screen for every session Olympus
@@ -358,14 +341,7 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 
 	agents := []backend.Agent{}
 	for _, pane := range panes {
-		var name string
-		var pid int
-		var ok bool
-		if pane.PID != 0 && tree != nil {
-			name, pid, ok = tree.agentUnder(pane.PID)
-		} else {
-			name, _, ok = agentInArgv(strings.Fields(pane.CurrentCommand))
-		}
+		name, pid, ok := agentOf(pane, tree)
 		if !ok {
 			continue
 		}
@@ -386,6 +362,36 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 		})
 	}
 	return agents, nil
+}
+
+// processTreeFor reads the process table once, and only when a pane has a
+// pid to walk from. If `ps` cannot be run nothing fails: the
+// foreground-command match still answers, as it does for a pane with no pid
+// at all, and a listing is worth more than the missing depth. The degradation
+// is not disclosed because Agents carries no warnings; what a caller sees is a
+// listing that may miss an agent running under a shell.
+func (o *Olympus) processTreeFor(ctx context.Context, panes []backend.Pane) *processTree {
+	for _, pane := range panes {
+		if pane.PID == 0 {
+			continue
+		}
+		table, err := o.readProcesses(ctx)
+		if err != nil {
+			return nil
+		}
+		return newProcessTree(table)
+	}
+	return nil
+}
+
+// agentOf names the agent a pane holds: the process tree under its pid where
+// one is known, its foreground command where not (behavior §3.7).
+func agentOf(pane backend.Pane, tree *processTree) (name string, pid int, ok bool) {
+	if pane.PID != 0 && tree != nil {
+		return tree.agentUnder(pane.PID)
+	}
+	name, _, ok = agentInArgv(strings.Fields(pane.CurrentCommand))
+	return name, 0, ok
 }
 
 // detectionRows is how many lines of a scrollback capture stand in for the

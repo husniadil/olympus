@@ -1127,6 +1127,7 @@ offer a flag that combines them (behavior §4.7). `send_text` with `atomic` and
 | Retry-safe across invocations | no: a retry re-types before checking | yes |
 | Multi-line | yes | rejected: no unambiguous submit point |
 | Lock scope | send, verify, submit, as one section | both writes |
+| Refuses an agent waiting on a person, as `AGENT_BLOCKED` | yes, before typing and on every capture after | yes, before the write |
 
 ### 6.2 Degraded results carry warnings, not errors
 

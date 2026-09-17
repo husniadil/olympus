@@ -117,6 +117,8 @@ olympus press repl enter            # key names are lowercase: enter, escape, c-
 
 Read with `screen` before and after sending when the program's state is unclear. `wait` is for the moment the state changes; `screen` is for seeing what it is.
 
+`send` into a coding agent that is waiting on a person (a permission prompt, a question) fails with `AGENT_BLOCKED`, exit 8, and types nothing. Read the prompt with `screen`, and answer it with `press` only when answering it is what you mean to do.
+
 ### Several sessions at once
 
 ```sh
