@@ -2313,10 +2313,11 @@ a capture where no box is drawn — the §7.2 whole-screen match applies.
 §7.1's two needles apply inside the box as they do on the screen.
 
 An agent may draw a long paste as a placeholder instead of its text (Claude
-Code's `[Pasted text #N]`). A text drawn that way has nothing to match, so a
-placeholder in the box that was not there before typing MUST count as the echo.
-The box is read for placeholders in the capture taken before typing (§7.5).
-Where that capture failed, placeholders are not counted.
+Code's `[Pasted text #N]`, Codex's `[Pasted Content N chars]`). A text drawn
+that way has nothing to match, so a placeholder that was not there before
+typing MUST count as the echo: in the box where one is drawn, and on the whole
+screen where it is not. Placeholders are counted in the capture taken before
+typing (§7.5). Where that capture failed, they are not counted.
 
 #### Why
 

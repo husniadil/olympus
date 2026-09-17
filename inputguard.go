@@ -44,16 +44,18 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 	//
 	// The same capture counts the box's paste placeholders (§7.6). Without
 	// it they are unknown, and a placeholder is not taken as the echo.
-	pastesBefore := -1
+	// Counted in the box where one is drawn, and on the whole screen where it
+	// is not (an agent whose manifest names no box, such as Codex).
+	boxPastes, screenPastes := -1, -1
 	if capture, err := o.backend.Screen(ctx, target, backend.ScreenOpts{}); err == nil {
 		if err := blocked(capture.Text, false); err != nil {
 			return nil, err
 		}
-		pastesBefore = 0
 		in := agentstate.Input{Screen: o.detectionScreen(capture.Text)}
+		screenPastes = agentstate.Pastes(in.Screen)
 		for _, agent := range agents {
 			if box, drawn := agentstate.Composer(agent, in); drawn {
-				pastesBefore = agentstate.Pastes(box)
+				boxPastes = agentstate.Pastes(box)
 				break
 			}
 		}
@@ -66,11 +68,14 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 		in := agentstate.Input{Screen: o.detectionScreen(screen)}
 		for _, agent := range agents {
 			if box, drawn := agentstate.Composer(agent, in); drawn {
-				if pastesBefore >= 0 && agentstate.Pastes(box) > pastesBefore {
+				if boxPastes >= 0 && agentstate.Pastes(box) > boxPastes {
 					return true, nil
 				}
 				return engine.ScreenContains(box, head) || engine.ScreenContains(box, tail), nil
 			}
+		}
+		if screenPastes >= 0 && agentstate.Pastes(in.Screen) > screenPastes {
+			return true, nil
 		}
 		return engine.ScreenContains(screen, head) || engine.ScreenContains(screen, tail), nil
 	}, nil

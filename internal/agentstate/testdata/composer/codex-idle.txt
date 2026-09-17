@@ -1,0 +1,6 @@
+  Tip: New For a limited time, Codex is included in your plan for free.
+• You have 1 usage limit reset available. Run /usage to use one.
+
+› Ask Codex to do anything
+
+  /tmp/probe · codex-probe · main · gpt-5.6 low · Context 0% used

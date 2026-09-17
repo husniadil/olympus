@@ -97,6 +97,23 @@ func TestSendTakesANewPastePlaceholderAsTheEcho(t *testing.T) {
 	}
 }
 
+// §7.6: an agent that draws no box is read on the whole screen, and Codex's
+// placeholder is the echo there. Before the rule a send of 2,000 characters
+// timed out and left the paste twice (measured on codex-cli 0.154.0).
+func TestSendTakesCodexsPastePlaceholderAsTheEcho(t *testing.T) {
+	f := &fakeBackend{text: composerScreen(t, "codex-idle.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = composerScreen(t, "codex-pasted.txt") }
+	paneRunning(f, "codex")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), strings.Repeat("word ", 400), VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if len(f.typed) != 1 || f.submits != 1 {
+		t.Errorf("typed %d and submitted %d, want one of each", len(f.typed), f.submits)
+	}
+}
+
 // §7.6: placeholders already in the box before typing are not the echo.
 func TestSendDoesNotTakeAnOldPastePlaceholderAsTheEcho(t *testing.T) {
 	f := &fakeBackend{text: composerScreen(t, "pasted.txt")}

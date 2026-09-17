@@ -36,13 +36,15 @@ func (m *Manifest) namesComposer() bool {
 	return false
 }
 
-// pastePlaceholder is what Claude Code draws in its box in place of pasted
-// text too long to show: "[Pasted text #3]", numbered across the session.
-var pastePlaceholder = regexp.MustCompile(`\[Pasted text #\d+`)
+// pastePlaceholder is what an agent draws in place of pasted text too long to
+// show: Claude Code's "[Pasted text #3]", numbered across the session, and
+// Codex's "[Pasted Content 2000 chars]" (measured on codex-cli 0.154.0).
+var pastePlaceholder = regexp.MustCompile(`\[Pasted (?:text #\d+|Content \d+ chars\])`)
 
-// Pastes counts the paste placeholders in a box (behavior §7.6). A text the
-// agent collapsed into one cannot be matched, so a placeholder that was not
-// there before typing is the only sign it arrived.
-func Pastes(box string) int {
-	return len(pastePlaceholder.FindAllStringIndex(box, -1))
+// Pastes counts the paste placeholders in a box, or in a screen where no box
+// is drawn (behavior §7.6). A text the agent collapsed into one cannot be
+// matched, so a placeholder that was not there before typing is the only
+// sign it arrived.
+func Pastes(text string) int {
+	return len(pastePlaceholder.FindAllStringIndex(text, -1))
 }

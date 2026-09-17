@@ -8,11 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
-- **A long send into Claude Code is delivered once.** Claude Code draws a
-  paste of about 3,000 characters as `[Pasted text #N]`, which no echo
-  matched: the send timed out and its resend left the text in the box twice.
-  A placeholder that was not in the box before typing is now the echo.
-  Behavior spec §7.6.
+- **A long send into Claude Code or Codex is delivered once.** Claude Code
+  draws a paste of about 3,000 characters as `[Pasted text #N]`, and Codex
+  one of 2,000 as `[Pasted Content N chars]`. No echo matched either: the send
+  timed out and its resend left the paste twice. A placeholder that was not
+  there before typing is now the echo. Behavior spec §7.6.
 
 ## [0.30.0]
 

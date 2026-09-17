@@ -91,6 +91,9 @@ func TestPastesCountsThePlaceholdersInTheBox(t *testing.T) {
 	if got := Pastes(box); got != 3 {
 		t.Errorf("Pastes = %d, want 3 in %q", got, box)
 	}
+	if got := Pastes("›⠁[Pasted Content 2000 chars]"); got != 1 {
+		t.Errorf("Pastes on Codex's placeholder = %d, want 1", got)
+	}
 	if got := Pastes("a draft with no placeholder"); got != 0 {
 		t.Errorf("Pastes on plain text = %d, want 0", got)
 	}
