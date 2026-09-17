@@ -58,6 +58,16 @@ func TestTheStatusReportMatchesTheSpecShape(t *testing.T) {
 // signal, and a tag that dropped it would make every failure look like a success
 // with a missing key to a consumer reading `ok` as falsy-by-absence — which is
 // how it reads in most languages, so the bug would be invisible until a failure.
+// §2: `error.typed` is present only on a refusal whose text was typed.
+func TestATypedRefusalCarriesTyped(t *testing.T) {
+	typed := backend.Errorf(backend.CodeAgentBlocked, "typed then blocked")
+	typed.Typed = true
+	assertEnvelopeJSON(t, failureEnvelope(backend.Herdr, typed),
+		`{"ok":false,"backend":"herdr","error":{"code":"AGENT_BLOCKED","message":"typed then blocked","typed":true}}`)
+	assertEnvelopeJSON(t, failureEnvelope(backend.Herdr, backend.Errorf(backend.CodeAgentBlocked, "blocked")),
+		`{"ok":false,"backend":"herdr","error":{"code":"AGENT_BLOCKED","message":"blocked"}}`)
+}
+
 func TestOKSurvivesBeingFalse(t *testing.T) {
 	assertEnvelopeJSON(t, Envelope{}, `{"ok":false}`)
 }

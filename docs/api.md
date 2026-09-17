@@ -179,6 +179,7 @@ one envelope.
 | `data` | The per-operation payload. Absent for operations with no payload. An object or an array, never a bare scalar. |
 | `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. |
 | `error` | Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
+| `error.typed` | `true` on an `AGENT_BLOCKED` whose text was typed before the agent started waiting, so it may still be in the input box (behavior spec §7.5). Omitted otherwise. |
 
 **Empty collections serialize as `[]`, never `null`.** This applies to `data`
 when it is a list, and to every list-valued field inside it.
@@ -271,7 +272,7 @@ It is never a JSON-RPC protocol error (behavior spec §15.6).
 `errors.Is` works against the exported sentinels `ErrUsage`, `ErrNotFound`,
 `ErrUnavailable`, `ErrTimeout`, `ErrConflict`, `ErrUnsupported` and `ErrBlocked`. The code is
 also readable from the error value with `CodeOf`, and `ExitCode` maps it to its
-exit status.
+exit status. `TypedOf` reads the envelope's `error.typed`.
 
 ### 3.1 The two exit-code deviations
 

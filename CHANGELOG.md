@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`error.typed` on `AGENT_BLOCKED`.** A verified send stopped because the
+  agent started waiting on a person after the text was typed now says so:
+  `"typed": true` in the envelope's error, a `typed: true` line in an MCP
+  tool error, and `TypedOf` in Go. A caller that sends again once the prompt
+  closes can tell that the first copy may still be in the input box. Behavior
+  spec §7.5, api §2.
+
 ## [0.28.0]
 
 ### Changed

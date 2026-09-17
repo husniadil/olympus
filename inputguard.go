@@ -28,8 +28,10 @@ func (o *Olympus) inspectInput(ctx context.Context, target string) (engine.Watch
 				continue
 			}
 			if typed {
-				return backend.Errorf(backend.CodeAgentBlocked,
+				err := backend.Errorf(backend.CodeAgentBlocked,
 					"the %s agent in %s started waiting on a person after the text was typed, so it was not submitted: the text may be in its prompt or its input box, so read the screen before answering with press", agent, target)
+				err.Typed = true
+				return err
 			}
 			return backend.Errorf(backend.CodeAgentBlocked,
 				"the %s agent in %s is waiting on a person, so nothing was typed: answer its prompt with press, or send once it is not waiting", agent, target)

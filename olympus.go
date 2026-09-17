@@ -30,6 +30,10 @@ var (
 // CodeOf classifies any error into the semver-bound vocabulary of §12.
 func CodeOf(err error) backend.Code { return backend.CodeOf(err) }
 
+// TypedOf reports whether a send refused as AGENT_BLOCKED had already typed
+// its text (behavior §7.5).
+func TypedOf(err error) bool { return backend.TypedOf(err) }
+
 // ExitCode maps a code to its process exit status.
 func ExitCode(code backend.Code) int { return backend.ExitCode(code) }
 

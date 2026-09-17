@@ -45,6 +45,17 @@ func TestCodeIsReadableFromTheErrorValue(t *testing.T) {
 	}
 }
 
+func TestTypedSurvivesWrappingAndIsFalseElsewhere(t *testing.T) {
+	typed := backend.Errorf(backend.CodeAgentBlocked, "typed then blocked")
+	typed.Typed = true
+	if !backend.TypedOf(fmt.Errorf("send: %w", typed)) {
+		t.Error("TypedOf through a wrap = false, want true")
+	}
+	if backend.TypedOf(backend.Errorf(backend.CodeAgentBlocked, "blocked")) || backend.TypedOf(errors.New("x")) || backend.TypedOf(nil) {
+		t.Error("TypedOf = true on an error that was not typed")
+	}
+}
+
 // The code must survive an intermediate wrap, or every layer between the
 // backend and the door has to re-tag failures by hand.
 func TestCodeSurvivesWrapping(t *testing.T) {

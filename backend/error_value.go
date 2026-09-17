@@ -44,6 +44,9 @@ type Error struct {
 	// Cause is the underlying error, if any. It stays unwrappable so a backend
 	// can attach the exec or syscall failure that explains the classification.
 	Cause error
+	// Typed marks an AGENT_BLOCKED whose text was typed before the agent
+	// started waiting (behavior §7.5): a second send would type it again.
+	Typed bool
 }
 
 // Errorf builds a classified error with a formatted message.
@@ -83,6 +86,13 @@ func (e *Error) Is(target error) bool {
 // empty code — "nothing failed" is distinct from "failed for an unknown
 // reason". Anything else that carries no classification is CodeUnexpected, per
 // §12: a door therefore never holds an error it cannot put in the envelope.
+// TypedOf reports whether err is a refusal whose text was already typed
+// (behavior §7.5). Every other error, and nil, is false.
+func TypedOf(err error) bool {
+	var classified *Error
+	return errors.As(err, &classified) && classified.Typed
+}
+
 func CodeOf(err error) Code {
 	if err == nil {
 		return ""

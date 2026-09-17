@@ -2231,7 +2231,11 @@ fails with `AGENT_BLOCKED` (§12) and types nothing.
 
 The same reading is repeated on every capture while the echo is polled for. A
 capture read as `blocked` stops the delivery at once, with no resend and no
-terminator, and fails with `AGENT_BLOCKED`.
+terminator, and fails with `AGENT_BLOCKED` marked `typed`.
+
+`typed` is what tells the two apart. Without it, a caller that sends again once
+the prompt closes types the text a second time, beside the copy the first send
+left in the input box.
 
 An atomic send (§4.7) is refused by the same reading before its one write. It
 has no echo to poll, so that reading is all it gets.

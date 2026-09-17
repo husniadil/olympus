@@ -40,6 +40,8 @@ type Envelope struct {
 type EnvelopeError struct {
 	Code    backend.Code `json:"code"`
 	Message string       `json:"message"`
+	// Typed is api §2's `error.typed`, omitted when false.
+	Typed bool `json:"typed,omitempty"`
 }
 
 func successEnvelope(name backend.Name, data any, warnings []olympus.Warning) Envelope {
@@ -50,7 +52,7 @@ func failureEnvelope(name backend.Name, err error) Envelope {
 	return Envelope{
 		OK:      false,
 		Backend: name,
-		Error:   &EnvelopeError{Code: backend.CodeOf(err), Message: err.Error()},
+		Error:   &EnvelopeError{Code: backend.CodeOf(err), Message: err.Error(), Typed: backend.TypedOf(err)},
 	}
 }
 

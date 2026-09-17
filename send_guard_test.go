@@ -40,6 +40,9 @@ func TestSendRefusesAnAgentWaitingOnAPerson(t *testing.T) {
 	if !errors.Is(err, ErrBlocked) {
 		t.Fatalf("error is %v, want AGENT_BLOCKED", err)
 	}
+	if TypedOf(err) {
+		t.Errorf("a refusal before typing is marked typed: %v", err)
+	}
 	if len(f.typed) != 0 || f.submits != 0 {
 		t.Errorf("typed %d and submitted %d into a waiting agent, want nothing", len(f.typed), f.submits)
 	}
@@ -92,6 +95,9 @@ func TestSendStopsWhenAQuestionOpensMidDelivery(t *testing.T) {
 		t.Errorf("typed %d and submitted %d, want one send and no terminator", len(f.typed), f.submits)
 	}
 	// The text was typed, so the refusal must not tell the caller it was not.
+	if !TypedOf(err) {
+		t.Errorf("a refusal after typing is not marked typed: %v", err)
+	}
 	if strings.Contains(err.Error(), "nothing was typed") {
 		t.Errorf("the error says nothing was typed after one send: %v", err)
 	}

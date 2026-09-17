@@ -183,12 +183,16 @@ func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In
 // leaves the client unable to tell "your target does not exist" from "this
 // server is malfunctioning" (behavior §15.6).
 func toolError(err error) *sdk.CallToolResult {
-	return &sdk.CallToolResult{
+	result := &sdk.CallToolResult{
 		IsError: true,
 		Content: []sdk.Content{
 			&sdk.TextContent{Text: fmt.Sprintf("%s: %s", backend.CodeOf(err), err.Error())},
 		},
 	}
+	if backend.TypedOf(err) {
+		result.Content = append(result.Content, &sdk.TextContent{Text: "typed: true"})
+	}
+	return result
 }
 
 func toolErrorFrom(ol *olympus.Olympus, err error) *sdk.CallToolResult {
