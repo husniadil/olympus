@@ -2831,10 +2831,13 @@ legacy `CSI 31 ~` went unread.
 ##### A press is read when the server's focus moves
 
 A press MUST be taken as read only once the client has painted a window title
-AND the server's focus is on the next workspace, where the focus was elsewhere
-before the press. A press not read in a second and a half is made again, twice
-in all, before the walk fails. The frame end the walk waits for is the one after
-the title of the press that was read.
+AND the server's focus is on the next workspace. Where the focus was already
+there before the press, it MUST also stay there for a quarter of a second. A
+press whose focus is still on the workspace the client is on after a second and
+a half was not read, and is made again, twice in all, before the walk fails. A
+press whose focus is anywhere else by then fails the walk without a second
+press. The frame end the walk waits for is the one after the title of the press
+that was read.
 
 ###### Why
 
@@ -2847,6 +2850,13 @@ stayed. The walk took the title as the press read, and what was typed next
 landed on the workspace the client had not left: the two-client e2e failed 2 of
 3 on herdr 0.9.1, passed 4 of 4 on 0.9.0, and passed 8 of 8 on 0.9.1 with the
 focus confirmed.
+
+That stale press puts the focus on the workspace the client is on, which a
+press read never does. A focus on a third workspace is somebody else's request,
+and it says nothing about where the client went: a second press there could
+take a client that did move one step too far, and a client on the wrong
+workspace is worse than a failed attach. Where the focus was on the next
+workspace already, a stale press is seen only by the focus leaving it.
 
 A tab or pane target is then steered on the server for its tab and zoom. Those
 are the workspace's own state and move no client on another workspace.

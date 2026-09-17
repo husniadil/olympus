@@ -879,8 +879,6 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 				case <-time.After(keyGap):
 				}
 			}
-			// The server's focus is read before the press, since a press is
-			// confirmed by the focus moving onto the next workspace.
 			before, err := h.snapshot(ctx)
 			if err != nil {
 				return err
@@ -889,16 +887,20 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 			if _, err := io.WriteString(keys, key); err != nil {
 				return backend.Wrapf(backend.CodeUnexpected, err, "walking the client to %s", to.workspace.WorkspaceID)
 			}
-			landed = seen(pressWithin)
+			if !seen(pressWithin) {
+				continue
+			}
 			painted = expect([]byte(frameEnd))
 			// A title alone is not the press read: herdr 0.9.1's client
 			// counts the step from the workspace its own last snapshot names,
 			// and one that had not caught up focused the workspace it was
-			// already on and painted that title (measured). Where the focus
-			// was elsewhere, the walk waits for it to reach the next workspace,
-			// and presses again if it does not.
-			if landed && before.FocusedWorkspaceID != next.WorkspaceID {
-				landed = h.focusReaches(ctx, next.WorkspaceID, pressWithin)
+			// already on and painted that title (measured). The press is
+			// read once the server's focus is on the next workspace. A focus
+			// back on the workspace the client is on is that stale press, and
+			// is pressed again. A focus anywhere else is somebody else's, and
+			// a press made again there could take the client a step too far.
+			if landed, err = h.pressRead(ctx, before.FocusedWorkspaceID, ordered[idx].WorkspaceID, next.WorkspaceID); err != nil {
+				return err
 			}
 		}
 		if !landed {
@@ -932,21 +934,33 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 	return nil
 }
 
-// focusReaches reads the server's focus until it is on the workspace, for as
-// long as within allows. A walked client's move is the server's focus moving
-// (§8.10), so this is where the walk sees a press was read.
-func (h *Herdr) focusReaches(ctx context.Context, workspaceID string, within time.Duration) bool {
-	deadline := time.Now().Add(within)
+// pressRead says whether a press that painted a title moved the client from
+// the workspace it is on to the next, read off the server's focus, which a
+// walked client's press moves (§8.10). The focus reaching the next workspace
+// is the press read. Where the focus was there before the press, it must stay
+// there for focusHold, since a stale press moves it back to where the client
+// is. When pressWithin has passed, the focus on the workspace the client is
+// on is a stale press (false), and the focus anywhere else is an error.
+func (h *Herdr) pressRead(ctx context.Context, before, on, next string) (bool, error) {
+	last := before
+	start := time.Now()
 	for {
-		if snap, err := h.snapshot(ctx); err == nil && snap.FocusedWorkspaceID == workspaceID {
-			return true
+		if snap, err := h.snapshot(ctx); err == nil {
+			last = snap.FocusedWorkspaceID
 		}
-		if time.Now().After(deadline) {
-			return false
+		if last == next && (before != next || time.Since(start) >= focusHold) {
+			return true, nil
+		}
+		if time.Since(start) >= pressWithin {
+			if last == on {
+				return false, nil
+			}
+			return false, backend.Errorf(backend.CodeUnexpected,
+				"the client may not be on %s: the server's focus went to %s while it was walked", next, last)
 		}
 		select {
 		case <-ctx.Done():
-			return false
+			return false, ctx.Err()
 		case <-time.After(focusPoll):
 		}
 	}
@@ -997,8 +1011,11 @@ const (
 	// how many times it is made before the walk gives up.
 	pressWithin   = 1500 * time.Millisecond
 	pressAttempts = 2
-	// How often the server's focus is read while a press is confirmed.
-	focusPoll = 50 * time.Millisecond
+	// How often the server's focus is read while a press is confirmed, and
+	// how long a focus already on the next workspace must stay there before
+	// the press is believed: a stale press moves it back a beat after its title.
+	focusPoll = 25 * time.Millisecond
+	focusHold = 250 * time.Millisecond
 
 	// The end of a synchronized-output frame (DEC 2026), which closes the
 	// paint of a workspace the client has just switched to.

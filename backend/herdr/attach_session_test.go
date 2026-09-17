@@ -545,6 +545,14 @@ func TestAGoWalksTheBareClientFromWhereItIsAndTheProbeFollows(t *testing.T) {
 // same, is not taken as a step: the server's focus did not reach the next
 // workspace, so the key is pressed again and the walk lands.
 func TestAWalkPressesAgainWhereTheFocusDidNotMove(t *testing.T) {
+	for _, already := range []bool{false, true} {
+		t.Run(map[bool]string{false: "focus elsewhere", true: "focus already on the target"}[already], func(t *testing.T) {
+			walkPressedAgain(t, already)
+		})
+	}
+}
+
+func walkPressedAgain(t *testing.T, focusOnTarget bool) {
 	requireHerdrRunnable(t)
 	b := liveBackend(t)
 	ctx := context.Background()
@@ -571,6 +579,9 @@ func TestAWalkPressesAgainWhereTheFocusDidNotMove(t *testing.T) {
 		t.Fatalf("Attach(second): %v", err)
 	}
 	defer func() { _ = att.Cleanup() }()
+	if focusOnTarget {
+		raw(t, b, "workspace", "focus", ids[1])
+	}
 	client := newKeyedClient(t, b, ids[0])
 	client.stale = 1
 	if err := att.Settle(ctx, client, met); err != nil {
@@ -581,6 +592,47 @@ func TestAWalkPressesAgainWhereTheFocusDidNotMove(t *testing.T) {
 	}
 	if ws, _, _, _ := focus(t, b); ws != ids[1] {
 		t.Errorf("the walk ended with the focus on %s, want %s", ws, ids[1])
+	}
+}
+
+// §8.10 A press after which the server's focus is on neither the workspace
+// the client was on nor the next one was read by somebody else's request as
+// much as by the client, and a press made again could take the client a step
+// too far: the walk fails instead.
+func TestAWalkFailsWhereTheFocusWentElsewhere(t *testing.T) {
+	requireHerdrRunnable(t)
+	b := liveBackend(t)
+	ctx := context.Background()
+	var ids []string
+	for _, name := range []string{"first", "second", "third"} {
+		created, err := b.Create(ctx, backend.CreateSpec{Name: name})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	raw(t, b, "workspace", "focus", ids[0])
+	version, err := b.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if sharedClientFocus(version) {
+		t.Skipf("herdr %s shares one focus across clients; nothing walks", version)
+	}
+	skipWhereClientViewsMove(t, b)
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
+	att, err := b.Attach(ctx, "second", spec)
+	if err != nil {
+		t.Fatalf("Attach(second): %v", err)
+	}
+	defer func() { _ = att.Cleanup() }()
+	client := newKeyedClient(t, b, ids[0])
+	client.elsewhere = ids[2]
+	if err := att.Settle(ctx, client, met); err == nil {
+		t.Fatal("a walk whose focus went to a third workspace was taken as landed")
+	}
+	if got := client.keys.String(); got != nextWorkspaceKey {
+		t.Errorf("the walk wrote %q, want one press and no second", got)
 	}
 }
 
@@ -615,6 +667,9 @@ type keyedClient struct {
 	// stale presses are read the way herdr 0.9.1's client reads a press
 	// while its snapshot has not caught up: it focuses where it already is.
 	stale int
+	// elsewhere, where set, is focused instead of the next workspace: the
+	// focus moved by somebody else while the press was read.
+	elsewhere string
 }
 
 func newKeyedClient(t *testing.T, b *Herdr, at string) *keyedClient {
@@ -643,6 +698,10 @@ func (c *keyedClient) Write(p []byte) (int, error) {
 			step, s = -1, s[len(previousWorkspaceKey):]
 		default:
 			s = s[1:]
+			continue
+		}
+		if c.elsewhere != "" {
+			raw(c.t, c.b, "workspace", "focus", c.elsewhere)
 			continue
 		}
 		if c.stale > 0 {
