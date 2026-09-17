@@ -213,6 +213,36 @@ func TestVendoredManifestsReadTheScreens(t *testing.T) {
 		wantSt State
 	}{
 		{
+			// Transcribed from herdr's detection snapshot of a 16-row pane
+			// (pane read --source detection), shell lines and all.
+			name:  "codex trust dialog under the shell line that started it",
+			agent: "codex",
+			in: Input{Screen: "codex\n" +
+				"╭─ @box scratchpad/probe ✓ main\n" +
+				"╰─ ❯ codex\n" +
+				"> You are in /private/tmp/probe\n\n" +
+				"  Do you trust the contents of this directory?\n" +
+				"  Working with untrusted contents comes with higher\n" +
+				"  risk of prompt injection.\n\n" +
+				"› 1. Yes, continue\n" +
+				"  2. No, quit\n\n" +
+				"  Press enter to continue\n"},
+			want: Result{State: Blocked, Rule: "trust_directory"},
+		},
+		{
+			name:  "codex hooks review",
+			agent: "codex",
+			in: Input{Screen: "╰─ ❯ codex\n\n" +
+				"  Hooks need review\n" +
+				"  1 hook is new or changed.\n" +
+				"  Hooks can run outside the sandbox after you trust them.\n\n" +
+				"› 1. Review hooks\n" +
+				"  2. Trust all and continue\n" +
+				"  3. Continue without trusting (hooks won't run)\n\n" +
+				"  Press enter to confirm or esc to go back\n"},
+			want: Result{State: Blocked, Rule: "live_strong_blocker"},
+		},
+		{
 			name:  "claude live turn",
 			agent: "claude",
 			in: Input{Screen: "────────────────────────────────────────────────────────────────\n" +

@@ -1383,6 +1383,21 @@ herdr watches a pane continuously and falls back to `idle` when nothing matches,
 because a screen with no evidence there is a settled screen. A listing reads one
 snapshot, so here nothing matching is `unknown`.
 
+##### Two Codex dialogs upstream's manifest does not read
+
+Codex asks whether to trust a directory, and then whether to trust its hooks.
+Both wait on a person, and both MUST read as `blocked`.
+
+- The trust dialog's first line may follow the shell line that started Codex, so
+  it is matched at the start of any line of the region rather than of the
+  region. herdr's detection snapshot holds that shell line when the pane's
+  bottom rows are blank (measured on herdr 0.9.0).
+- The hooks dialog ends "press enter to confirm or esc to go back", which the
+  confirmation rule did not list. Text typed into it moved its choice from
+  Review hooks to Trust all (measured on codex-cli 0.154.0).
+
+Each changed line in `codex.toml` carries a comment with upstream's.
+
 #### What the agent said is asked for, never assumed
 
 `last` carries one line of the agent's own output: what it last said, or, where

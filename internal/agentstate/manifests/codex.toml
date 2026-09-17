@@ -37,8 +37,12 @@ state = "blocked"
 priority = 950
 region = "top_non_empty_lines(20)"
 visible_blocker = true
+# olympus: the line may follow the shell line that started codex, which a
+# snapshot ending at the last drawn row still holds (measured on herdr 0.9.0,
+# a pane whose bottom rows were blank). Upstream:
+# { regex = ['\A> You are in [^\r\n]+(?:\r?\n|$)'] },
 all = [
-  { regex = ['\A> You are in [^\r\n]+(?:\r?\n|$)'] },
+  { regex = ['(?m)^> You are in [^\r\n]+(?:\r?\n|$)'] },
   { regex = ['(?s)Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?'] },
 ]
 
@@ -50,6 +54,10 @@ region = "after_last_prompt_marker"
 visible_blocker = true
 any = [
   { contains = ["press enter to confirm or esc to cancel"] },
+  # olympus: codex's "Hooks need review" dialog ends this way instead, and
+  # text typed into it moved its choice (measured on codex-cli 0.154.0). Not
+  # upstream.
+  { contains = ["press enter to confirm or esc to go back"] },
   { contains = ["enter to submit answer"] },
   { contains = ["enter to submit all"] },
   { contains = ["allow command?"] },

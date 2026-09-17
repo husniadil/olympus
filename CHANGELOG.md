@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Two Codex dialogs read as blocked.** Codex's directory trust dialog was
+  missed when the shell line that started Codex was still in the region read,
+  and its "Hooks need review" dialog was not recognised at all, so a send
+  typed into it and moved its choice. Both are `blocked` now, and a send into
+  either is refused with `AGENT_BLOCKED`. Behavior spec §3.7.
+
 ## [0.29.0]
 
 ### Added
