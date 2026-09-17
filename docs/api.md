@@ -252,6 +252,7 @@ never removed, only added to.
 | `TIMEOUT` | 5 | An operation that did not complete or match within its budget. |
 | `CONFLICT` | 6 | A lock or attach slot held by someone else. |
 | `UNSUPPORTED` | 7 | A backend with no concept for the operation at all. |
+| `AGENT_BLOCKED` | 8 | A verified send refused because the target's agent is waiting on a person. Nothing was typed. |
 | `UNEXPECTED` | 1 | Anything else: Olympus broke, and retrying will not help. |
 
 ### Every error reaches the envelope
@@ -268,7 +269,7 @@ It is never a JSON-RPC protocol error (behavior spec §15.6).
 ### The Go door returns typed errors
 
 `errors.Is` works against the exported sentinels `ErrUsage`, `ErrNotFound`,
-`ErrUnavailable`, `ErrTimeout`, `ErrConflict` and `ErrUnsupported`. The code is
+`ErrUnavailable`, `ErrTimeout`, `ErrConflict`, `ErrUnsupported` and `ErrBlocked`. The code is
 also readable from the error value with `CodeOf`, and `ExitCode` maps it to its
 exit status.
 

@@ -18,6 +18,7 @@ var sentinels = map[backend.Code]error{
 	backend.CodeTimeout:            backend.ErrTimeout,
 	backend.CodeConflict:           backend.ErrConflict,
 	backend.CodeUnsupported:        backend.ErrUnsupported,
+	backend.CodeAgentBlocked:       backend.ErrBlocked,
 }
 
 func TestErrorMatchesOnlyItsOwnSentinel(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 //
 // There is deliberately no sentinel for CodeUnexpected. It is the catch-all —
 // every error that carries no other code answers to it — so matching against
-// it would say nothing a failed match against the other six does not already
+// it would say nothing a failed match against the other seven does not already
 // say. Read CodeOf when the classification itself is the question.
 var (
 	ErrUsage       = errors.New("usage")
@@ -19,6 +19,7 @@ var (
 	ErrTimeout     = errors.New("timed out")
 	ErrConflict    = errors.New("conflict")
 	ErrUnsupported = errors.New("unsupported")
+	ErrBlocked     = errors.New("agent blocked")
 )
 
 // sentinels maps a code to the value errors.Is matches it against.
@@ -29,6 +30,7 @@ var sentinels = map[Code]error{
 	CodeTimeout:            ErrTimeout,
 	CodeConflict:           ErrConflict,
 	CodeUnsupported:        ErrUnsupported,
+	CodeAgentBlocked:       ErrBlocked,
 }
 
 // An Error carries a classification alongside its message, so a door can

@@ -24,6 +24,7 @@ var (
 	ErrTimeout     = backend.ErrTimeout
 	ErrConflict    = backend.ErrConflict
 	ErrUnsupported = backend.ErrUnsupported
+	ErrBlocked     = backend.ErrBlocked
 )
 
 // CodeOf classifies any error into the semver-bound vocabulary of §12.

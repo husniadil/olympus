@@ -3539,6 +3539,7 @@ added.
 | `TIMEOUT` | 5 | An operation did not complete or match before its budget elapsed. |
 | `CONFLICT` | 6 | A lock or attach slot is held by someone else. |
 | `UNSUPPORTED` | 7 | The backend has no concept for this operation at all. |
+| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person, and the input was refused before anything was typed (§7.5). |
 | `UNEXPECTED` | 1 | Anything not carrying one of the above. |
 
 ### Two distinctions that MUST be preserved

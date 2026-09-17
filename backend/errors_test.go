@@ -16,6 +16,7 @@ var specTable = map[backend.Code]int{
 	backend.CodeTimeout:            5,
 	backend.CodeConflict:           6,
 	backend.CodeUnsupported:        7,
+	backend.CodeAgentBlocked:       8,
 	backend.CodeUnexpected:         1,
 }
 
@@ -61,6 +62,7 @@ func TestCodeSpellingsAreTheWireSpellings(t *testing.T) {
 		backend.CodeTimeout:            "TIMEOUT",
 		backend.CodeConflict:           "CONFLICT",
 		backend.CodeUnsupported:        "UNSUPPORTED",
+		backend.CodeAgentBlocked:       "AGENT_BLOCKED",
 		backend.CodeUnexpected:         "UNEXPECTED",
 	}
 	for code, want := range spellings {
