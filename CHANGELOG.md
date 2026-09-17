@@ -4,6 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0]
+
+### Fixed
+
+- **A bare client walked on herdr 0.9.1 lands where it was sent.** herdr
+  0.9.1's client counts a workspace step from its own last snapshot, and one
+  that had not caught up stayed where it was while painting a title, which the
+  walk took as the step read. What was typed after a `go` then went into the
+  workspace the client never left. A step is now read only once the server's
+  focus is on the next workspace, and is pressed again where it is not.
+  Behavior spec §8.10.
+
+### Changed
+
+- **Agent detection follows herdr 0.9.1.** The vendored manifests are herdr
+  v0.9.1's. Claude Code's `✳` activity spinner reads as working, a Bash
+  approval with the cursor on its first option reads as blocked, Pi's working
+  border and Cline's launcher and idle states are read, and Letta Code
+  (`letta`, `letta-code`) is an agent with a manifest of its own. Behavior
+  spec §3.7.
+
 ## [0.32.0]
 
 ### Fixed

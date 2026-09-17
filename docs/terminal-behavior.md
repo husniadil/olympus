@@ -1361,8 +1361,8 @@ kind of status a row carries.
 
 #### The manifests
 
-The manifests are herdr's, vendored (`internal/agentstate/manifests/`, Apache
-2.0) and evaluated by a port of herdr's engine:
+The manifests are herdr v0.9.1's, vendored (`internal/agentstate/manifests/`,
+Apache 2.0) and evaluated by a port of herdr's engine:
 
 - regions of the screen: the bottom N non-blank lines, what follows the last
   horizontal rule, the composer box, the title;
@@ -1399,8 +1399,6 @@ Both wait on a person, and both MUST read as `blocked`.
   title and that footer together, since Codex's pickers may end the same way.
 
 Each changed line in `codex.toml` carries a comment with upstream's.
-`codex.toml` itself is herdr's published manifest 2026.09.14.1, newer than the
-commit the other manifests are vendored from.
 
 #### What the agent said is asked for, never assumed
 
@@ -2830,6 +2828,26 @@ The bare configuration binds those keys to F17 and F18, keys a terminal almost
 never sends. They are written in the kitty spelling the client asked for; the
 legacy `CSI 31 ~` went unread.
 
+##### A press is read when the server's focus moves
+
+A press MUST be taken as read only once the client has painted a window title
+AND the server's focus is on the next workspace, where the focus was elsewhere
+before the press. A press not read in a second and a half is made again, twice
+in all, before the walk fails. The frame end the walk waits for is the one after
+the title of the press that was read.
+
+###### Why
+
+A walked client's move is a `workspace focus` it sends the server, so the
+server's focus follows it (measured on 0.9.0 and 0.9.1). The title alone was
+the signal before herdr 0.9.1. From 0.9.1 the client counts a step from the
+workspace its own last snapshot names, and one whose snapshot had not caught up
+focused the workspace it was already on, painted that workspace's title, and
+stayed. The walk took the title as the press read, and what was typed next
+landed on the workspace the client had not left: the two-client e2e failed 2 of
+3 on herdr 0.9.1, passed 4 of 4 on 0.9.0, and passed 8 of 8 on 0.9.1 with the
+focus confirmed.
+
 A tab or pane target is then steered on the server for its tab and zoom. Those
 are the workspace's own state and move no client on another workspace.
 
@@ -2935,6 +2953,14 @@ ask is not kept.
 
 A server that does not advertise it is walked as above and never handed the
 flags, since a herdr without them refuses to launch.
+
+A request that moves the server's focus (`workspace focus`, `tab focus`, and
+from herdr 0.9.1 `agent focus` and `pane move --focus`) moves every client the
+server holds. The fork's builds before `0.9.1+agm.1` moved a tagged client with
+the rest. From `0.9.1+agm.1` a tagged client stays where it is, moved only by
+`client.view.focus`. Olympus sends no such request for a bare attach on a
+server with the view, so the difference reaches a caller only through somebody
+else's request.
 
 The ping and the client requests have no CLI verb, so they go over the API
 socket directly, one JSON line each way on a connection of their own. Everything
