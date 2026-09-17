@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -369,17 +370,19 @@ func TestBareAttachWalksTheClientWhereViewsArePerClient(t *testing.T) {
 	// the race this holds against — and the walk still counts from where
 	// the client came up, which was read when the attach was built.
 	raw(t, b, "workspace", "focus", ids[0])
-	var keys strings.Builder
-	if err := att.Settle(ctx, &keys, met); err != nil {
+	client := newKeyedClient(t, b, ids[1])
+	if err := att.Settle(ctx, client, met); err != nil {
 		t.Fatalf("Settle: %v", err)
 	}
 	// The client came up on `second`, the server's focus at the attach;
 	// `third` is the next one along.
-	if got := keys.String(); got != nextWorkspaceKey {
+	if got := client.keys.String(); got != nextWorkspaceKey {
 		t.Errorf("the walk wrote %q, want one next-workspace press", got)
 	}
-	if ws, _, _, _ := focus(t, b); ws != ids[0] {
-		t.Errorf("the walk moved the server's focus to %s; it must move the client alone", ws)
+	// The walk moves the server's focus only through the client's own key:
+	// it is where the client went, not where anything steered it.
+	if ws, _, _, _ := focus(t, b); ws != ids[2] {
+		t.Errorf("the server's focus is on %s after the walk, want %s where the client's key put it", ws, ids[2])
 	}
 	// The operator's own client has no keys this backend can count on: it
 	// is steered on the server as before.
@@ -509,17 +512,18 @@ func TestAGoWalksTheBareClientFromWhereItIsAndTheProbeFollows(t *testing.T) {
 	if att.Go == nil {
 		t.Fatal("a bare client on a per-view herdr cannot be moved")
 	}
-	if err := att.Settle(ctx, io.Discard, met); err != nil {
+	client := newKeyedClient(t, b, ids[1])
+	if err := att.Settle(ctx, client, met); err != nil {
 		t.Fatalf("Settle: %v", err)
 	}
 	// The server's focus is elsewhere; the client is on `third`, and
 	// `first` is the next one along the ring from there.
 	raw(t, b, "workspace", "focus", ids[1])
-	var keys strings.Builder
-	if err := att.Go(ctx, "first", &keys, met); err != nil {
+	client.keys.Reset()
+	if err := att.Go(ctx, "first", client, met); err != nil {
 		t.Fatalf("Go(first): %v", err)
 	}
-	if got := keys.String(); got != nextWorkspaceKey {
+	if got := client.keys.String(); got != nextWorkspaceKey {
 		t.Errorf("the go wrote %q, want one next-workspace press (third → first round the ring)", got)
 	}
 	if err := att.Go(ctx, "nowhere", io.Discard, met); err == nil {
@@ -534,6 +538,49 @@ func TestAGoWalksTheBareClientFromWhereItIsAndTheProbeFollows(t *testing.T) {
 	raw(t, b, "workspace", "close", ids[0])
 	if got := att.Probe(ctx); got != backend.StateAbsent {
 		t.Errorf("after closing the workspace the client is on the probe answered %v, want absent", got)
+	}
+}
+
+// §8.10 A press the client reads without moving, painting a title all the
+// same, is not taken as a step: the server's focus did not reach the next
+// workspace, so the key is pressed again and the walk lands.
+func TestAWalkPressesAgainWhereTheFocusDidNotMove(t *testing.T) {
+	requireHerdrRunnable(t)
+	b := liveBackend(t)
+	ctx := context.Background()
+	var ids []string
+	for _, name := range []string{"first", "second"} {
+		created, err := b.Create(ctx, backend.CreateSpec{Name: name})
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	raw(t, b, "workspace", "focus", ids[0])
+	version, err := b.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if sharedClientFocus(version) {
+		t.Skipf("herdr %s shares one focus across clients; nothing walks", version)
+	}
+	skipWhereClientViewsMove(t, b)
+	spec := backend.AttachSpec{Role: backend.RoleController, Supersede: true, SessionClient: true, Bare: true}
+	att, err := b.Attach(ctx, "second", spec)
+	if err != nil {
+		t.Fatalf("Attach(second): %v", err)
+	}
+	defer func() { _ = att.Cleanup() }()
+	client := newKeyedClient(t, b, ids[0])
+	client.stale = 1
+	if err := att.Settle(ctx, client, met); err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	if got := client.keys.String(); got != nextWorkspaceKey+nextWorkspaceKey {
+		t.Errorf("the walk wrote %q, want the press made again", got)
+	}
+	if ws, _, _, _ := focus(t, b); ws != ids[1] {
+		t.Errorf("the walk ended with the focus on %s, want %s", ws, ids[1])
 	}
 }
 
@@ -554,6 +601,65 @@ func skipWhereClientViewsMove(t *testing.T, b *Herdr) {
 // met stands in for the client's answer where the keys go into a buffer
 // rather than a client: every press is confirmed at once.
 func met([]byte) func(time.Duration) bool { return func(time.Duration) bool { return true } }
+
+// keyedClient stands in for the bare client a walk presses keys into: each
+// next- or previous-workspace key moves it one workspace round the ring from
+// where it is, and focuses that workspace on the server, which is what
+// herdr's client does with the key (§8.10). What was written is kept.
+type keyedClient struct {
+	t    *testing.T
+	b    *Herdr
+	ring []string
+	at   string
+	keys strings.Builder
+	// stale presses are read the way herdr 0.9.1's client reads a press
+	// while its snapshot has not caught up: it focuses where it already is.
+	stale int
+}
+
+func newKeyedClient(t *testing.T, b *Herdr, at string) *keyedClient {
+	t.Helper()
+	snap, err := b.snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	rows := append([]workspaceRow(nil), snap.Workspaces...)
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Number < rows[j].Number })
+	c := &keyedClient{t: t, b: b, at: at}
+	for _, r := range rows {
+		c.ring = append(c.ring, r.WorkspaceID)
+	}
+	return c
+}
+
+func (c *keyedClient) Write(p []byte) (int, error) {
+	c.keys.Write(p)
+	for s := string(p); s != ""; {
+		step := 0
+		switch {
+		case strings.HasPrefix(s, nextWorkspaceKey):
+			step, s = 1, s[len(nextWorkspaceKey):]
+		case strings.HasPrefix(s, previousWorkspaceKey):
+			step, s = -1, s[len(previousWorkspaceKey):]
+		default:
+			s = s[1:]
+			continue
+		}
+		if c.stale > 0 {
+			c.stale--
+			raw(c.t, c.b, "workspace", "focus", c.at)
+			continue
+		}
+		for i, id := range c.ring {
+			if id == c.at {
+				c.at = c.ring[(i+step+len(c.ring))%len(c.ring)]
+				break
+			}
+		}
+		raw(c.t, c.b, "workspace", "focus", c.at)
+	}
+	return len(p), nil
+}
 
 // §8.10 The walk takes the shorter way round the ring the workspace keys
 // step through, in the order of the workspaces' numbers.

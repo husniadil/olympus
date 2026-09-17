@@ -865,6 +865,9 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 			idx = i
 		}
 	}
+	// The last press's paint, asked for once its title is seen: the focus is
+	// read after that, and the frame is out by the time it has moved.
+	var painted func(time.Duration) bool
 	for i := 0; i < steps; i++ {
 		next := ordered[(idx+dir+len(ordered))%len(ordered)]
 		landed := false
@@ -876,11 +879,27 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 				case <-time.After(keyGap):
 				}
 			}
+			// The server's focus is read before the press, since a press is
+			// confirmed by the focus moving onto the next workspace.
+			before, err := h.snapshot(ctx)
+			if err != nil {
+				return err
+			}
 			seen := expect(titleMark())
 			if _, err := io.WriteString(keys, key); err != nil {
 				return backend.Wrapf(backend.CodeUnexpected, err, "walking the client to %s", to.workspace.WorkspaceID)
 			}
 			landed = seen(pressWithin)
+			painted = expect([]byte(frameEnd))
+			// A title alone is not the press read: herdr 0.9.1's client
+			// counts the step from the workspace its own last snapshot names,
+			// and one that had not caught up focused the workspace it was
+			// already on and painted that title (measured). Where the focus
+			// was elsewhere, the walk waits for it to reach the next workspace,
+			// and presses again if it does not.
+			if landed && before.FocusedWorkspaceID != next.WorkspaceID {
+				landed = h.focusReaches(ctx, next.WorkspaceID, pressWithin)
+			}
 		}
 		if !landed {
 			return backend.Errorf(backend.CodeUnexpected, "the client did not reach %s: its workspace key went unread", next.WorkspaceID)
@@ -895,7 +914,7 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 		// the two went nowhere (measured: a marker typed straight after
 		// the title never echoed). So the frame's end is waited for,
 		// and a beat after it.
-		if !expect([]byte(frameEnd))(pressWithin) {
+		if !painted(pressWithin) {
 			return backend.Errorf(backend.CodeUnexpected, "the client did not paint %s", to.workspace.WorkspaceID)
 		}
 		select {
@@ -911,6 +930,26 @@ func (h *Herdr) walk(ctx context.Context, ring []workspaceRow, from string, to r
 	}
 	at.set(to)
 	return nil
+}
+
+// focusReaches reads the server's focus until it is on the workspace, for as
+// long as within allows. A walked client's move is the server's focus moving
+// (§8.10), so this is where the walk sees a press was read.
+func (h *Herdr) focusReaches(ctx context.Context, workspaceID string, within time.Duration) bool {
+	deadline := time.Now().Add(within)
+	for {
+		if snap, err := h.snapshot(ctx); err == nil && snap.FocusedWorkspaceID == workspaceID {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(focusPoll):
+		}
+	}
 }
 
 // titleMark is what shows the client landed on a workspace: a window title,
@@ -958,6 +997,8 @@ const (
 	// how many times it is made before the walk gives up.
 	pressWithin   = 1500 * time.Millisecond
 	pressAttempts = 2
+	// How often the server's focus is read while a press is confirmed.
+	focusPoll = 50 * time.Millisecond
 
 	// The end of a synchronized-output frame (DEC 2026), which closes the
 	// paint of a workspace the client has just switched to.
