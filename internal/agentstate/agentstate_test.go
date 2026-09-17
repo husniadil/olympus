@@ -230,6 +230,15 @@ func TestVendoredManifestsReadTheScreens(t *testing.T) {
 			want: Result{State: Blocked, Rule: "trust_directory"},
 		},
 		{
+			// Upstream's own guard: the same words quoted in a prompt are not
+			// the dialog, since the line starts with the prompt marker.
+			name:  "codex trust words quoted in a prompt",
+			agent: "codex",
+			in: Input{Screen: "› > You are in /private/tmp/probe\n\n" +
+				"Do you trust the contents of this directory? Working with untrusted contents.\n"},
+			want: Result{State: Unknown},
+		},
+		{
 			name:  "codex hooks review",
 			agent: "codex",
 			in: Input{Screen: "╰─ ❯ codex\n\n" +
