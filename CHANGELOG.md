@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.1]
+
+### Fixed
+
+- **The live tests run under a HOME of their own.** A pane's login shell read
+  the operator's profile, which put another herdr on PATH ahead of the one
+  under test, so `self` and a session's own status failed on a developer's
+  machine against herdr 0.8.2. The binary is unchanged. Behavior spec §2.9.
+
 ## [0.33.0]
 
 ### Fixed

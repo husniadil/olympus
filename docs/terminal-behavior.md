@@ -657,6 +657,13 @@ namespacing alone is not sufficient on any backend.
 | meja | a socket PATH (`-S`), never a profile name (`-L`) |
 | herdr | a private socket path, with the configuration and state directories moved with it |
 
+The test process's HOME MUST be private too, with the configuration and state
+homes under it. A pane's login shell reads the profile under HOME, and the
+operator's can put another build of a backend on PATH ahead of the one under
+test: on herdr 0.8.2 a pane's `olympus self` asked the operator's newer herdr
+and named no session (measured on macOS). Go's build caches are pinned before
+HOME moves, since they default to it.
+
 #### tmux
 
 A path is preferred over a NAME. Killing a server does not unlink its socket, so
