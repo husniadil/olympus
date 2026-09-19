@@ -16,19 +16,17 @@ const statusOption = "@olympus_status"
 
 // statusTarget is how set-option and show-options name a session.
 //
-// Not sessionTarget's "=" form, which they reject outright: measured, both
-// `-t =name` and `-t name*` fail with "no such session", and even a strict
-// prefix of a real name fails. So this lookup is already exact and needs no
-// disambiguating prefix — unlike every other verb, where "=" is what makes it
-// exact (§10).
-func statusTarget(name string) string { return name }
+// The window form of an exact name. A bare name matches by prefix, so a status
+// set on "cwd" would land on "cwdx", and `=name` alone is rejected with "no
+// such session" (§10).
+func statusTarget(name string) string { return windowTarget(name) }
 
 // SetStatus records an opaque label on a session.
 //
 // Olympus never interprets the value. Enumerating states would mean naming the
 // concerns of whatever is driving the terminal rather than the terminal itself.
 func (t *Tmux) SetStatus(ctx context.Context, target, status string) error {
-	_, err := t.run(ctx, nil, "set-option", "-t", statusTarget(target), statusOption, status)
+	_, err := t.run(ctx, nil, "set-option", "-t", statusTarget(target), statusOption, escapeTrailingSemicolon(status))
 	return named(target, err)
 }
 
@@ -41,6 +39,13 @@ func (t *Tmux) Status(ctx context.Context, target string) (string, error) {
 	out, err := t.run(ctx, nil, "show-options", "-t", statusTarget(target), "-qv", statusOption)
 	if err != nil {
 		return "", named(target, err)
+	}
+	// -q silences a missing target as well as a missing option, so an empty
+	// answer is only "never reported" once the session is known to exist.
+	if out == "" {
+		if _, err := t.run(ctx, nil, "has-session", "-t", sessionTarget(target)); err != nil {
+			return "", named(target, err)
+		}
 	}
 	return strings.TrimRight(out, "\n"), nil
 }

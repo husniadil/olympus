@@ -1,6 +1,9 @@
 package backend
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // paneIDPrefix marks a target that addresses a pane rather than a session on
 // backends that spell pane ids apart from session names.
@@ -164,7 +167,7 @@ func ResolveTarget(target string, shape PaneIDShape, panes PaneLister) (string, 
 		if listed[i].ID != target {
 			continue
 		}
-		if owner == nil || listed[i].CreatedAt < owner.CreatedAt {
+		if owner == nil || older(listed[i], *owner) {
 			owner = &listed[i]
 		}
 	}
@@ -174,4 +177,16 @@ func ResolveTarget(target string, shape PaneIDShape, panes PaneLister) (string, 
 		return "", Errorf(CodeSessionNotFound, "no pane %s", target)
 	}
 	return owner.SessionName, nil
+}
+
+// older orders two rows by session age. created_at is whole seconds, so a view
+// made in the same second as its base ties with it; the tie goes to the lower
+// session number, which a server hands out upward ("$3" before "$12").
+func older(a, b Pane) bool {
+	if a.CreatedAt != b.CreatedAt {
+		return a.CreatedAt < b.CreatedAt
+	}
+	an, aErr := strconv.Atoi(strings.TrimLeft(a.SessionID, "$"))
+	bn, bErr := strconv.Atoi(strings.TrimLeft(b.SessionID, "$"))
+	return aErr == nil && bErr == nil && an < bn
 }

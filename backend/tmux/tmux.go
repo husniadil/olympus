@@ -114,11 +114,13 @@ func (t *Tmux) Version(ctx context.Context) (string, error) {
 //
 // tmux resolves a target differently depending on what the command operates on,
 // and the exact-match "=" prefix does not paper over that: a session target is
-// "=name", a window target "=name:", a pane target "=name:.". send-keys and
+// "=name:", a window target "=name:", a pane target "=name:.". send-keys and
 // capture-pane reject a bare session target outright, and set-option -w rejects
 // it with "no such window" — while any command that already ran keeps its
 // effect, which is why §2.2 requires the create chain to clean up after itself.
-func sessionTarget(name string) string { return "=" + name }
+// A session target carries the colon too: without it tmux reads a "." in the
+// name as a pane separator, and `=a.b` is session a, pane b.
+func sessionTarget(name string) string { return "=" + name + ":" }
 func windowTarget(name string) string  { return "=" + name + ":" }
 func paneTarget(name string) string    { return "=" + name + ":." }
 
@@ -148,7 +150,7 @@ func (t *Tmux) Focus(ctx context.Context, target string) error {
 		return named(target, err)
 	}
 	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
-		_, err := t.run(ctx, nil, "select-window", "-t", "="+session+":"+window)
+		_, err := t.run(ctx, nil, "select-window", "-t", exactWindow(session, window))
 		return named(target, err)
 	}
 	return nil
@@ -156,26 +158,26 @@ func (t *Tmux) Focus(ctx context.Context, target string) error {
 
 // Rename gives a target a new name (behavior §2.11): a session through
 // rename-session, `<session>:<window>` through rename-window, and a pane id
-// a title through select-pane -T. A colon is rewritten out of a session
-// name by tmux itself (§8.9), so a session renamed to `a:b` would answer to
-// `a_b`; it is refused as usage rather than silently altered.
+// a title through select-pane -T. A colon in a session name is refused as
+// usage: older tmux rewrites it to `_`, and newer tmux keeps it where no
+// target can address it (§2.11).
 func (t *Tmux) Rename(ctx context.Context, target, name string) error {
 	if name == "" {
 		return backend.Errorf(backend.CodeUsage, "a name is needed to rename to")
 	}
 	if strings.HasPrefix(target, "%") {
-		_, err := t.run(ctx, nil, "select-pane", "-t", target, "-T", name)
+		_, err := t.run(ctx, nil, "select-pane", "-t", target, "-T", escapeTrailingSemicolon(name))
 		return named(target, err)
 	}
 	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
-		_, err := t.run(ctx, nil, "rename-window", "-t", "="+session+":"+window, name)
+		_, err := t.run(ctx, nil, "rename-window", "-t", exactWindow(session, window), escapeTrailingSemicolon(name))
 		return named(target, err)
 	}
 	if strings.Contains(name, ":") {
 		return backend.Errorf(backend.CodeUsage,
-			"session name %q carries a colon, which tmux rewrites to an underscore; a session cannot be named that", name)
+			"session name %q carries a colon, which no tmux target can address; a session cannot be named that", name)
 	}
-	_, err := t.run(ctx, nil, "rename-session", "-t", sessionTarget(target), name)
+	_, err := t.run(ctx, nil, "rename-session", "-t", sessionTarget(target), escapeTrailingSemicolon(name))
 	return named(target, err)
 }
 
@@ -189,14 +191,24 @@ func (t *Tmux) Rename(ctx context.Context, target, name string) error {
 // tmux reports it as, and `named` maps that to not-found.
 func capturePaneTarget(target string) string {
 	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
-		return "=" + session + ":" + window + "."
+		return exactWindow(session, window) + "."
 	}
 	return paneTarget(target)
+}
+
+// exactWindow names a window by exact name or index. Without the "=" tmux
+// matches a window name by prefix, so "sec" would land on "second" (§5.1).
+func exactWindow(session, window string) string {
+	return "=" + session + ":=" + window
 }
 
 func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Session, error) {
 	if spec.Name == "" {
 		return backend.Session{}, backend.Errorf(backend.CodeUsage, "a session needs a name")
+	}
+	if strings.Contains(spec.Name, ":") {
+		return backend.Session{}, backend.Errorf(backend.CodeUsage,
+			"session name %q carries a colon, which no tmux target can address; a session cannot be named that", spec.Name)
 	}
 
 	// Olympus configures only servers it STARTS (§17.5). Pinning reaches every
@@ -215,7 +227,7 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 		// session and leave this one misconfigured (§17.5).
 		args = pinManagedOptions()
 	}
-	args = append(args, "new-session", "-d", "-s", spec.Name)
+	args = append(args, "new-session", "-d", "-s", escapeTrailingSemicolon(spec.Name))
 	if spec.Dir != "" {
 		args = append(args, "-c", spec.Dir)
 	}
@@ -234,8 +246,8 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 	for _, kv := range sessionEnv() {
 		args = append(args, "-e", kv)
 	}
-	if len(spec.Command) > 0 {
-		args = append(args, spec.Command...)
+	for _, arg := range spec.Command {
+		args = append(args, escapeTrailingSemicolon(arg))
 	}
 
 	// Chained into the SAME invocation, never a second call. A fast-exiting
@@ -484,15 +496,16 @@ func (t *Tmux) SendAtomic(ctx context.Context, target, text string) error {
 	return named(target, err)
 }
 
-// escapeTrailingSemicolon guards the chained send-keys path.
+// escapeTrailingSemicolon guards every argument a caller supplies.
 //
-// tmux's ";" chaining separator treats an unescaped TRAILING ";" byte in a text
+// tmux's ";" chaining separator treats an unescaped TRAILING ";" byte in any
 // argv element as a command separator rather than literal text, so "echo A;
 // echo B;" lands with the final ";" dropped and text that is just ";" lands
-// nothing at all. Interior semicolons are untouched — only a trailing one
-// (§4.8).
+// nothing at all. It also strips one backslash from a trailing `\;`, so the
+// escape is unconditional: `x\;` goes out as `x\\;` and lands as `x\;`.
+// Interior semicolons are untouched — only a trailing one (§4.8).
 func escapeTrailingSemicolon(text string) string {
-	if strings.HasSuffix(text, ";") && !strings.HasSuffix(text, `\;`) {
+	if strings.HasSuffix(text, ";") {
 		return text[:len(text)-1] + `\;`
 	}
 	return text
@@ -533,7 +546,9 @@ func (t *Tmux) ScreenMeta(ctx context.Context, target string) (backend.ScreenMet
 }
 
 func (t *Tmux) screenMeta(ctx context.Context, target string) (backend.ScreenMeta, error) {
-	out, err := t.run(ctx, nil, "list-panes", "-t", capturePaneTarget(target), "-F", "#{alternate_on}\x1f#{scroll_position}")
+	// display-message, not list-panes: on a pane target list-panes lists the
+	// whole window, and its first row is not the active pane the capture reads.
+	out, err := t.run(ctx, nil, "display-message", "-p", "-t", capturePaneTarget(target), "#{alternate_on}\x1f#{scroll_position}")
 	if err != nil {
 		return backend.ScreenMeta{}, err
 	}
@@ -663,7 +678,11 @@ func classify(err error, stderr string, args []string) error {
 	}
 
 	switch {
-	case strings.Contains(lower, "no server running"), strings.Contains(lower, "error connecting to"):
+	case strings.Contains(lower, "error connecting to") && !saysNoServer(lower):
+		// A socket the client cannot open at all — no permission, a path too
+		// long — is a backend that cannot be reached, not an absent one (§3.5).
+		return backend.Errorf(backend.CodeBackendUnavailable, "%s", msg)
+	case saysNoServer(lower):
 		// Nothing is listening on the socket. That is absence, not a backend
 		// that cannot be reached: §12.3 makes "no server running" collapse into
 		// the negative answer for every question where the negative answer is
@@ -712,9 +731,18 @@ func named(target string, err error) error {
 // the first turns every no-server case on every other verb into an UNEXPECTED
 // error, which is the opposite of §12.3's rule that absence is a real answer.
 func isNoServer(err error) bool {
-	msg := strings.ToLower(errText(err))
-	return strings.Contains(msg, "no server running") ||
-		strings.Contains(msg, "error connecting to")
+	return backend.CodeOf(err) == backend.CodeSessionNotFound && saysNoServer(strings.ToLower(errText(err)))
+}
+
+// saysNoServer reads tmux's lowercased message. A connect failure is absence
+// only when nothing is behind the socket: permission denied or a path too long
+// is a server that cannot be reached, which is a different answer (§3.5).
+func saysNoServer(msg string) bool {
+	if strings.Contains(msg, "no server running") {
+		return true
+	}
+	return strings.Contains(msg, "error connecting to") &&
+		(strings.Contains(msg, "no such file or directory") || strings.Contains(msg, "connection refused"))
 }
 
 // Scope reports how this backend addresses its server: the socket path when one

@@ -62,6 +62,22 @@ func TestUnknownPaneIDIsNotFoundNamingThePaneID(t *testing.T) {
 	}
 }
 
+// §3.4 created_at is whole seconds, so a view made in the same second as its
+// base ties with it, and tmux lists sessions by name, which can put the view
+// first. The tie goes to the older session id: tmux numbers sessions upward.
+func TestAViewCreatedInTheSameSecondAsItsBaseStillResolvesToTheBase(t *testing.T) {
+	got, err := backend.ResolveTarget("%4", backend.PrefixedPaneID, lister(
+		backend.Pane{ID: "%4", SessionName: "olympus-view-1", SessionID: "$12", CreatedAt: 100},
+		backend.Pane{ID: "%4", SessionName: "zeta", SessionID: "$9", CreatedAt: 100},
+	))
+	if err != nil {
+		t.Fatalf("ResolveTarget: %v", err)
+	}
+	if got != "zeta" {
+		t.Errorf("resolved to %q, want the base session %q", got, "zeta")
+	}
+}
+
 // §3.4: a base session and its views share the same underlying pane, so a pane
 // id is not unique across rows. Resolution must land on the BASE — the earliest
 // created_at — or a pane-id caller silently operates on a view, and killing it

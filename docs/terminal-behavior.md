@@ -861,8 +861,11 @@ On herdr the new label is held to the same rule as a created session's name
 (§10): one spelled like an id would shadow the id.
 
 On tmux a session name carrying a colon is refused as `USAGE` rather than handed
-to tmux. tmux would rewrite the colon to an underscore (§8.9) and leave the
-caller addressing a name that does not exist.
+to tmux, on rename and on create alike. Older tmux rewrites the colon to an
+underscore (§8.9) and leaves the caller addressing a name that does not exist.
+tmux 3.7c keeps it, and then no target can address the session: every target
+splits at the colon, so a create's chained options fail, its cleanup fails too,
+and a live session is left behind a not-found error (measured).
 
 Presence is gated through the resolved session first, so a target naming nothing
 is `SESSION_NOT_FOUND`. An empty name is `USAGE`.
@@ -1030,7 +1033,8 @@ underlying window and pane. A full pane listing reports the same pane id for
 every group member.
 
 Consumers needing one row per logical session MUST dedupe by pane id, keeping the
-earliest `created_at` (the base, not a later view).
+earliest `created_at` (the base, not a later view), and on a tie the lower
+session number.
 
 #### `current_path` and `current_command`
 
@@ -1579,15 +1583,20 @@ any cross-invocation retry re-types the text before checking, doubling it.
 
 ### 4.8 tmux eats an unescaped trailing semicolon
 
-Any chained `send-keys` path MUST detect a trailing `;` and escape it to `\;`.
-`-l --` is also required, guarding against text beginning with `-`.
+Every argument a caller supplies to tmux MUST have a trailing `;` escaped to
+`\;`: the chained `send-keys` text, and also a created session's name and
+command, a rename's name and a status value. The escape is unconditional, since
+tmux also strips one backslash from a trailing `\;`. `-l --` is also required
+on `send-keys`, guarding against text beginning with `-`.
 
 #### Why
 
 tmux's `;` chaining separator treats an unescaped trailing `;` byte in a text
 argv element as a command separator. `-l -- "echo A; echo B;"` lands
 `echo A; echo B` with the final `;` dropped, and text that is just `;` lands
-nothing. Interior semicolons are untouched.
+nothing. Interior semicolons are untouched. tmux parses every argument of a
+command line this way, chained or not: a session renamed to `r;` becomes `r`,
+and `x\;` lands as `x;` unless it is sent as `x\\;` (measured on tmux 3.7c).
 
 ### 4.9 Control keys are not deliverable on every backend
 
@@ -1897,7 +1906,12 @@ emulating one:
 tmux pipes into a command rather than a descriptor Olympus holds, so the tap
 points at a temporary file the reader follows. Turning the tap off MUST happen
 before that file is removed, or tmux keeps writing to a path that no longer
-exists for as long as the pane lives.
+exists for as long as the pane lives. A pane has one pipe, and a second
+`pipe-pane` silently replaces the first, so a follow of a pane already piped,
+by another follow or by the operator, is `CONFLICT`. The reader cannot see the
+pane end through a file, so it asks whether the session still exists while it
+waits, and the stream ends when the session does, as it does on every other
+backend.
 
 herdr's stream emits one JSON envelope per frame carrying base64 ANSI. The
 backend decodes those back into the byte stream this interface promises, so no
@@ -2702,10 +2716,10 @@ The target MAY name a window: `<session>:<window>`, by index or name. A grouped
 session keeps its own current window (§9.2, §9.4), so the view is pinned to
 that window while the base and every sibling view keep showing their own.
 
-The split is at the first colon. tmux rewrites a colon out of any session name,
-so a session name never contains one, and a window name may. The window MUST be
-validated against the base before the view exists (§9.4). A window the base does
-not have is `SESSION_NOT_FOUND` with nothing created.
+The split is at the first colon. Olympus refuses a colon in a tmux session
+name (§2.11), so a session name never contains one, and a window name may. The
+window MUST be validated against the base before the view exists (§9.4). A
+window the base does not have is `SESSION_NOT_FOUND` with nothing created.
 
 #### Naming the view and turning mouse off
 
@@ -3336,7 +3350,7 @@ The attach path MUST declare the `hyperlinks` feature for its own client with
 tmux's `-T` flag. The flag is global, so it precedes the command:
 
 ```
-tmux -S <socket> -T hyperlinks attach-session -t =<name>
+tmux -S <socket> -T hyperlinks attach-session -t =<name>:
 ```
 
 ##### Why
@@ -3392,10 +3406,13 @@ spelling turns a typo into a window.
 Views owned by this backend are enumerable as `{view name, base session}`. An
 empty result MUST serialize as an empty list, never null.
 
-The base name comes straight from tmux's own `#{session_group}`. §9.1 groups by
-the base's session ID rather than a synthetic name, so tmux's group-name answer
-for *any* member of the group already **is** the base's real session name. No
-separate lookup or bookkeeping is needed.
+The base name comes from tmux's own `#{session_group}`. §9.1 groups by the base's
+session ID rather than a synthetic name, so tmux's group-name answer for *any*
+member of the group is the name the base had when the group formed. A rename of
+the base (§2.11) does not move it. So while a session still answers to the group
+name, that is the base; once none does, the base is the group's one member that
+is not a view. A group an operator has added sessions of their own to is left
+under its group name rather than guessed at.
 
 #### Views are not sessions to `ls`
 
@@ -3567,9 +3584,17 @@ matters:
 
 | Scope | Target | Commands |
 |---|---|---|
-| session | `=<name>` | `has-session`, `kill-session`, `list-panes -s` |
+| session | `=<name>:` | `has-session`, `kill-session`, `list-panes -s`, `set-option` and `show-options` for a session's status |
 | window | `=<name>:` | `set-option -w` |
+| a named window | `=<name>:=<window>` | `select-window`, `rename-window`, a window capture |
 | pane | `=<name>:.` | `send-keys`, `capture-pane`, `set-option -p` |
+
+A session target carries the colon too. Without it tmux reads a `.` in the name
+as a pane separator: `=a.b` is session `a`, pane `b`, so a session named `a.b`
+could not be probed, and a kill that could not find it would report success. A
+bare name without `=` is no better, since `set-option -t cwd` reaches a session
+named `cwdx`. The window part takes its own `=` for the same reason: tmux
+matches a window name by prefix, and `sec` would land on `second`.
 
 `send-keys` and `capture-pane` reject a bare session target outright, and
 `set-option -w` rejects it with `no such window`. That last one is why §2.2's
@@ -3595,7 +3620,9 @@ The resolution rules:
 - **More than one row.** A base session and its views share the same underlying
   pane (§3.4), so resolution MUST select the base, the earliest `created_at`,
   and not merely the first match. Resolving to a view operates on the wrong
-  session, and killing one leaves the real session running.
+  session, and killing one leaves the real session running. `created_at` is
+  whole seconds, so a view made in the same second as its base ties with it;
+  the tie goes to the lower session number, which the server hands out upward.
 - **A failed listing MUST NOT become not-found.** "Could not ask" and
   "definitely gone" stay distinct for the reason §3.2 gives, so the listing
   error propagates with its own code.

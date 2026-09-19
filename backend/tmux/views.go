@@ -143,7 +143,7 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 	// A pinned view therefore never selects a pane at all: the point of
 	// pinning is to show one window without disturbing anyone, and the pane
 	// is the one thing a view cannot choose privately.
-	if _, err := t.run(ctx, nil, "select-window", "-t", sessionTarget(spec.Name)+":"+windowIndex); err != nil {
+	if _, err := t.run(ctx, nil, "select-window", "-t", windowTarget(spec.Name)+windowIndex); err != nil {
 		return fail(err)
 	}
 	if paneID != "" {
@@ -287,10 +287,10 @@ func (t *Tmux) FocusView(ctx context.Context, view string, col, row int) (string
 //
 // The base comes straight from tmux's own #{session_group}. Because §9.1 groups
 // a view onto its base by the BASE'S SESSION ID rather than a synthetic name,
-// tmux's group-name answer for ANY member of that group already IS the base's
-// real session name — measured: a base `zzz-base` and a view grouped onto it
-// both answer `zzz-base`. No lookup, no bookkeeping, and no inference from list
-// order (§9.5).
+// tmux's group-name answer for ANY member of that group is the name the base
+// had when the group formed — measured: a base `zzz-base` and a view grouped
+// onto it both answer `zzz-base`. A rename of the base does not move it, so the
+// base is the group's member that is not a view (§9.5).
 //
 // Rows are selected by the reserved prefix, which is what makes this "views
 // this backend owns" rather than "every grouped session". An operator who
@@ -305,8 +305,34 @@ func (t *Tmux) Views(ctx context.Context, base string) ([]backend.View, error) {
 		return nil, err
 	}
 
+	// The group keeps the name it was created with, which stops being the
+	// base's name once the base is renamed (§2.11). While a session still
+	// answers to the group's name, that is the base; once none does, the
+	// base is the group's one member that is not a view, under whatever it is
+	// called now. A group an operator has added sessions of their own to is
+	// left under its group name rather than guessed at.
+	rows := splitLines(out)
+	live := map[string]bool{}
+	others := map[string][]string{}
+	for _, line := range rows {
+		f := SplitFields(line)
+		if len(f) < 4 {
+			continue
+		}
+		live[f[0]] = true
+		if f[2] != "" && !strings.HasPrefix(f[0], ViewPrefix) {
+			others[f[2]] = append(others[f[2]], f[0])
+		}
+	}
+	baseOf := map[string]string{}
+	for group, members := range others {
+		if !live[group] && len(members) == 1 {
+			baseOf[group] = members[0]
+		}
+	}
+
 	var views []backend.View
-	for _, line := range splitLines(out) {
+	for _, line := range rows {
 		f := SplitFields(line)
 		if len(f) < 4 {
 			continue
@@ -314,6 +340,9 @@ func (t *Tmux) Views(ctx context.Context, base string) ([]backend.View, error) {
 		name, id, group, attached := f[0], f[1], f[2], f[3]
 		if !strings.HasPrefix(name, ViewPrefix) {
 			continue
+		}
+		if current, ok := baseOf[group]; ok {
+			group = current
 		}
 		if base != "" && group != base {
 			continue
