@@ -17,6 +17,7 @@ import (
 	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/internal/cli"
+	"github.com/husniadil/olympus/internal/testhome"
 )
 
 var counter atomic.Int64
@@ -49,7 +50,7 @@ func TestMain(m *testing.M) {
 		time.Sleep(10 * time.Minute)
 		return
 	}
-	os.Exit(m.Run())
+	os.Exit(testhome.Run(m))
 }
 
 type result struct {

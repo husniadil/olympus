@@ -1,4 +1,4 @@
-package olympus
+package meja_test
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"github.com/husniadil/olympus/internal/testhome"
 )
 
-// TestMain gives the whole package a HOME of its own (§2.9).
+// TestMain gives the package's live tests a HOME of their own (§2.9).
 func TestMain(m *testing.M) {
 	os.Exit(testhome.Run(m))
 }

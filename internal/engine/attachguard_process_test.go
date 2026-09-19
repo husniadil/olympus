@@ -16,6 +16,7 @@ import (
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/internal/engine"
+	"github.com/husniadil/olympus/internal/testhome"
 )
 
 // §8.5, §11.3: the attach slot is arbitrated ACROSS processes, and every test
@@ -42,7 +43,7 @@ func TestMain(m *testing.M) {
 		holdTheSlotForever(dir)
 		return
 	}
-	os.Exit(m.Run())
+	os.Exit(testhome.Run(m))
 }
 
 func holdTheSlotForever(dir string) {
