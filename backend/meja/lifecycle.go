@@ -70,6 +70,16 @@ func (m *Meja) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 }
 
 func (m *Meja) Sessions(ctx context.Context) ([]backend.Session, error) {
+	sessions, err := m.sessionRows(ctx)
+	for i := range sessions {
+		sessions[i].CWD = m.cwdOf(ctx, sessions[i].Name)
+	}
+	return sessions, err
+}
+
+// sessionRows is the listing without each row's directory, which costs two
+// more calls per row: a presence check has no use for it.
+func (m *Meja) sessionRows(ctx context.Context) ([]backend.Session, error) {
 	out, err := m.run(ctx, nil, "list-sessions", "-F", sessionFormat)
 	if err != nil {
 		if noServer(err) {
@@ -91,7 +101,6 @@ func (m *Meja) Sessions(ctx context.Context) ([]backend.Session, error) {
 			Name:     fields[0],
 			ID:       fields[1],
 			Liveness: backend.LivenessPresent,
-			CWD:      m.cwdOf(ctx, fields[0]),
 		})
 	}
 	return sessions, nil
@@ -184,7 +193,7 @@ func (m *Meja) Panes(ctx context.Context, target string) ([]backend.Pane, error)
 
 // Probe answers presence as a tri-state, never finalising on doubt.
 func (m *Meja) Probe(ctx context.Context, target string) backend.State {
-	sessions, err := m.Sessions(ctx)
+	sessions, err := m.sessionRows(ctx)
 	if err != nil {
 		// Could not ask. Reporting absent here would let a caller reconciling
 		// state destroy a session that is merely unreachable (§3.5).
@@ -200,9 +209,11 @@ func (m *Meja) Probe(ctx context.Context, target string) backend.State {
 
 func (m *Meja) Kill(ctx context.Context, target string) error {
 	_, err := m.run(ctx, nil, "kill-session", "-t", target)
-	if err != nil && backend.CodeOf(err) == backend.CodeBackendUnavailable {
-		// Nothing is listening, so the session is gone by any definition a
-		// caller cares about. Killing what is already dead is success (§2.8).
+	if noServer(err) || backend.CodeOf(err) == backend.CodeSessionNotFound {
+		// Nothing is listening, or nothing by that name is: the session is
+		// gone by any definition a caller cares about. Killing what is already
+		// dead is success (§2.8). A meja that cannot be run is not in that
+		// class, and is reported.
 		return nil
 	}
 	return named(target, err)

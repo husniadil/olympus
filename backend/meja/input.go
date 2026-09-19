@@ -2,6 +2,7 @@ package meja
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -219,20 +220,29 @@ func (m *Meja) Type(ctx context.Context, target, text string) error {
 // Paste delivers multi-line text through a paste buffer.
 //
 // Through a buffer rather than as literal keys so a consumer that detects
-// bracketed paste sees one paste rather than a burst of typing (§4.4).
+// bracketed paste sees one paste rather than a burst of typing (§4.4). The
+// buffer is named per call: paste-buffer without -b pastes the most recent
+// one, so two concurrent pastes into different sessions would cross (§4.1).
+// -p frames it as a bracketed paste for a pane that asked for one.
 func (m *Meja) Paste(ctx context.Context, target, text string) error {
 	if text == "" {
 		return nil
 	}
-	return m.withClient(ctx, target, func() error {
-		if _, err := m.run(ctx, nil, "set-buffer", "--", text); err != nil {
+	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), m.buffers.Add(1))
+	err := m.withClient(ctx, target, func() error {
+		if _, err := m.run(ctx, nil, "set-buffer", "-b", name, "--", text); err != nil {
 			return named(target, err)
 		}
-		// -d deletes the buffer after pasting, so a failed or repeated call
-		// cannot leave one behind for the next caller to paste by accident.
-		_, err := m.run(ctx, nil, "paste-buffer", "-t", target, "-d")
+		_, err := m.run(ctx, nil, "paste-buffer", "-b", name, "-t", target, "-d", "-p")
 		return named(target, err)
 	})
+	if err != nil {
+		// -d deletes the buffer only when the paste succeeds, so a failed one
+		// would leave the text on the server. Its own failure never masks the
+		// real error.
+		_, _ = m.run(context.WithoutCancel(ctx), nil, "delete-buffer", "-b", name)
+	}
+	return err
 }
 
 // Press sends named keys.

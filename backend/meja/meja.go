@@ -16,6 +16,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
@@ -24,6 +25,8 @@ import (
 // A Meja drives one meja server.
 type Meja struct {
 	socketPath string
+	// buffers numbers this handle's paste buffers (see Paste).
+	buffers atomic.Int64
 }
 
 // An Option configures New.

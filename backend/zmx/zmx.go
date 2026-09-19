@@ -344,7 +344,10 @@ func (z *Zmx) Probe(ctx context.Context, target string) backend.State {
 		return backend.StateError
 	}
 	for _, s := range sessions {
-		if s.Name == target {
+		// A row zmx reported dead this pass (liveness gone) is the socket it
+		// has just deleted: absent, or a write would go on to a session that
+		// is not there and zmx send would still exit 0.
+		if s.Name == target && s.Liveness != backend.LivenessGone {
 			return backend.StatePresent
 		}
 	}

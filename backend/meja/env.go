@@ -80,3 +80,17 @@ func isStripped(kv string) bool {
 func hasKey(kv, name string) bool {
 	return len(kv) > len(name) && kv[len(name)] == '=' && kv[:len(name)] == name
 }
+
+// attachEnv is the environment for the interactive attach client (behavior
+// §1.3). It keeps the operator's TERM, the terminal the human is sitting at,
+// and applies the strips and the LANG default.
+func attachEnv() []string {
+	out := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if isStripped(kv) || hasKey(kv, "LANG") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "LANG="+lang())
+}

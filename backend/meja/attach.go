@@ -21,9 +21,9 @@ func (m *Meja) Attach(ctx context.Context, target string, spec backend.AttachSpe
 		return backend.Attachment{}, backend.Errorf(backend.CodeBackendUnavailable, "cannot reach meja to attach %s", target)
 	}
 
-	attachment := backend.Attachment{
-		Cmd: exec.CommandContext(ctx, "meja", append(m.addressing(), "attach", "-t", target)...),
-	}
+	cmd := exec.CommandContext(ctx, "meja", append(m.addressing(), "attach", "-t", target)...)
+	cmd.Env = attachEnv()
+	attachment := backend.Attachment{Cmd: cmd}
 	if spec.Role == backend.RoleViewer {
 		// meja has no read-only client. Dropping input silently would be worse
 		// than saying so: a watcher who believes they cannot type, and can,

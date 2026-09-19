@@ -5,8 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/backend/meja"
@@ -97,5 +101,106 @@ func TestARejectedNameIsUsage(t *testing.T) {
 	// with the argument leaves the caller to guess which of its rules was hit.
 	if err == nil || !strings.Contains(err.Error(), "numeric") {
 		t.Errorf("the message loses meja's reason: %v", err)
+	}
+}
+
+// §4.1 Each paste goes through a buffer of its own. paste-buffer without -b
+// pastes the most recent buffer, so two pastes into different sessions — which
+// hold different locks — could each deliver the other's text. No buffer is
+// left behind either.
+func TestConcurrentPastesDeliverTheirOwnText(t *testing.T) {
+	requireMeja(t)
+	b, socket := newBackend(t)
+	ctx := context.Background()
+	for _, name := range []string{"pa", "pb"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 120, Rows: 40, Command: []string{"cat"}}); err != nil {
+			t.Fatalf("Create %s: %v", name, err)
+		}
+	}
+	const rounds = 6
+	var wg sync.WaitGroup
+	errs := make(chan error, 2*rounds)
+	for i := 0; i < rounds; i++ {
+		for _, p := range []struct{ target, text string }{{"pa", "AAA" + strconv.Itoa(i) + " "}, {"pb", "BBB" + strconv.Itoa(i) + " "}} {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				errs <- b.Paste(ctx, p.target, p.text)
+			}()
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Paste: %v", err)
+		}
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		a, errA := b.Screen(ctx, "pa", backend.ScreenOpts{})
+		c, errB := b.Screen(ctx, "pb", backend.ScreenOpts{})
+		if errA == nil && errB == nil && strings.Count(a.Text, "AAA")+strings.Count(a.Text, "BBB") == rounds &&
+			strings.Count(c.Text, "AAA")+strings.Count(c.Text, "BBB") == rounds {
+			if strings.Contains(a.Text, "BBB") || strings.Contains(c.Text, "AAA") {
+				t.Fatalf("a paste landed in the other session:\npa: %s\npb: %s", a.Text, c.Text)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the pastes never all arrived (errs %v %v):\npa: %s\npb: %s", errA, errB, a.Text, c.Text)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if out, _ := exec.Command("meja", "-S", socket, "list-buffers").CombinedOutput(); strings.TrimSpace(string(out)) != "" {
+		t.Errorf("pastes left buffers behind:\n%s", out)
+	}
+}
+
+// §1.3 The attach client strips the other multiplexers' identity and defaults
+// LANG, and keeps the operator's own TERM.
+func TestTheAttachClientGetsTheAttachEnvironment(t *testing.T) {
+	requireMeja(t)
+	b, _ := newBackend(t)
+	ctx := context.Background()
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "attenv", Dir: t.TempDir()}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Setenv("TMUX", "/tmp/ambient,1,0")
+	t.Setenv("ZMX_SESSION", "ambient")
+	t.Setenv("LANG", "")
+	t.Setenv("TERM", "operator-term")
+	att, err := b.Attach(ctx, "attenv", backend.AttachSpec{Role: backend.RoleController})
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	env := att.Cmd.Env
+	if env == nil {
+		t.Fatal("the attach client inherits the process environment unsanitized")
+	}
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "ZMX_SESSION=") {
+			t.Errorf("%s reached the attach client", kv)
+		}
+	}
+	if !slices.Contains(env, "LANG=en_US.UTF-8") {
+		t.Errorf("LANG was not defaulted for the attach client")
+	}
+	if !slices.Contains(env, "TERM=operator-term") {
+		t.Errorf("the attach client lost the operator's TERM")
+	}
+}
+
+// §2.8 Killing what is already gone is success, as on tmux and zmx: a session
+// that is not there, on a server that is, is the desired state already.
+func TestKillingAMissingSessionIsSuccess(t *testing.T) {
+	requireMeja(t)
+	b, _ := newBackend(t)
+	ctx := context.Background()
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "keep", Dir: t.TempDir()}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := b.Kill(ctx, "never-was"); err != nil {
+		t.Errorf("killing a session that is not there is %v, want success", err)
 	}
 }
