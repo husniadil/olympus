@@ -117,9 +117,15 @@ func captureCases() []Case {
 				// Skipping the capture and returning empty is the door's rule,
 				// not this one. Asserting it here would require every backend
 				// to implement a policy that belongs one layer up.
-				target := e.StartProgram("sh", "-c", `printf '\033[?1049h'; sleep 30`)
+				// The marker is printed after the switch, and spelled through
+				// an expansion so a typed command line's echo cannot match it.
+				target := e.StartProgram("sh", "-c", `printf '\033[?1049hALT-%s' ON; sleep 30`)
 
 				if !e.Backend.Capabilities().TracksAltScreen {
+					// Captured once the program is on the alternate screen,
+					// or this would capture the shell before the switch and
+					// prove nothing.
+					e.WaitFor(target, "ALT-ON")
 					// Not tracking it is an honest answer, not an
 					// unsupported-class error: the caller asked a question this
 					// backend answers with "not tracked". The call must still
