@@ -4,6 +4,55 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.2]
+
+### Fixed
+
+- **The doors agree, and options are decided once in the ergonomic layer.**
+  `press_keys` refused "Enter" where `press` took it, so a key's case is now
+  settled in `Session.Press`. `olympus mcp` silently ignored the addressing
+  flags and now refuses them. The MCP doctor diagnosed the default server
+  rather than the one its tools address, and doctor never applied a server name
+  or the checks Open makes. `session_status` reported set-with-wait as
+  UNEXPECTED, and a `--json` or `-q` after `--` switched Olympus's output mode.
+- **A detached run polled on herdr through an id no longer reads as died while
+  it runs.** A corpse request answers by whether the name existed rather than
+  CONFLICT or UNSUPPORTED, a wait on a missing session fails at once, a
+  one-sided size keeps the other side's default, a zero wait interval no longer
+  spins, `agents --last` no longer reads a line off another pane's screen, one
+  failed capture no longer blanks every row, a start directory that is not one
+  is USAGE on every backend, and Attach no longer leaks a goroutine per call.
+- **A named herdr server is booted as its session.** It was started with only
+  its socket, and herdr then read and wrote the default session's saved layout,
+  overwriting the operator's own. A client that exited mid-walk had cleanup run
+  while the walk was still steering the server; the engine now cancels the
+  settle step and waits for it. An attach control whose opening bytes a read
+  cut in two is held rather than written into the session, a watched mark that
+  arrived with the timeout is not reported missing, a failed observe client
+  ends a follow with its error, and a quoted "#" in a prefix is the key.
+- **tmux sessions and windows are addressed exactly.** A session with a dot in
+  its name can be probed and killed, window names and status targets no longer
+  match by prefix, and a colon in a created name no longer leaks a half-built
+  session. A trailing ";" or "\;" in any argument is escaped unconditionally.
+  A connect failure other than "nothing listening" is an unreachable backend,
+  screen metadata comes from the pane the capture reads, a second follow of one
+  pane is a conflict, and a view resolves to its base after the base is
+  renamed.
+- **meja pastes stay in their own session.** Each paste uses a buffer of its
+  own, framed as a bracketed paste and deleted when the paste fails. Killing a
+  missing meja session is success as on tmux and zmx, and a meja that cannot be
+  run is no longer read as one.
+- **The live tests run every package under a HOME of their own,** and the
+  alt-screen case waits until the program has switched. The binary is
+  unchanged by both.
+
+### Changed
+
+- **Human capabilities output names every capability,** the README lists exit
+  code 8, the agents help names letta, `view ls` says its output is not stable,
+  and `self --json` says why a session's name could not be read. A checkout
+  build reports the version the toolchain derives from git.
+
 ## [0.33.1]
 
 ### Fixed
