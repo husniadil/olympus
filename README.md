@@ -233,6 +233,7 @@ and `history-limit`, and `doctor` names both. See spec
 | 5 | timed out |
 | 6 | someone else holds the session |
 | 7 | the backend has no such concept |
+| 8 | a send was refused because the agent is waiting on a person; nothing was submitted |
 
 Two verbs differ, and say so in their `--help`: `run` reports the command's exit
 code, and `attach` reports the multiplexer client's.

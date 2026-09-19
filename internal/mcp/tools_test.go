@@ -626,3 +626,38 @@ func TestListKindsTool(t *testing.T) {
 		t.Errorf("claude's packages omit claude-code: %v", claude["packages"])
 	}
 }
+
+// api §3 Setting and waiting at once is a usage error, reported as USAGE and
+// before the target is looked up: a caller fixes the arguments, not the
+// session.
+func TestSessionStatusRejectsSetWithWaitAsUsage(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	text := w.callToolExpectingError(t, "session_status", map[string]any{"target": "oly-none", "set": "a", "wait": "b"})
+	if !strings.Contains(text, "USAGE") || !strings.Contains(text, "cannot be combined") {
+		t.Errorf("set with wait reported %s, want a USAGE error that says what is wrong", text)
+	}
+}
+
+// behavior §4.10 A letter's case is a spelling, not a different key, at every
+// door: the CLI's `press` takes "Enter", so press_keys takes it too.
+func TestPressKeysTakesAKeyNameInAnyCase(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+	w.callTool(t, "press_keys", map[string]any{"target": name, "keys": []string{"Enter", "C-C"}})
+}
+
+// doctor diagnoses the server the other tools address: the environment's
+// addressing, not the default.
+func TestDoctorReadsTheServersAddressing(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	got := w.callTool(t, "doctor", map[string]any{})
+	data, _ := got["data"].(map[string]any)
+	resolved, _ := data["resolved"].(map[string]any)
+	if want := os.Getenv("OLYMPUS_SOCKET"); resolved["socket_or_dir"] != want {
+		t.Errorf("doctor diagnosed %v, want the server's own socket %q", resolved["socket_or_dir"], want)
+	}
+}

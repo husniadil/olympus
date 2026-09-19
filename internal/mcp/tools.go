@@ -429,14 +429,15 @@ func register(s *sdk.Server) {
 		})
 	addTool(s, "session_status", "Read, set, or wait for a session's status: an opaque label a process INSIDE a session leaves for whoever drives it from outside. It answers what a capture cannot — a program at a prompt and a program mid-work render identically. Olympus never interprets the value and defines no vocabulary of states. Not every backend can carry one; `capabilities` reports it as session_status.",
 		func(ctx context.Context, ol *olympus.Olympus, in statusParams) (statusResult, []olympus.Warning, error) {
+			if in.Set != "" && in.Wait != "" {
+				return statusResult{}, nil, backend.Errorf(backend.CodeUsage, "set and wait cannot be combined")
+			}
 			session, err := ol.Open(ctx, in.Target)
 			if err != nil {
 				return statusResult{}, nil, err
 			}
 			out := statusResult{Session: in.Target}
 			switch {
-			case in.Set != "" && in.Wait != "":
-				return statusResult{}, nil, olympus.ErrUsage
 			case in.Set != "":
 				if err := session.SetStatus(ctx, in.Set); err != nil {
 					return statusResult{}, nil, err
@@ -470,6 +471,10 @@ func register(s *sdk.Server) {
 			here, err := olympus.Self(ctx)
 			if err != nil && !here.Inside {
 				return olympus.Identity{}, nil, err
+			}
+			if err != nil {
+				return here, []olympus.Warning{{Code: olympus.WarningDegraded,
+					Message: "the session's name could not be read: " + err.Error()}}, nil
 			}
 			return here, nil, nil
 		})
@@ -681,7 +686,7 @@ func register(s *sdk.Server) {
 
 	addFreestandingTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.",
 		func(ctx context.Context, _ emptyParams) (olympus.Diagnosis, []olympus.Warning, error) {
-			return olympus.Diagnose(ctx), nil, nil
+			return olympus.Diagnose(ctx, addressing()...), nil, nil
 		})
 
 	// A version tool must exist so a consumer can floor-check without shelling

@@ -31,6 +31,10 @@ const (
 	DefaultVerifyBudget = 5 * time.Second
 	DefaultVerifyPoll   = 100 * time.Millisecond
 
+	// DefaultScrollLines is how far a view scrolls when the caller does not
+	// say.
+	DefaultScrollLines = 10
+
 	// DefaultLockWait is how long a writer waits for a contended session
 	// before reporting a conflict.
 	DefaultLockWait = 10 * time.Second

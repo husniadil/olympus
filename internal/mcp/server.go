@@ -84,6 +84,12 @@ func NewServer() *sdk.Server {
 // Configuration comes from the process environment, since a stateless request
 // carries none (api §4).
 func open() (*olympus.Olympus, error) {
+	return olympus.Open(addressing()...)
+}
+
+// addressing is the environment's addressing, shared by every tool and by
+// doctor, which must diagnose the server the other tools address.
+func addressing() []olympus.Option {
 	var opts []olympus.Option
 	if v := strings.TrimSpace(os.Getenv("OLYMPUS_SOCKET")); v != "" {
 		opts = append(opts, olympus.WithSocket(v))
@@ -100,7 +106,7 @@ func open() (*olympus.Olympus, error) {
 	// an operator's ambient setting into an addressing option Olympus would
 	// then reject on any other backend. The two Olympus-namespaced variables
 	// above are different: setting one of those means it for Olympus.
-	return olympus.Open(opts...)
+	return opts
 }
 
 // A Result is what every tool returns alongside its payload.

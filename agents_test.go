@@ -658,3 +658,36 @@ func TestAgentsCarryTheAgentsOwnLineOnlyWhenAsked(t *testing.T) {
 		t.Errorf("captured %d panes, want one per row", len(l.screenOpts))
 	}
 }
+
+// §3.7 A row's line is read off its own pane or not at all. Where a session
+// holds several panes, a capture of it is the active pane's screen, which may
+// be another's, so those rows carry no line, as they carry no status.
+func TestAgentsReadNoLineOffASharedSessionsScreen(t *testing.T) {
+	t.Parallel()
+	screen := "  Ran the migration.\n\n────────────\n❯\n────────────\n  status line\n"
+	f := &fakeBackend{
+		caps: backend.Capabilities{Backend: backend.Tmux, AgentStatus: true},
+		panes: []backend.Pane{
+			{ID: "%1", SessionName: "solo", SessionID: "$1", CurrentCommand: "claude", CurrentPath: "/a"},
+			{ID: "%7", SessionName: "split", SessionID: "$7", CurrentCommand: "claude", CurrentPath: "/g"},
+			{ID: "%8", SessionName: "split", SessionID: "$7", CurrentCommand: "codex", CurrentPath: "/g"},
+		},
+		screens: map[string]string{"solo": screen, "split": screen},
+	}
+	agents, err := fakeOlympus(f).Agents(context.Background(), WithLast())
+	if err != nil {
+		t.Fatalf("Agents: %v", err)
+	}
+	for _, ag := range agents {
+		switch ag.PaneID {
+		case "%1":
+			if ag.Last != "Ran the migration." {
+				t.Errorf("the one-pane session's line is %q", ag.Last)
+			}
+		default:
+			if ag.Last != "" {
+				t.Errorf("%s in a shared session carries %q, read off a screen that may be another pane's", ag.PaneID, ag.Last)
+			}
+		}
+	}
+}

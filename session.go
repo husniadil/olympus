@@ -2,6 +2,7 @@ package olympus
 
 import (
 	"context"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -25,11 +26,31 @@ func In(dir string) SessionOption {
 	return func(s *backend.CreateSpec) { s.Dir = dir }
 }
 
+// checkDir refuses a start directory that is not one, before any backend is
+// asked: left to them, one polls for a session that never registers, one
+// starts in $HOME without a word, and one fails as unexpected (§2.1).
+func checkDir(spec backend.CreateSpec) error {
+	if spec.Dir == "" {
+		return nil
+	}
+	if info, err := os.Stat(spec.Dir); err != nil || !info.IsDir() {
+		return backend.Errorf(backend.CodeUsage, "%s is not a directory to start in", spec.Dir)
+	}
+	return nil
+}
+
 // Size sets the session's initial size. It is ignored by backends with no
 // spawn-time sizing concept, which is documented rather than papered over
-// (behavior §2.1).
+// (behavior §2.1). A zero on either side leaves that side's default.
 func Size(cols, rows int) SessionOption {
-	return func(s *backend.CreateSpec) { s.Cols, s.Rows = cols, rows }
+	return func(s *backend.CreateSpec) {
+		if cols > 0 {
+			s.Cols = cols
+		}
+		if rows > 0 {
+			s.Rows = rows
+		}
+	}
 }
 
 // Command spawns the session directly onto an argv rather than a login shell.
@@ -53,6 +74,9 @@ func (o *Olympus) Session(ctx context.Context, name string, opts ...SessionOptio
 	spec := backend.CreateSpec{Name: name, Cols: DefaultCols, Rows: DefaultRows}
 	for _, opt := range opts {
 		opt(&spec)
+	}
+	if err := checkDir(spec); err != nil {
+		return nil, err
 	}
 
 	var row backend.Session
@@ -125,8 +149,14 @@ func (s *Session) Type(ctx context.Context, text string) error {
 
 // Press sends named keys.
 func (s *Session) Press(ctx context.Context, keys ...backend.Key) error {
+	// A letter's case is a spelling, not a different key (behavior §4.10),
+	// so it is settled here once rather than in each door.
+	spelled := make([]backend.Key, len(keys))
+	for i, k := range keys {
+		spelled[i] = backend.Key(strings.ToLower(string(k)))
+	}
 	return engine.WithLock(ctx, s.ol.locks, s.key(), s.ol.lockWait, func() error {
-		return s.ol.backend.Press(ctx, s.name, keys...)
+		return s.ol.backend.Press(ctx, s.name, spelled...)
 	})
 }
 
@@ -328,9 +358,14 @@ func WaitTimeout(d time.Duration) WaitOption {
 
 // WaitInterval sets how often the screen is re-read while waiting. A shorter
 // interval catches output that is overwritten quickly; a longer one costs the
-// backend less on a session nobody is in a hurry about.
+// backend less on a session nobody is in a hurry about. Zero or less leaves
+// the default, rather than re-reading without a pause.
 func WaitInterval(d time.Duration) WaitOption {
-	return func(c *waitConfig) { c.poll = d }
+	return func(c *waitConfig) {
+		if d > 0 {
+			c.poll = d
+		}
+	}
 }
 
 // WaitFor blocks until the session's screen matches a regular expression, and
@@ -351,6 +386,11 @@ func (s *Session) WaitFor(ctx context.Context, pattern string, opts ...WaitOptio
 	var last Screen
 	for {
 		screen, err := s.Screen(ctx)
+		if CodeOf(err) == backend.CodeSessionNotFound {
+			// A session that is gone will not start matching, so waiting
+			// out the timeout would only hide why.
+			return last, err
+		}
 		if err == nil {
 			last = screen
 			// Matched per LINE, never against the whole screen as one string.

@@ -1316,3 +1316,25 @@ func TestTheShippedDefaultsAreTheOnesTheSpecPublishes(t *testing.T) {
 		t.Errorf("the write-lock override is named %q, want OLYMPUS_LOCK_WAIT", olympus.LockWaitEnv)
 	}
 }
+
+// api §4 doctor reads the same addressing Open does. A server name is resolved
+// into the address it diagnoses, and an option Open would refuse is reported
+// as the resolution's problem rather than silently dropped.
+func TestDiagnoseAppliesTheAddressingOpenWould(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+	ctx := context.Background()
+	missing := olympus.Diagnose(ctx, olympus.WithBackend("tmux"), olympus.WithServer("oly-no-such-server")).Resolved
+	if !strings.Contains(missing.Problem, "oly-no-such-server") {
+		t.Errorf("a server that does not exist is diagnosed without a problem: %+v", missing)
+	}
+	both := olympus.Diagnose(ctx, olympus.WithBackend("tmux"), olympus.WithServer("a"), olympus.WithSocket("b")).Resolved
+	if both.Problem == "" {
+		t.Errorf("a server name beside a socket is diagnosed without a problem: %+v", both)
+	}
+	wrong := olympus.Diagnose(ctx, olympus.WithBackend("tmux"), olympus.WithZmxDir("/tmp/z")).Resolved
+	if wrong.Problem == "" {
+		t.Errorf("a zmx directory on tmux is diagnosed without a problem: %+v", wrong)
+	}
+}

@@ -381,6 +381,12 @@ Initial size on zmx is accepted for interface conformance and **ignored**. zmx
 has no spawn-time sizing concept, and the PTY is sized entirely by whatever
 client attaches later. Do not paper over this.
 
+A working directory that is not a directory is `USAGE`, decided in the
+ergonomic layer before any backend is asked. Left to the backends the answers
+diverge: zmx's daemon fails the chdir unseen and creation polls the listing for
+the whole registration budget before blaming the backend, tmux starts in `$HOME`
+without a word, and meja fails as `UNEXPECTED` (measured).
+
 #### A session that finishes before creation returns is not a failure
 
 Without `remain-on-exit` (§2.7) a session takes itself down when its command
@@ -4731,6 +4737,7 @@ contract.
 | attach steal wait | 3s, polled every 50ms | §8.5 |
 | attach initial size | 80×24 | §8 |
 | follow poll interval | 50ms | §5.6 |
+| view scroll | 10 lines, where the door has an optional amount | §9 |
 | write-lock retry interval | 25ms | §11.1 |
 
 Two are **per-attempt, not total**:

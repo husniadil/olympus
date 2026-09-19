@@ -1633,3 +1633,56 @@ func TestKindsMatchesTheGoDoorAndNeedsNoBackend(t *testing.T) {
 		t.Errorf("the table does not name claude's npm spelling:\n%s", human.stdout)
 	}
 }
+
+// A --json or -q after `--` belongs to the spawned command, not to Olympus: it
+// must not switch the output mode.
+func TestAnOutputFlagAfterTheSeparatorIsTheCommands(t *testing.T) {
+	flags := isolation(t)
+	got := run(t, append(flags, "start", name(), "--", "sh", "-c", "sleep 30", "--json", "-q")...)
+	if got.code != 0 {
+		t.Fatalf("start exited %d: %s", got.code, got.stderr)
+	}
+	if strings.HasPrefix(strings.TrimSpace(got.stdout), "{") {
+		t.Errorf("a --json meant for the command switched Olympus to JSON:\n%s", got.stdout)
+	}
+	if strings.TrimSpace(got.stdout) == "" {
+		t.Errorf("a -q meant for the command silenced Olympus")
+	}
+}
+
+// api §4 An addressing option is never a silent no-op. The MCP server takes
+// its configuration from the environment, so a flag given to `olympus mcp`
+// is refused rather than ignored.
+func TestMCPRefusesTheGlobalAddressingFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"--backend", "tmux", "mcp"},
+		{"--socket", "s", "mcp"},
+		{"--socket-path", "/tmp/x.sock", "mcp"},
+		{"--server", "work", "mcp"},
+		{"--zmx-dir", "/tmp/z", "mcp"},
+		{"--no-lock", "mcp"},
+	} {
+		got := run(t, args...)
+		if got.code != olympus.ExitCode(backend.CodeUsage) {
+			t.Errorf("`%s` exits %d, want the usage exit: %s", strings.Join(args, " "), got.code, got.stderr)
+		}
+	}
+}
+
+// A process inside a session whose name cannot be read is still inside one,
+// so self succeeds, but the JSON says why the name is missing, as the human
+// output does.
+func TestSelfDisclosesWhyTheNameCouldNotBeRead(t *testing.T) {
+	t.Setenv("TMUX", filepath.Join(t.TempDir(), "gone.sock")+",1,0")
+	t.Setenv("TMUX_PANE", "%1")
+	t.Setenv("ZMX_SESSION", "")
+	t.Setenv("HERDR_PANE_ID", "")
+	got := run(t, "self", "--json")
+	if got.code != 0 {
+		t.Fatalf("self exited %d: %s", got.code, got.stderr)
+	}
+	e := got.envelope(t)
+	if len(e.Warnings) == 0 {
+		t.Errorf("self --json says nothing about the unreadable name:\n%s", got.stdout)
+	}
+}

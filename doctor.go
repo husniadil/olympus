@@ -185,6 +185,21 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		diagnosis.Resolved.Problem = err.Error()
 		return diagnosis
 	}
+	// The addressing Open would apply, and refuse, so what is diagnosed is
+	// the server a verb given the same options would address.
+	err = checkServerExclusive(cfg)
+	if err == nil {
+		err = checkAddressing(resolution.Backend, cfg)
+	}
+	if err == nil && cfg.server != "" {
+		err = applyServer(resolution.Backend, &cfg)
+	}
+	if err != nil {
+		diagnosis.Resolved.Backend = resolution.Backend
+		diagnosis.Resolved.Reason = resolution.Reason
+		diagnosis.Resolved.Problem = err.Error()
+		return diagnosis
+	}
 	b, scope := buildBackend(resolution.Backend, cfg)
 	diagnosis.Resolved = ResolvedReport{
 		Backend: resolution.Backend,
@@ -199,7 +214,12 @@ func buildBackend(name backend.Name, cfg config) (backend.Backend, string) {
 	switch name {
 	case backend.Herdr:
 		var options []herdr.Option
-		if cfg.socketPath != "" {
+		switch {
+		case cfg.server != "":
+			// As Open builds it: a named server's socket lives in the
+			// operator's configuration tree, so no state home is derived.
+			options = append(options, herdr.WithServerSocket(cfg.server, cfg.socketPath))
+		case cfg.socketPath != "":
 			options = append(options, herdr.WithSocketPath(cfg.socketPath))
 		}
 		built := herdr.New(options...)

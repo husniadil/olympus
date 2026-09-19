@@ -87,7 +87,7 @@ func (a *App) viewScrollCmd() *cobra.Command {
 			return a.emit(map[string]any{"view": args[0], "lines": lines}, nil, nil)
 		},
 	}
-	cmd.Flags().IntVar(&lines, "lines", 10, "lines to scroll; negative scrolls back toward the live bottom")
+	cmd.Flags().IntVar(&lines, "lines", olympus.DefaultScrollLines, "lines to scroll; negative scrolls back toward the live bottom")
 	return cmd
 }
 
@@ -130,6 +130,7 @@ func (a *App) viewLsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ls [base]",
 		Short: "List views, optionally for one base session",
+		Long:  "List views, optionally for one base session." + scriptsNote,
 		Args:  cobra.RangeArgs(0, 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ol, err := a.open()

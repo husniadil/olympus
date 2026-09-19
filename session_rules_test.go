@@ -2,6 +2,7 @@ package olympus
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -277,4 +278,86 @@ func disclosesTruncation(warnings []Warning) bool {
 		}
 	}
 	return false
+}
+
+// §2.7 A corpse request on a backend with no corpses is refused before any
+// backend invocation, so the answer does not depend on whether the name is
+// taken: UNSUPPORTED either way, never CONFLICT for one and UNSUPPORTED for the
+// other.
+func TestCreateRefusesACorpseRequestWhateverTheNamesState(t *testing.T) {
+	f := &fakeBackend{
+		caps:     backend.Capabilities{Backend: backend.Zmx},
+		sessions: []backend.Session{{Name: "taken"}},
+	}
+	o := fakeOlympus(f)
+	for _, name := range []string{"taken", "free"} {
+		if _, err := o.Create(context.Background(), name, KeepCorpse()); backend.CodeOf(err) != backend.CodeUnsupported {
+			t.Errorf("a corpse request for %s is %q, want %q (err %v)", name, backend.CodeOf(err), backend.CodeUnsupported, err)
+		}
+	}
+}
+
+// §7 A wait on a session that is gone says so at once. Only a screen that does
+// not match yet is worth waiting on; a session that no longer exists will not
+// start matching, and waiting out the timeout hides why.
+func TestAWaitOnAMissingSessionIsNotFoundAtOnce(t *testing.T) {
+	f := &fakeBackend{
+		caps:      backend.Capabilities{Backend: backend.Tmux},
+		screenErr: backend.Errorf(backend.CodeSessionNotFound, "no session build"),
+	}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+	started := time.Now()
+	_, err := s.WaitFor(context.Background(), "ready", WaitTimeout(5*time.Second))
+	if backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("a wait on a missing session is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
+	}
+	if took := time.Since(started); took > time.Second {
+		t.Errorf("the wait took %v to report a missing session", took)
+	}
+}
+
+// A size given on one side keeps the other side's default: a zero is "not
+// given", not a height of zero for the backend to fill from its own config.
+func TestASizeGivenOnOneSideKeepsTheOthersDefault(t *testing.T) {
+	spec := backend.CreateSpec{Cols: DefaultCols, Rows: DefaultRows}
+	Size(120, 0)(&spec)
+	if spec.Cols != 120 || spec.Rows != DefaultRows {
+		t.Errorf("Size(120, 0) gives %dx%d, want 120x%d", spec.Cols, spec.Rows, DefaultRows)
+	}
+	spec = backend.CreateSpec{Cols: DefaultCols, Rows: DefaultRows}
+	Size(0, 50)(&spec)
+	if spec.Cols != DefaultCols || spec.Rows != 50 {
+		t.Errorf("Size(0, 50) gives %dx%d, want %dx50", spec.Cols, spec.Rows, DefaultCols)
+	}
+}
+
+// A zero or negative interval is "not given", not "re-read without pause":
+// taken literally it runs the multiplexer in a tight loop until the timeout.
+func TestAZeroWaitIntervalKeepsTheDefault(t *testing.T) {
+	cfg := waitConfig{poll: 200 * time.Millisecond}
+	WaitInterval(0)(&cfg)
+	WaitInterval(-time.Second)(&cfg)
+	if cfg.poll != 200*time.Millisecond {
+		t.Errorf("a zero interval set the poll to %v", cfg.poll)
+	}
+}
+
+// §2.1 A start directory that is not there is USAGE on every backend, before
+// the backend is asked. Left to them, zmx polled its listing for the full
+// registration budget and then blamed the backend, tmux started in $HOME
+// without a word, and meja failed as UNEXPECTED.
+func TestAStartDirectoryThatIsNotThereIsUsage(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Zmx}}
+	o := fakeOlympus(f)
+	missing := filepath.Join(t.TempDir(), "gone")
+	ctx := context.Background()
+	if _, err := o.Session(ctx, "a", In(missing)); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("ensure in a missing directory is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
+	if _, err := o.Create(ctx, "a", In(missing)); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("create in a missing directory is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
+	if _, _, err := o.RunOnce(ctx, "true", nil, In(missing)); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("a throwaway in a missing directory is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
 }

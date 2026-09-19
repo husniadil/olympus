@@ -314,7 +314,9 @@ unknown backend name is `USAGE`, not `UNEXPECTED`.
 `OLYMPUS_SOCKET`, `OLYMPUS_SOCKET_PATH` and `OLYMPUS_SERVER` are read by the MCP
 door alone. The CLI honours only `OLYMPUS_BACKEND` from the environment. On the
 CLI the addressing options are the flags `--socket`, `--socket-path` and
-`--server`.
+`--server`. `olympus mcp` refuses those flags, and `--backend`, `--zmx-dir` and
+`--no-lock` with them, as `USAGE`: the server it starts reads the environment,
+and a flag it ignored would be a silent no-op.
 
 The Go door takes these as options to `Open`: `WithBackend`, `WithSocket`,
 `WithSocketPath`, `WithZmxDir`, `WithServer`, `WithoutLock` and `WithLockWait`.

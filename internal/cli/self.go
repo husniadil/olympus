@@ -28,8 +28,13 @@ func (a *App) selfCmd() *cobra.Command {
 			if err != nil && !here.Inside {
 				return err
 			}
+			var warnings []olympus.Warning
+			if err != nil {
+				warnings = append(warnings, olympus.Warning{Code: olympus.WarningDegraded,
+					Message: "the session's name could not be read: " + err.Error()})
+			}
 
-			return a.emit(here, nil, func(w io.Writer) {
+			return a.emit(here, warnings, func(w io.Writer) {
 				if !here.Inside {
 					fmt.Fprintln(w, "not inside a session")
 					return

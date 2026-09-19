@@ -48,6 +48,9 @@ func (a *App) doctorCmd() *cobra.Command {
 			if a.zmxDir != "" {
 				opts = append(opts, olympus.WithZmxDir(a.zmxDir))
 			}
+			if a.server != "" {
+				opts = append(opts, olympus.WithServer(a.server))
+			}
 
 			diagnosis := olympus.Diagnose(cmd.Context(), opts...)
 			a.resolved = diagnosis.Resolved.Backend

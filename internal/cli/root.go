@@ -78,6 +78,10 @@ func Execute(ctx context.Context, args []string, out, errOut io.Writer, in io.Re
 // anything can fail.
 func (a *App) presetOutputMode(args []string) {
 	for _, arg := range args {
+		if arg == "--" {
+			// What follows is the spawned command's, not Olympus's.
+			break
+		}
 		switch arg {
 		case "--json", "--json=true":
 			a.json = true

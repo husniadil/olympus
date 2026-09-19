@@ -115,7 +115,7 @@ func (a *App) pressCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			keys := make([]backend.Key, 0, len(args)-1)
 			for _, name := range args[1:] {
-				keys = append(keys, backend.Key(strings.ToLower(name)))
+				keys = append(keys, backend.Key(name))
 			}
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
 				if err := s.Press(cmd.Context(), keys...); err != nil {

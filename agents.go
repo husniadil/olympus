@@ -265,9 +265,9 @@ func (o *Olympus) Agents(ctx context.Context, opts ...AgentOption) ([]backend.Ag
 	for _, opt := range opts {
 		opt(&options)
 	}
-	agents, err := o.listAgents(ctx)
+	agents, shared, err := o.listAgents(ctx)
 	if options.last && len(agents) > 0 {
-		o.fillLast(ctx, agents)
+		o.fillLast(ctx, agents, shared)
 	}
 	return agents, err
 }
@@ -287,21 +287,19 @@ func WithLast() AgentOption { return func(o *agentOpts) { o.last = true } }
 // fillLast reads each row's pane and cuts its line (agentstate.Line). Best
 // effort throughout: a capture that fails, an agent with no manifest and a
 // screen with nothing to say all leave Last empty, which is the same answer
-// and the honest one. The rows are still the listing.
-func (o *Olympus) fillLast(ctx context.Context, agents []backend.Agent) {
-	targets := make([]string, 0, len(agents))
-	for _, ag := range agents {
-		targets = append(targets, ag.PaneID)
-	}
-	screens, err := o.Screens(ctx, targets)
-	if err != nil {
-		return
-	}
+// and the honest one. The rows are still the listing. Each row is captured on
+// its own, so one pane that went away leaves only its own row empty, and a row
+// in a session whose screen may be another pane's (shared) is not captured.
+func (o *Olympus) fillLast(ctx context.Context, agents []backend.Agent, shared map[string]bool) {
 	for i := range agents {
-		screen, ok := screens.Screens[agents[i].PaneID]
-		if !ok {
+		if shared[agents[i].PaneID] {
 			continue
 		}
+		screens, err := o.Screens(ctx, []string{agents[i].PaneID})
+		if err != nil {
+			continue
+		}
+		screen := screens.Screens[agents[i].PaneID]
 		screen = trimLineEnds(screen)
 		if o.backend.Capabilities().NativeScrollback {
 			screen = tailLines(screen, detectionRows)
@@ -313,7 +311,9 @@ func (o *Olympus) fillLast(ctx context.Context, agents []backend.Agent) {
 	}
 }
 
-func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
+// listAgents also names the rows whose pane shares its session's screen with
+// another, which nothing may be read off (§3.7).
+func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, map[string]bool, error) {
 	if lister, ok := o.backend.(backend.AgentLister); ok {
 		agents, err := lister.Agents(ctx)
 		if agents == nil && err == nil {
@@ -324,11 +324,11 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 				agents[i].StatusSource = backend.StatusSourceNative
 			}
 		}
-		return agents, err
+		return agents, nil, err
 	}
 	panes, err := o.Panes(ctx, "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	tree := o.processTreeFor(ctx, panes)
@@ -343,6 +343,7 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 	}
 
 	agents := []backend.Agent{}
+	shared := map[string]bool{}
 	for _, pane := range panes {
 		name, pid, ok := agentOf(pane, tree)
 		if !ok {
@@ -351,6 +352,8 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 		status, source := backend.AgentUnknown, ""
 		if panesIn[pane.SessionName] == 1 {
 			status, source = o.screenStatus(ctx, pane, name)
+		} else {
+			shared[pane.ID] = true
 		}
 		agents = append(agents, backend.Agent{
 			PaneID:       pane.ID,
@@ -364,7 +367,7 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, error) {
 			PID:          pid,
 		})
 	}
-	return agents, nil
+	return agents, shared, nil
 }
 
 // processTreeFor reads the process table once, and only when a pane has a

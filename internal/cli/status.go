@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/husniadil/olympus"
+	"github.com/husniadil/olympus/backend"
 )
 
 // A StatusReport is what the status verb emits, in every mode.
@@ -38,7 +39,7 @@ func (a *App) statusCmd() *cobra.Command {
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if set != "" && wait != "" {
-				return olympus.ErrUsage
+				return backend.Errorf(backend.CodeUsage, "--set and --wait cannot be combined")
 			}
 
 			// Resolved BEFORE the handle is opened, because with no target the
@@ -120,7 +121,7 @@ func (a *App) statusTarget(cmd *cobra.Command, args []string) (string, olympus.I
 		return "", here, err
 	}
 	if here.Session == "" {
-		return "", here, olympus.ErrUsage
+		return "", here, backend.Errorf(backend.CodeUsage, "not inside a session; name a target")
 	}
 	return here.Session, here, nil
 }

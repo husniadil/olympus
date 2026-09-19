@@ -166,6 +166,15 @@ func (o *Olympus) Create(ctx context.Context, name string, opts ...SessionOption
 	for _, opt := range opts {
 		opt(&spec)
 	}
+	if err := checkDir(spec); err != nil {
+		return nil, err
+	}
+	// Refused before the name is looked up, so the answer does not depend on
+	// whether it is taken (behavior §2.7), as in ensure.
+	if spec.RemainOnExit && !o.backend.Capabilities().RemainOnExit {
+		return nil, backend.Errorf(backend.CodeUnsupported,
+			"the %s backend has no remain-on-exit", o.backend.Capabilities().Backend)
+	}
 
 	var row backend.Session
 	// The check and the create are one critical section, for the same reason

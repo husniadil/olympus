@@ -12,7 +12,7 @@ type Agent struct {
 	// Agent is the agent's canonical name: one of the command heuristic's
 	// vocabulary (claude, codex, gemini, aider, opencode, goose, amp, cursor,
 	// pi, omp, copilot, devin, agy, cline, droid, kimi, kiro, kilo, hermes,
-	// qodercli, qwen, mastracode, maki, muse, grok), or whatever a
+	// qodercli, qwen, mastracode, maki, muse, grok, letta), or whatever a
 	// natively-detecting backend reports.
 	Agent string `json:"agent"`
 	// Status is working, idle, blocked or unknown. Blocked is the agent

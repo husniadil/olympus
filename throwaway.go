@@ -55,6 +55,9 @@ func (o *Olympus) RunOnce(ctx context.Context, command string, run []RunOption, 
 	// throwaway spawned onto some other argv could never run the command it
 	// exists for (behavior §6.5).
 	spec.Command = nil
+	if err := checkDir(spec); err != nil {
+		return Result{}, nil, err
+	}
 
 	if _, err := o.backend.Create(ctx, spec); err != nil {
 		return Result{}, nil, err

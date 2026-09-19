@@ -198,6 +198,7 @@ func TestPendingAndDiedCarryNoExitCode(t *testing.T) {
 
 	// The session goes away underneath the run.
 	f.sessions = nil
+	f.state = backend.StateAbsent
 	died, err := r.PollRun(context.Background(), "build", id)
 	if err != nil {
 		t.Fatalf("PollRun: %v", err)
@@ -221,6 +222,25 @@ func TestPollingATargetThatNeverExistedIsDiedNotNotFound(t *testing.T) {
 	}
 	if got.Status != engine.PollDied {
 		t.Errorf("status %q, want %q", got.Status, engine.PollDied)
+	}
+}
+
+// §10.1 A target whose shape is not a session name (herdr's "w1" or "w1:p1",
+// where the listing names the workspace by its label) is not missing from the
+// listing because it died. A live target polls as pending.
+func TestATargetTheListingDoesNotNameIsPendingWhileItIsPresent(t *testing.T) {
+	f := &fakeBackend{
+		state:    backend.StatePresent,
+		sessions: []backend.Session{{Name: "tmp", ID: "w1", Liveness: backend.LivenessPresent}},
+	}
+	for _, target := range []string{"w1", "w1:p1"} {
+		got, err := runner(f, nil).PollRun(context.Background(), target, "someid")
+		if err != nil {
+			t.Fatalf("PollRun %s: %v", target, err)
+		}
+		if got.Status != engine.PollPending {
+			t.Errorf("polling live target %s is %q (%s), want %q", target, got.Status, got.Reason, engine.PollPending)
+		}
 	}
 }
 

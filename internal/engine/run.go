@@ -207,6 +207,12 @@ func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, err
 	// disappeared answers died too, because listing maps "nothing running" to
 	// an empty list (behavior §6.8).
 	row, found, listErr := findSession(ctx, r.Backend, target)
+	if listErr == nil && !found && r.Backend.Probe(ctx, target) == backend.StatePresent {
+		// A target the listing does not name is not thereby gone: on herdr
+		// "w1" or "w1:p1" addresses a workspace the listing names by its
+		// label (§10.1). The backend's own probe reads the target's shape.
+		return PollResult{Status: PollPending}, nil
+	}
 	if listErr != nil || !found {
 		return PollResult{Status: PollDied, Reason: "the session is no longer present"}, nil
 	}

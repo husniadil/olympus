@@ -169,10 +169,16 @@ func (s *Session) Attach(ctx context.Context, in, out *os.File, errOut *os.File,
 	superseded := make(chan struct{})
 	stolen := make(chan os.Signal, 1)
 	signal.Notify(stolen, syscall.SIGUSR1)
+	// signal.Stop does not close the channel, so the watcher also ends on
+	// return rather than waiting on it forever.
+	returned := make(chan struct{})
+	defer close(returned)
 	defer signal.Stop(stolen)
 	go func() {
-		if _, ok := <-stolen; ok {
+		select {
+		case <-stolen:
 			close(superseded)
+		case <-returned:
 		}
 	}()
 
