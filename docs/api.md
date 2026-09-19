@@ -1174,8 +1174,10 @@ The release stamps the tag into `Version` at link time. It is a package variable
 for that reason alone, and callers must treat it as read-only.
 
 A binary built without that stamp (`go install …@tag`) reads the module version
-from its own build info at start and reports that instead. Only a build from a
-working tree, with no tag to read, reports the development placeholder.
+from its own build info at start and reports that instead. A build from a git
+checkout reports the version the Go toolchain derives from the repository,
+`+dirty` included where the tree has changes. Only a build with no version
+control information to read reports the development placeholder.
 
 #### Why
 

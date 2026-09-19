@@ -25,8 +25,10 @@ const devVersion = "0.14.1-dev"
 // A `go install github.com/husniadil/olympus/cmd/olympus@v0.1.1` build gets no
 // linker flags, but the Go toolchain records the module version it resolved.
 // When the release did not stamp Version, take it from there so an installed
-// tag does not report the development placeholder; a checkout build reports
-// "(devel)" and keeps the placeholder.
+// tag does not report the development placeholder. A build from a git checkout
+// reports the version the toolchain derives from the repository, such as
+// "X.Y.Z+dirty"; only a build with no VCS information to read (-buildvcs=false,
+// a source archive) reads "(devel)" and keeps the placeholder.
 func init() {
 	if Version != devVersion {
 		return

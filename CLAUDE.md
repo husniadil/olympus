@@ -81,7 +81,9 @@ that drifts from the code is worse than none, because it is still believed.
     into it with goreleaser's `-X github.com/husniadil/olympus.Version`.
   - When nothing stamped it, `init` falls back to the module version from
     `debug.ReadBuildInfo`, so `go install …@vX.Y.Z` reports the tag. A checkout
-    build reads `(devel)` and keeps the placeholder.
+    build reports the version Go derives from git (`X.Y.Z+dirty` on a changed
+    tree); only a build with no VCS information reads `(devel)` and keeps the
+    placeholder.
 
 ### 4. No HTTP server, no daemon, no persistent state
 
