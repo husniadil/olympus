@@ -19,6 +19,9 @@ import (
 // kill that cannot find it reports success.
 func TestASessionNameWithADotIsAddressable(t *testing.T) {
 	b := newBackend(t)
+	if !tmuxKeepsADotInASessionName(t) {
+		t.Skip("this tmux rewrites a dot in a session name to an underscore, so there is no dotted name to address")
+	}
 	name := create(t, b, backend.CreateSpec{Name: "oly.dot"})
 	ctx := context.Background()
 	if got := b.Probe(ctx, name); got != backend.StatePresent {
@@ -285,4 +288,25 @@ func TestAPaneRunsUnderThePrivateTestHome(t *testing.T) {
 	if !strings.Contains(screen, "home-is-"+os.Getenv("HOME")) || !strings.Contains(os.Getenv("HOME"), "olyhome") {
 		t.Errorf("the pane's HOME is not the private test HOME %q:\n%s", os.Getenv("HOME"), screen)
 	}
+}
+
+// tmuxKeepsADotInASessionName asks a private server what it names a session
+// created as "a.b": tmux 3.4 stores "a_b", and 3.7c keeps the dot.
+func tmuxKeepsADotInASessionName(t *testing.T) bool {
+	t.Helper()
+	// Short and outside t.TempDir, whose path carries the test's name and
+	// overruns a socket path's byte budget.
+	dir, err := os.MkdirTemp(os.TempDir(), "olyp")
+	if err != nil {
+		t.Fatalf("creating a probe socket directory: %v", err)
+	}
+	defer os.RemoveAll(dir)
+	socket := filepath.Join(dir, "p.sock")
+	run := func(args ...string) string {
+		out, _ := exec.Command("tmux", append([]string{"-S", socket}, args...)...).Output()
+		return strings.TrimSpace(string(out))
+	}
+	defer run("kill-server")
+	run("new-session", "-d", "-s", "a.b")
+	return run("list-sessions", "-F", "#{session_name}") == "a.b"
 }
