@@ -71,6 +71,13 @@ func prefixInConfig(path string) (string, bool) {
 			continue
 		}
 		value = strings.TrimSpace(value)
+		// A quoted value ends at its closing quote, so a "#" inside it is the
+		// key rather than a comment.
+		if value != "" && (value[0] == '"' || value[0] == '\'') {
+			if end := strings.IndexByte(value[1:], value[0]); end >= 0 {
+				return value[1 : end+1], true
+			}
+		}
 		if i := strings.Index(value, "#"); i > 0 {
 			value = strings.TrimSpace(value[:i])
 		}

@@ -199,6 +199,10 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 	// launch a client with is usage whatever the target is.
 	if spec.ClientTag != "" {
 		views, err := h.clientViews(ctx)
+		if noServerAt(err) {
+			// No server: nothing to attach onto, whatever the tag.
+			return backend.Attachment{}, backend.Errorf(backend.CodeSessionNotFound, "no session %s", target)
+		}
 		if err != nil {
 			return backend.Attachment{}, err
 		}
@@ -224,11 +228,14 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 			return h.attachClientView(ctx, r, spec)
 		}
 	}
-	version, err := h.Version(ctx)
+	// The SERVER's version, as the listing reads it: whether clients share
+	// one focus is the server's behavior, and a server started before a herdr
+	// upgrade still behaves as the build it runs.
+	current, err := h.snapshot(ctx)
 	if err != nil {
 		return backend.Attachment{}, err
 	}
-	walk := spec.Bare && !sharedClientFocus(version)
+	walk := spec.Bare && !sharedClientFocus(current.Version)
 	// The walk's origin and its steps are read HERE, under the lock, and
 	// not when the walk runs: the client comes up on the focus at the
 	// moment it connects, and the walk of another bare client between now

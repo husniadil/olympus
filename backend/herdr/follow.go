@@ -2,11 +2,14 @@ package herdr
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+	"sync"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -37,6 +40,8 @@ func (h *Herdr) Follow(ctx context.Context, target string) (io.ReadCloser, error
 	}
 
 	cmd := h.command(ctx, "terminal", "session", "observe", row.PaneID)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, backend.Wrapf(backend.CodeUnexpected, err, "following %s", target)
@@ -45,8 +50,20 @@ func (h *Herdr) Follow(ctx context.Context, target string) (io.ReadCloser, error
 		return nil, backend.Wrapf(backend.CodeUnexpected, err, "following %s", target)
 	}
 
+	// Waited on once, by whichever comes first: the stream's end, which
+	// reports how the client exited, or the caller's close.
+	var waitOnce sync.Once
+	var waitErr error
+	wait := func() error {
+		waitOnce.Do(func() {
+			if err := cmd.Wait(); err != nil {
+				waitErr = fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+			}
+		})
+		return waitErr
+	}
 	reader, writer := io.Pipe()
-	go decodeFrames(out, writer)
+	go decodeFrames(out, writer, wait)
 	return &followed{
 		reader: reader,
 		stop: func() {
@@ -54,7 +71,7 @@ func (h *Herdr) Follow(ctx context.Context, target string) (io.ReadCloser, error
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
 			}
-			_ = cmd.Wait()
+			_ = wait()
 		},
 	}, nil
 }
@@ -67,8 +84,10 @@ func (h *Herdr) Follow(ctx context.Context, target string) (io.ReadCloser, error
 // notice that it has stopped watching — a terminal that is gone, or a server on
 // its way down — which the client exits 0 after printing. That ends the stream
 // with the reason rather than with a clean EOF, so "no more output" and "no
-// longer watching" stay different answers.
-func decodeFrames(source io.Reader, sink *io.PipeWriter) {
+// longer watching" stay different answers. So does a client that failed: at
+// the end of its output, wait reports how it exited, and a failure ends the
+// stream with it.
+func decodeFrames(source io.Reader, sink *io.PipeWriter, wait func() error) {
 	scanner := bufio.NewScanner(source)
 	// A full repaint of a large pane is far past bufio's default 64 KiB line,
 	// and a scanner that stops at one silently truncates the stream.
@@ -98,7 +117,15 @@ func decodeFrames(source io.Reader, sink *io.PipeWriter) {
 			return
 		}
 	}
-	_ = sink.CloseWithError(scanner.Err())
+	if err := scanner.Err(); err != nil {
+		_ = sink.CloseWithError(err)
+		return
+	}
+	if err := wait(); err != nil {
+		_ = sink.CloseWithError(fmt.Errorf("the follow's client failed: %w", err))
+		return
+	}
+	_ = sink.Close()
 }
 
 // followed couples a stream to whatever has to be torn down when the caller

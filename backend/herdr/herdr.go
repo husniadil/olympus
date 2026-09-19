@@ -766,6 +766,10 @@ func (h *Herdr) Rename(ctx context.Context, target, name string) error {
 // server that advertises `pane_redraw` can; any other answers unsupported.
 func (h *Herdr) Redraw(ctx context.Context, target string) error {
 	caps, err := h.capabilities(ctx)
+	if noServerAt(err) {
+		// No server: the target is not there, as resolving it would say.
+		return backend.Errorf(backend.CodeSessionNotFound, "no session %s", target)
+	}
 	if err != nil {
 		return err
 	}

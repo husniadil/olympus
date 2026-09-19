@@ -2488,8 +2488,11 @@ written into the session. Malformed payloads MUST be ignored: a bad control
 sequence must not kill the session.
 
 Every control in a read is taken, one after another. A control cut by the end
-of a read is held for its end. An unterminated run past a target's length is
-ordinary bytes.
+of a read is held for its end, and so are its opening bytes where a read that
+filled the buffer ends inside them. A read that did not fill it is never held
+on a guess: a lone Escape is the opening byte of a control too, and holding it
+would stall the key until the next one. An unterminated run past a target's
+length is ordinary bytes.
 
 #### `go`
 
@@ -2884,7 +2887,10 @@ are the workspace's own state and move no client on another workspace.
 
 The backend hands the walk to the engine as the attachment's `Settle`, run with
 the client's own input. A `Settle` that fails ends the attach with its error: a
-client left on the wrong workspace is worse than none.
+client left on the wrong workspace is worse than none. A client that exits
+mid-walk ends the `Settle` too: its context is cancelled, and the attachment's
+cleanup runs only once it has returned, since that cleanup drops the walk lock
+and a walk still steering after it would move the focus under another attach.
 
 ##### Steps are counted at build, under a lock
 

@@ -68,7 +68,7 @@ func (h *Herdr) startServer(ctx context.Context) error {
 		}
 	}
 
-	cmd := exec.Command("herdr", "server")
+	cmd := exec.Command("herdr", h.serverArgs()...)
 	cmd.Env = h.env(invocationEnv())
 	// Its own session, so the server outlives the Olympus process that started
 	// it and does not take a terminal's SIGINT with the foreground group. A
@@ -108,6 +108,16 @@ func (h *Herdr) startServer(ctx context.Context) error {
 		case <-time.After(serverStartPoll):
 		}
 	}
+}
+
+// serverArgs boots a named server as its own session. The socket alone does
+// not say which session it is, and herdr then reads and writes the default
+// session's saved layout (§2.9).
+func (h *Herdr) serverArgs() []string {
+	if h.serverName == "" || h.serverName == "default" {
+		return []string{"server"}
+	}
+	return []string{"--session", h.serverName, "server"}
 }
 
 // serverAnswers asks the question the caller actually needs answered.

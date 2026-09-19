@@ -299,3 +299,24 @@ func TestStartServerBringsBackWhatTheServerWasRunning(t *testing.T) {
 		t.Errorf("the session the server was running did not come back: %+v", sessions)
 	}
 }
+
+// §2.9 A named server Olympus boots is booted AS that session. Without
+// `--session`, herdr resolves its data directory to the default session's, so
+// the named socket would come up on the default session's saved layout and
+// write it back over the operator's own.
+func TestStartingANamedServerNamesItsSession(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		backend *Herdr
+		want    []string
+	}{
+		{New(WithServerSocket("work", "/home/op/.config/herdr/sessions/work/herdr.sock")), []string{"--session", "work", "server"}},
+		{New(WithServerSocket("default", "/home/op/.config/herdr/herdr.sock")), []string{"server"}},
+		{New(WithSocketPath("/tmp/o/herdr.sock")), []string{"server"}},
+	}
+	for _, c := range cases {
+		if got := c.backend.serverArgs(); strings.Join(got, " ") != strings.Join(c.want, " ") {
+			t.Errorf("server %q boots with %v, want %v", c.backend.serverName, got, c.want)
+		}
+	}
+}

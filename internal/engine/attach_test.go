@@ -788,3 +788,84 @@ func TestASettleStepSeesTheClientsAnswerToItsKey(t *testing.T) {
 		t.Error("a title the client never painted was reported seen")
 	}
 }
+
+// §8.10 The attachment's cleanup runs after its settle step has returned. A
+// client that exits mid-settle used to have its cleanup run beside a settle
+// still steering the server: herdr's cleanup drops the walk lock, and the rest
+// of the walk then moved the focus under another attach that held it.
+func TestCleanupWaitsForASettleStepStillRunning(t *testing.T) {
+	var mu sync.Mutex
+	var settleEnded, cleanedAt time.Time
+	attachment := backend.Attachment{
+		Cmd: exec.Command("sh", "-c", "printf painted; sleep 0.3"),
+		Settle: func(ctx context.Context, _ io.Writer, _ backend.Expect) error {
+			<-ctx.Done()
+			time.Sleep(50 * time.Millisecond)
+			mu.Lock()
+			settleEnded = time.Now()
+			mu.Unlock()
+			return ctx.Err()
+		},
+		Cleanup: func() error {
+			mu.Lock()
+			cleanedAt = time.Now()
+			mu.Unlock()
+			return nil
+		},
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = engine.Attach(context.Background(), attachment,
+			engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the attach did not return after its client exited")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if settleEnded.IsZero() || cleanedAt.IsZero() {
+		t.Fatalf("settle ended %v, cleanup ran %v; want both", settleEnded, cleanedAt)
+	}
+	if cleanedAt.Before(settleEnded) {
+		t.Errorf("the cleanup ran %v before the settle step returned", settleEnded.Sub(cleanedAt))
+	}
+}
+
+// §8.3 A control is never written into the session, even where a read ends
+// inside its opening bytes. The input is read 4096 bytes at a time, so a
+// control starting four bytes before that boundary arrives in two pieces.
+func TestAControlWhosePrefixIsCutByARead(t *testing.T) {
+	seen := filepath.Join(t.TempDir(), "seen")
+	filler := strings.Repeat("a", 4092)
+	in, feed, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer in.Close()
+	if _, err := feed.WriteString(filler + "\x1b]olympus;resize;100;40\x07world"); err != nil {
+		t.Fatalf("feeding: %v", err)
+	}
+	_ = feed.Close()
+	attachment := backend.Attachment{
+		Cmd:    exec.Command("sh", "-c", "stty raw -echo; printf ready; dd bs=1 count=4097 of="+seen+" 2>/dev/null"),
+		Settle: func(context.Context, io.Writer, backend.Expect) error { return nil },
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = engine.Attach(context.Background(), attachment,
+			engine.AttachIO{In: in, Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the client never read what it was sent")
+	}
+	got, _ := os.ReadFile(seen)
+	if want := filler + "world"; string(got) != want {
+		t.Errorf("the session read %q after the filler, want %q", strings.TrimPrefix(string(got), filler), "world")
+	}
+}

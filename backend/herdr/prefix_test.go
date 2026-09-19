@@ -37,6 +37,10 @@ func TestConfiguredPrefixReadsTheKeysTable(t *testing.T) {
 	if v, ok := prefixInConfig(write("a.toml", "[ui]\nprefix = \"no\"\n[keys]\n# prefix = \"x\"\nprefix = \"ctrl+space\" # trailing\n")); !ok || v != "ctrl+space" {
 		t.Errorf("read %q %v, want ctrl+space", v, ok)
 	}
+	// A "#" inside the quotes is the key, not a comment.
+	if v, ok := prefixInConfig(write("c.toml", "[keys]\nprefix = \"ctrl+#\" # hash\n")); !ok || v != "ctrl+#" {
+		t.Errorf("read %q %v, want ctrl+#", v, ok)
+	}
 	if _, ok := prefixInConfig(write("b.toml", "[keys]\nsplit = \"x\"\n")); ok {
 		t.Error("a [keys] table without prefix reported one")
 	}

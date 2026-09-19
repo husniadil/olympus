@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 // directory (behavior §17.1) under a name the socket path decides, and is
 // advisory: only attaches through this path observe it.
 type walkLock struct {
+	mu   sync.Mutex
 	file *os.File
 }
 
@@ -71,13 +73,18 @@ func acquireWalkLock(ctx context.Context, socketPath string) (*walkLock, error) 
 	}
 }
 
-// release drops the lock. Safe on nil and more than once: the walk releases
-// it, and so does the attachment's cleanup, for a client that ended before
-// it ever settled. The file stays, as the engine's locks do: removing it
+// release drops the lock. Safe on nil, more than once and from two goroutines
+// at once: the walk releases it, and so does the attachment's cleanup, for a
+// client that ended before it ever settled. The file stays, as the engine's locks do: removing it
 // would race a process that has it open and is about to lock the unlinked
 // inode.
 func (l *walkLock) release() {
-	if l == nil || l.file == nil {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.file == nil {
 		return
 	}
 	_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)

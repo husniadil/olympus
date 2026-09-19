@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -41,6 +42,8 @@ const (
 	settleQuiet  = 250 * time.Millisecond
 	settleLatest = 2 * time.Second
 	settleMark   = 400 * time.Millisecond
+	// settleDrain bounds the wait for a settle step once the attach is over.
+	settleDrain = 5 * time.Second
 )
 
 // resetSequence turns off everything an inner application may have switched on
@@ -129,6 +132,23 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	// and cleanup that only happens on the tidy path leaks forever
 	// (behavior §8.8).
 	defer func() { _ = attachment.Close() }()
+
+	// A settle step is ended, and waited for, before that cleanup runs: it
+	// steers the server, and a backend's cleanup can drop what serialises that
+	// steering (herdr's walk lock). Bounded, since a step that ignores its
+	// context must not hold the attach open.
+	settleCtx, cancelSettle := context.WithCancel(ctx)
+	settleDone := make(chan struct{})
+	var settleStarted atomic.Bool
+	defer func() {
+		cancelSettle()
+		if settleStarted.Load() {
+			select {
+			case <-settleDone:
+			case <-time.After(settleDrain):
+			}
+		}
+	}()
 
 	restore := enterRawMode(io)
 	// Exactly once, across every exit path. A process killed by an unhandled
@@ -278,9 +298,14 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 				return
 			}
 			ran = true
+			settleStarted.Store(true)
 			go func() {
-				if err := attachment.Settle(ctx, tty, watch.expect); err != nil {
-					settleFailed <- err
+				defer close(settleDone)
+				if err := attachment.Settle(settleCtx, tty, watch.expect); err != nil {
+					select {
+					case settleFailed <- err:
+					default:
+					}
 					return
 				}
 				close(settled)
@@ -446,6 +471,19 @@ func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, move
 				verb, payload, before, after, state := ParseControl(input)
 				switch state {
 				case ControlNone:
+					// A read that filled the buffer was cut by it, and may
+					// have ended inside a control's opening bytes: those are
+					// held for the next read. Only then, so a key typed on its
+					// own, an Escape above all, is never held back.
+					if n == len(buffer) {
+						for k := len(controlPrefix) - 1; k > 0; k-- {
+							if strings.HasSuffix(input, controlPrefix[:k]) {
+								held = input[len(input)-k:]
+								input = input[:len(input)-k]
+								break
+							}
+						}
+					}
 					if _, writeErr := tty.WriteString(input); writeErr != nil {
 						return
 					}
@@ -582,6 +620,13 @@ func (w *outputWatch) expect(mark []byte) func(within time.Duration) bool {
 		case <-time.After(within):
 			w.mu.Lock()
 			defer w.mu.Unlock()
+			// The mark may have landed between the timer and the lock, or
+			// with the timer at once, where select picks either.
+			select {
+			case <-x.met:
+				return true
+			default:
+			}
 			for i, y := range w.waiters {
 				if y == x {
 					w.waiters = append(w.waiters[:i], w.waiters[i+1:]...)

@@ -724,13 +724,30 @@ func TestAClosedFollowReportsWhyItEnded(t *testing.T) {
 	frames := `{"type":"terminal.frame","bytes":"aGVsbG8="}` + "\n" +
 		`{"type":"terminal.closed","reason":"terminal target term_x not found"}` + "\n"
 	reader, writer := io.Pipe()
-	go decodeFrames(strings.NewReader(frames), writer)
+	go decodeFrames(strings.NewReader(frames), writer, func() error { return nil })
 	got, err := io.ReadAll(reader)
 	if string(got) != "hello" {
 		t.Errorf("frames before the close decoded to %q, want %q", got, "hello")
 	}
 	if err == nil || !strings.Contains(err.Error(), "term_x not found") {
 		t.Errorf("a closed follow ended with %v, want the server's reason", err)
+	}
+}
+
+// §5.6 An observe client that fails is an error at the end of the stream,
+// never a clean end: a pane that closed between resolving it and observing it
+// makes the client exit non-zero with nothing on stdout.
+func TestAFailedObserveEndsTheFollowWithItsError(t *testing.T) {
+	t.Parallel()
+	frames := `{"type":"terminal.frame","bytes":"aGVsbG8="}` + "\n"
+	reader, writer := io.Pipe()
+	go decodeFrames(strings.NewReader(frames), writer, func() error { return errors.New("exit status 1") })
+	got, err := io.ReadAll(reader)
+	if string(got) != "hello" {
+		t.Errorf("frames before the failure decoded to %q, want %q", got, "hello")
+	}
+	if err == nil || !strings.Contains(err.Error(), "exit status 1") {
+		t.Errorf("a failed observe ended with %v, want its error", err)
 	}
 }
 
