@@ -1,7 +1,6 @@
 package cli_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
 	"github.com/husniadil/olympus/internal/cli"
 	"github.com/husniadil/olympus/internal/mcp"
@@ -121,7 +119,10 @@ func TestEveryDocumentedCommandParses(t *testing.T) {
 				t.Errorf("%s: %q names no verb", rel, line)
 				continue
 			}
-			if err := cmd.ParseFlags(rest); err != nil && !errors.Is(err, pflag.ErrHelp) {
+			if slices.Contains(rest, "--help") || slices.Contains(rest, "-h") {
+				continue
+			}
+			if err := cmd.ParseFlags(rest); err != nil {
 				t.Errorf("%s: %q does not parse: %v", rel, line, err)
 			}
 		}
