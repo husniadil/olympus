@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,12 +70,23 @@ func (h *Herdr) startServer(ctx context.Context) error {
 	}
 
 	cmd := exec.Command("herdr", h.serverArgs()...)
-	cmd.Env = h.env(invocationEnv())
+	cmd.Env = h.serverEnv()
 	// Its own session, so the server outlives the Olympus process that started
 	// it and does not take a terminal's SIGINT with the foreground group. A
 	// server that died when the caller pressed Ctrl-C would take every session
 	// on it down too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// stderr goes to a FILE, never a pipe: a pipe would break the server's
+	// writes once this process exits, and the server outlives it. The file is
+	// unlinked once the start is settled; a server that is up keeps writing to
+	// the unlinked inode, which goes with it.
+	stderr, err := os.CreateTemp("", "olympus-herdr-server-*.log")
+	if err != nil {
+		return backend.Wrapf(backend.CodeUnexpected, err, "creating a file for the herdr server's stderr")
+	}
+	defer os.Remove(stderr.Name())
+	defer stderr.Close()
+	cmd.Stderr = stderr
 	if own {
 		h.noteSpawning()
 	}
@@ -84,10 +96,12 @@ func (h *Herdr) startServer(ctx context.Context) error {
 	// Reaped rather than waited on: the server is meant to outlive this
 	// process, and leaving it unwaited would leave a zombie behind for as long
 	// as the caller runs.
+	exited := make(chan struct{})
 	go func() {
 		if err := cmd.Wait(); err != nil && own {
 			h.noteServerExited()
 		}
+		close(exited)
 	}()
 
 	deadline := time.Now().Add(serverStartBudget())
@@ -105,9 +119,55 @@ func (h *Herdr) startServer(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return backend.Wrapf(backend.CodeTimeout, ctx.Err(), "waiting for a herdr server at %s", h.socketPath)
+		case <-exited:
+			// The child is gone, so nothing it could still do will answer.
+			// A server that answers now is somebody else's, won in a start
+			// race, and is used without being claimed; none answering is a
+			// failed start, reported with what the child said.
+			if h.serverAnswers(ctx) {
+				return nil
+			}
+			said, _ := os.ReadFile(stderr.Name())
+			return backend.Errorf(backend.CodeBackendUnavailable,
+				"the herdr server at %s exited before it answered: %s", h.socketPath, childStderr(said))
 		case <-time.After(serverStartPoll):
 		}
 	}
+}
+
+// childStderr is the tail of what a server child wrote, enough to name why it
+// exited without carrying a whole log into an error.
+func childStderr(b []byte) string {
+	const limit = 2048
+	s := strings.TrimSpace(string(b))
+	if s == "" {
+		return "it wrote nothing to stderr"
+	}
+	if len(s) > limit {
+		s = "…" + s[len(s)-limit:]
+	}
+	return s
+}
+
+// serverEnv is the environment a server starts with.
+//
+// A server this backend owns reads the configuration it was given beside its
+// state (§17.5), so a caller's HERDR_CONFIG_PATH, which names a config FILE
+// whatever the directory, is dropped: it would replace the pins with whatever
+// the caller's file says. A server started by name runs on the operator's
+// configuration, and the variable is part of it.
+func (h *Herdr) serverEnv() []string {
+	env := invocationEnv()
+	if h.socketOnly {
+		return h.env(env)
+	}
+	kept := env[:0]
+	for _, kv := range env {
+		if !hasKey(kv, "HERDR_CONFIG_PATH") {
+			kept = append(kept, kv)
+		}
+	}
+	return h.env(kept)
 }
 
 // serverArgs boots a named server as its own session. The socket alone does
@@ -273,6 +333,11 @@ func (h *Herdr) Stop(ctx context.Context) error {
 	deadline := time.Now().Add(serverStartBudget())
 	for {
 		if !h.serverAnswers(ctx) {
+			// The server this handle started is gone, and so is the claim: a
+			// later Stop would otherwise take down whatever answers next.
+			h.mu.Lock()
+			h.started = false
+			h.mu.Unlock()
 			return nil
 		}
 		if time.Now().After(deadline) {

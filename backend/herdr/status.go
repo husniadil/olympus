@@ -7,8 +7,9 @@ import (
 )
 
 // statusSource identifies Olympus as the writer of the metadata it sets
-// (behavior §17.1). herdr scopes reported metadata by source so two reporters
-// cannot silently overwrite each other.
+// (behavior §17.1). It does NOT scope the token: herdr keeps one token map per
+// workspace or pane and uses the source only to order sequenced reports, so a
+// reporter under another source that writes `status` overwrites this one.
 const statusSource = "olympus"
 
 // statusToken is the metadata key a session's status is kept under (§17.1).

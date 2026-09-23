@@ -109,6 +109,13 @@ func spawnEnvArgs() []string {
 	for _, name := range []string{"TMUX", "TMUX_PANE", "ZMX_SESSION", "ZMX_SESSION_PREFIX"} {
 		args = append(args, "--env", name+"=")
 	}
+	// The caller's own homes, since a server this backend started carries its
+	// private ones (§2.9) and every pane would inherit them. herdr offers no
+	// way to unset a variable, so an unset home travels as an empty one, which
+	// the XDG base directory rules read the same way.
+	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_STATE_HOME"} {
+		args = append(args, "--env", name+"="+os.Getenv(name))
+	}
 	return args
 }
 

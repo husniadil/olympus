@@ -310,6 +310,18 @@ They are two different hazards under one rule:
   address. That sends another program's reply to somebody else's terminal,
   which is what §13.1's status exists to make reliable.
 
+#### herdr: the configuration and state homes are the caller's
+
+*(backend-local)* A server Olympus starts on herdr runs with `XDG_CONFIG_HOME`
+and `XDG_STATE_HOME` pointed at its private state (§2.9), and a pane inherits
+the server's environment. Every program in the session would then read its
+configuration from a directory holding nothing but herdr's. The creation
+request therefore carries both at the caller's own values. herdr has no way to
+unset a variable in a pane, so a home the caller does not set arrives as an
+empty value, which the XDG base directory rules read as unset. A program that
+takes an empty value as a path instead resolves it against its working
+directory; herdr's own configuration lookup is one.
+
 ### 1.2 The tmux server's global environment is a second leak
 
 Setting `cmd.Env` on the tmux client Olympus execs is **not sufficient**. A new
@@ -743,6 +755,10 @@ Stopping takes every pane on the server down, including every one the caller
 never mentioned. A request to stop a server this handle did not start MUST be
 refused as `CONFLICT` rather than obeyed.
 
+A confirmed stop ends the claim with the server. A later server on the same
+socket is not the one this handle started, and a second stop is refused like
+any other.
+
 ##### Ownership is recorded, never inferred
 
 Nothing observable distinguishes a server Olympus booted from one it found
@@ -864,7 +880,10 @@ point is the level below the session that §10.1's resolution would discard:
 | tmux | a session, a `<session>:<window>`, or a pane's title from a pane id |
 
 On herdr the new label is held to the same rule as a created session's name
-(§10): one spelled like an id would shadow the id.
+(§10): one spelled like an id would shadow the id. A workspace renamed onto a
+name another session already answers to is refused as `USAGE`, as a create
+with that name is: herdr would label both the same, and the name would stop
+being an identity.
 
 On tmux a session name carrying a colon is refused as `USAGE` rather than handed
 to tmux, on rename and on create alike. Older tmux rewrites the colon to an
@@ -4746,6 +4765,10 @@ Two are **per-attempt, not total**:
 - The graceful-kill timeout bounds only the poll phase, so total wall time is
   `presses*gap + timeout` (§2.8).
 
+The herdr start deadline bounds a server that is still coming up. A server
+child that has already exited with nothing answering on its socket fails the
+start at once as `BACKEND_UNAVAILABLE`, carrying what the child wrote to stderr.
+
 Env-overridable values MUST be read at call time, never cached at process start.
 This is the same rule §1.1 applies to `LANG`, for the same reason.
 
@@ -4903,7 +4926,10 @@ than an empty claim.
 herdr's configuration follows its configuration DIRECTORY, and §2.9 has already
 moved that directory alongside the socket. So a private socket here IS a private
 configuration, which tmux cannot give. Nothing of the operator's is inherited
-and nothing of theirs is overwritten.
+and nothing of theirs is overwritten. That includes `HERDR_CONFIG_PATH`, which
+names a config FILE whatever the directory: it is dropped from the environment
+of a server Olympus starts and owns. A server started by name (§13.2) runs on
+the operator's configuration and keeps it.
 
 Two options are still pinned on a server Olympus starts, and still disclosed.
 Both turn off a background NETWORK check the server would otherwise run at boot:

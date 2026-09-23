@@ -59,3 +59,35 @@ func TestConfiguredPrefixReadsTheKeysTable(t *testing.T) {
 		t.Errorf("with no config the prefix is %q, want the default C-b", got)
 	}
 }
+
+// §13.3 The fallback is the operator's config.toml, found where herdr finds
+// it — under the configuration home — and not beside whatever socket
+// HERDR_SOCKET_PATH names, which inside an Olympus session is Olympus's own.
+func TestThePrefixFallbackIsTheOperatorsConfigWhateverTheSocketOverride(t *testing.T) {
+	dir := t.TempDir()
+	operator := filepath.Join(dir, "config", "herdr")
+	if err := os.MkdirAll(operator, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(operator, "config.toml"), []byte("[keys]\nprefix = \"ctrl+space\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(dir, "elsewhere", "herdr.sock"))
+	if got := configuredPrefix(filepath.Join(dir, "session")); got != "C-Space" {
+		t.Errorf("the fallback prefix is %q, want the operator's C-Space", got)
+	}
+
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", dir)
+	home := filepath.Join(dir, ".config", "herdr")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("[keys]\nprefix = \"alt+q\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := configuredPrefix(filepath.Join(dir, "session")); got != "M-q" {
+		t.Errorf("with no configuration home the fallback prefix is %q, want M-q from $HOME/.config/herdr", got)
+	}
+}

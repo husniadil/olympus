@@ -745,9 +745,22 @@ func (h *Herdr) Rename(ctx context.Context, target, name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
-	r, err := h.resolve(ctx, target)
+	snap, err := h.snapshot(ctx)
 	if err != nil {
 		return err
+	}
+	r, err := snap.resolve(target)
+	if err != nil {
+		return err
+	}
+	if r.kind == kindWorkspace {
+		// A workspace's label is a session's identity, which Create refuses to
+		// duplicate; a rename must not reach the same state by another route.
+		for _, ws := range snap.Workspaces {
+			if ws.WorkspaceID != r.workspace.WorkspaceID && displayName(ws) == name {
+				return backend.Errorf(backend.CodeUsage, "a session named %s already exists", name)
+			}
+		}
 	}
 	switch r.kind {
 	case kindPane:
@@ -884,7 +897,10 @@ func classify(err error, stdout, stderr string, args []string) error {
 
 	switch code {
 	case "server_not_running":
-		return fmt.Errorf("%w: %s", errNoServer, message)
+		// Not-found where it surfaces, which is a target verb whose server
+		// went away after the target resolved (§12.3); the callers that
+		// collapse it into an empty answer still find the sentinel.
+		return backend.Wrapf(backend.CodeSessionNotFound, errNoServer, "%s", message)
 	case "pane_not_found", "workspace_not_found", "tab_not_found":
 		return backend.Errorf(backend.CodeSessionNotFound, "%s", message)
 	case "session_stop_failed":

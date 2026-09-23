@@ -28,8 +28,13 @@ func rawConfiguredPrefix(sessionDir string) string {
 	if sessionDir != "" {
 		candidates = append(candidates, filepath.Join(sessionDir, "config.toml"))
 	}
-	if ambient := AmbientSocketPath(); ambient != "" {
-		candidates = append(candidates, filepath.Join(filepath.Dir(ambient), "config.toml"))
+	// The operator's configuration directory, resolved the way herdr resolves
+	// it. Not beside the ambient socket: HERDR_SOCKET_PATH may name any
+	// socket, and inside an Olympus session it names Olympus's own.
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+		candidates = append(candidates, filepath.Join(v, "herdr", "config.toml"))
+	} else if home := os.Getenv("HOME"); home != "" {
+		candidates = append(candidates, filepath.Join(home, ".config", "herdr", "config.toml"))
 	}
 	for _, path := range candidates {
 		if v, ok := prefixInConfig(path); ok {

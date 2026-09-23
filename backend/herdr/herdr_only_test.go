@@ -919,3 +919,161 @@ func TestSessionsMarkTheFocusedWorkspace(t *testing.T) {
 		}
 	}
 }
+
+// §1.1 A pane gets the caller's configuration and state homes, not the ones
+// this backend moved its own server onto.
+//
+// The server Olympus starts runs with XDG_CONFIG_HOME and XDG_STATE_HOME
+// pointed at its private state (§2.9), and a pane inherits the server's
+// environment. Every program in the session would otherwise read its
+// configuration from a directory holding nothing but herdr's. An unset home
+// travels as an empty value, which the XDG base directory rules read as unset.
+func TestTheCreationRequestCarriesTheCallersXDGHomes(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/probe/config")
+	t.Setenv("XDG_STATE_HOME", "")
+	if err := os.Unsetenv("XDG_STATE_HOME"); err != nil {
+		t.Fatal(err)
+	}
+	args := spawnEnvArgs()
+	has := func(want string) bool {
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "--env" && args[i+1] == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{"XDG_CONFIG_HOME=/probe/config", "XDG_STATE_HOME="} {
+		if !has(want) {
+			t.Errorf("the creation request does not carry --env %q: %v", want, args)
+		}
+	}
+}
+
+// §1.1 The same, measured in a pane on a server this backend started.
+func TestAPaneDoesNotInheritTheServersPrivateXDGHomes(t *testing.T) {
+	b := liveBackend(t)
+	ctx := context.Background()
+	t.Setenv("XDG_CONFIG_HOME", "/probe/config")
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: "xdg"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	warmShell(t, b, "xdg")
+	if err := b.SendAtomic(ctx, "xdg", `printf 'cfg=[%s] state=[%s]\n' "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"`); err != nil {
+		t.Fatalf("SendAtomic: %v", err)
+	}
+	waitForScreen(t, b, "xdg", "cfg=[/probe/config] state=["+os.Getenv("XDG_STATE_HOME")+"]")
+}
+
+// §17.5 A server this backend starts reads the configuration beside its own
+// state, so a caller's HERDR_CONFIG_PATH, which names a config FILE regardless
+// of the directory, is dropped from its environment. A server started by name
+// runs on the operator's configuration, where that variable is theirs to set.
+func TestAServerThisBackendOwnsIgnoresTheCallersConfigPath(t *testing.T) {
+	t.Setenv("HERDR_CONFIG_PATH", "/probe/config.toml")
+	own := New(WithSocketPath(filepath.Join(t.TempDir(), "h.sock")))
+	for _, kv := range own.serverEnv() {
+		if hasKey(kv, "HERDR_CONFIG_PATH") {
+			t.Errorf("an owned server starts with %q, which replaces the managed configuration", kv)
+		}
+	}
+	named := New(WithServerSocket("work", filepath.Join(t.TempDir(), "h.sock")))
+	found := false
+	for _, kv := range named.serverEnv() {
+		found = found || kv == "HERDR_CONFIG_PATH=/probe/config.toml"
+	}
+	if !found {
+		t.Error("a server started by name lost the operator's HERDR_CONFIG_PATH")
+	}
+}
+
+// fakeHerdr puts a shell script named herdr first on PATH, for the paths a
+// real server cannot be made to take on demand.
+func fakeHerdr(t *testing.T, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "herdr"), []byte("#!/bin/sh\n"+script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+const fakeNoServer = `echo '{"error":{"code":"server_not_running","message":"no server running"}}'; exit 1`
+
+// §17.3 A server child that exits without a server answering fails the start
+// at once, with what it wrote to stderr, rather than after the whole start
+// budget with nothing to say why.
+func TestAServerThatExitsAtBootFailsAtOnceWithItsStderr(t *testing.T) {
+	fakeHerdr(t, `case "$1" in
+server) echo "boot failed: probe" >&2; exit 1 ;;
+*) `+fakeNoServer+` ;;
+esac
+`)
+	t.Setenv(serverStartEnv, "20s")
+	h := New(WithSocketPath(filepath.Join(shortDir(t), "h.sock")))
+	began := time.Now()
+	err := h.ensureServer(context.Background())
+	if elapsed := time.Since(began); elapsed > 5*time.Second {
+		t.Errorf("the failed start took %s, the start budget rather than the child's exit", elapsed)
+	}
+	if backend.CodeOf(err) != backend.CodeBackendUnavailable {
+		t.Errorf("the failed start is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeBackendUnavailable, err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "boot failed: probe") {
+		t.Errorf("the failed start does not carry the server's stderr: %v", err)
+	}
+}
+
+// §2.9.1 A stop forgets the ownership it ended. A second Stop on the same
+// handle, after somebody else's server took the socket, must refuse it
+// rather than stop it on the strength of a server that is gone.
+func TestAStoppedServerIsNoLongerThisHandles(t *testing.T) {
+	fakeHerdr(t, `up="$HERDR_SOCKET_PATH.up"
+case "$1 $2" in
+"server stop") rm -f "$up"; echo '{"result":{}}'; exit 0 ;;
+"server "*) : > "$up"; while [ -f "$up" ]; do sleep 0.05; done; exit 0 ;;
+"pane list") if [ -f "$up" ]; then echo '{"result":{"panes":[]}}'; exit 0; fi; `+fakeNoServer+` ;;
+esac
+exit 1
+`)
+	socket := filepath.Join(shortDir(t), "h.sock")
+	up := socket + ".up"
+	t.Cleanup(func() { _ = os.Remove(up) })
+	h := New(WithSocketPath(socket))
+	ctx := context.Background()
+	if err := h.ensureServer(ctx); err != nil {
+		t.Fatalf("starting the fake server: %v", err)
+	}
+	if err := h.Stop(ctx); err != nil {
+		t.Fatalf("stopping the server this handle started: %v", err)
+	}
+	// Somebody else's server now answers on the socket.
+	if err := os.WriteFile(up, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Stop(ctx); !errors.Is(err, backend.ErrConflict) {
+		t.Errorf("a second Stop is %v, want %q", err, backend.CodeConflict)
+	}
+	if _, err := os.Stat(up); err != nil {
+		t.Error("the second Stop took down a server this handle did not start")
+	}
+}
+
+// §2.11 A workspace cannot be renamed onto another session's name, for the
+// same reason a create refuses one: the name is the session's identity. A
+// rename onto its own name is not a collision.
+func TestRenamingAWorkspaceOntoAnotherSessionsNameIsRefused(t *testing.T) {
+	b := liveBackend(t)
+	ctx := context.Background()
+	for _, name := range []string{"one", "two"} {
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: name}); err != nil {
+			t.Fatalf("Create(%s): %v", name, err)
+		}
+	}
+	if err := b.Rename(ctx, "two", "one"); backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("renaming two onto one is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
+	if err := b.Rename(ctx, "one", "one"); err != nil {
+		t.Errorf("renaming one onto its own name: %v", err)
+	}
+}
