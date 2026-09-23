@@ -100,6 +100,11 @@ twenty-four full-package runs, once as the disconnect while submitting and once
 as a stream that never carried output it should have. It attaches its own
 client, which the injection path then borrows.
 
+It is not confined to macOS. On Linux in CI, on the 0.0.25 floor, two concurrent
+pastes into two sessions each through a handle of its own failed once with the
+disconnect. Sixteen runs of the same case against 0.0.25 on macOS did not
+reproduce it.
+
 ### What is captured now
 
 The client's output and whether its process was alive are captured at the
