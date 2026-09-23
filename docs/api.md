@@ -146,8 +146,12 @@ name. See §1.1.
 
 ## 2. The structured envelope
 
-`--json` on the CLI, and the structured content of every MCP tool result, share
-one envelope.
+`--json` on the CLI carries this envelope. The structured content of an MCP
+tool result carries its `backend`, `data` and `warnings` under the same rules,
+and neither `ok` nor `error`: MCP reports a failure through the result's
+`isError` and a text content carrying the code (§3), so an MCP client branches
+on `isError`. A failed call's structured content still carries a zero-valued
+`data` beside the error (known issues), which is never to be read as a result.
 
 **Success:**
 
@@ -174,11 +178,11 @@ one envelope.
 
 | Field | Rule |
 |---|---|
-| `ok` | Always present, and the only field a consumer needs to branch on. |
+| `ok` | CLI only. Always present, and the only field a consumer needs to branch on. |
 | `backend` | The **resolved** backend, never the requested one (behavior spec §0.4). Present on failure as well as success, because a failure is when knowing which backend answered matters most. Omitted when no backend was resolved: a failure that came before resolution, such as a `USAGE` error from argument checking, and `version`, `kinds` and `self`, which answer without resolving one. A failure after resolution, such as an addressing option the resolved backend cannot use, names it. |
 | `data` | The per-operation payload. Absent for operations with no payload. An object or an array, never a bare scalar. |
 | `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. |
-| `error` | Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
+| `error` | CLI only. Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
 | `error.typed` | `true` on an `AGENT_BLOCKED` whose text was typed before the agent started waiting, so it may still be in the input box (behavior spec §7.5). Omitted otherwise. |
 
 **Empty collections serialize as `[]`, never `null`.** This applies to `data`
@@ -674,8 +678,9 @@ The capture that satisfied the wait, plus which line did it:
 `line` and `matched` are omitted when nothing matched. A wait that runs out of
 time is a `TIMEOUT` failure. In Go, `WaitFor` returns the last capture beside
 that error, carrying its `text` and no claim about it. The CLI and MCP doors
-report the failure alone: a failure envelope (§2) has no `data`, so the capture
-does not reach it. The error message says when the pattern was on screen but
+report the failure alone: the CLI's failure envelope (§2) has no `data`, and
+MCP's zero-valued `data` on a failure is not a capture, so the capture reaches
+neither. The error message says when the pattern was on screen but
 rejected by its line anchors.
 
 Matching is per line, never against the whole screen as one string (behavior
