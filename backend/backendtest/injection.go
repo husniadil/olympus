@@ -43,13 +43,30 @@ func injectionCases() []Case {
 				// `-` as a flag. The line editor draws what arrived.
 				target := e.StartShell()
 				e.Warm(target)
+				// A prompt carrying a long working directory wraps the input
+				// line, and a wrap is not what this case is about.
+				if err := e.Backend.SendAtomic(e.Ctx(), target, `cd / && printf 'at-root-%d\n' 7`); err != nil {
+					e.T.Fatalf("moving to /: %v", err)
+				}
+				e.WaitFor(target, "at-root-7")
 				for _, text := range []string{"semi-7;", `bs-7\;`, "-dash-7 "} {
 					if err := e.Backend.Type(e.Ctx(), target, text); err != nil {
 						e.T.Fatalf("typing %q: %v", text, err)
 					}
 				}
-				for _, want := range []string{"semi-7;", `bs-7\;`, "-dash-7"} {
-					e.WaitFor(target, want)
+				// Read with line breaks removed, in case a theme's prompt still
+				// wraps the one input line the three pieces land on.
+				want := `semi-7;bs-7\;-dash-7`
+				deadline := time.Now().Add(e.budgets.Screen)
+				for {
+					screen := e.Screen(target).Text
+					if strings.Contains(strings.ReplaceAll(screen, "\n", ""), want) {
+						break
+					}
+					if time.Now().After(deadline) {
+						e.T.Fatalf("waiting for %q on %s: never appeared. Screen was:\n%s", want, target, screen)
+					}
+					time.Sleep(100 * time.Millisecond)
 				}
 			},
 		},
