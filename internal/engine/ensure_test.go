@@ -72,6 +72,36 @@ func TestEnsureReapsAPresentButDeadSession(t *testing.T) {
 	}
 }
 
+// §3.2: a row classified gone is positive evidence of death (zmx's
+// ConnectionRefused), so it is reaped like a corpse, never handed back as
+// reused. An unknown row is doubt and stays reused.
+func TestEnsureReapsARowClassifiedGone(t *testing.T) {
+	f := &fakeBackend{
+		sessions: []backend.Session{{Name: "build", Liveness: backend.LivenessGone}},
+	}
+	got, err := engine.Ensure(context.Background(), f, spec("build"))
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if got.Outcome != backend.OutcomeReaped {
+		t.Errorf("outcome %q for a gone row, want %q", got.Outcome, backend.OutcomeReaped)
+	}
+	if len(f.created) != 1 {
+		t.Errorf("created %d sessions, want 1", len(f.created))
+	}
+
+	f = &fakeBackend{
+		sessions: []backend.Session{{Name: "build", Liveness: backend.LivenessUnknown}},
+	}
+	got, err = engine.Ensure(context.Background(), f, spec("build"))
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if got.Outcome != backend.OutcomeReused || len(f.kills) != 0 {
+		t.Errorf("an unknown row got outcome %q with %d kills, want reused and none", got.Outcome, len(f.kills))
+	}
+}
+
 // §2.7's exact failure mode: if the rejection lived inside create only, a fresh
 // name would correctly reject while an already-alive session took the reuse
 // branch, never reached create, and silently accepted and ignored the flag.

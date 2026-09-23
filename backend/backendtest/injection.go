@@ -35,6 +35,25 @@ func injectionCases() []Case {
 			},
 		},
 		{
+			Name: "§4.8 text ending in a semicolon or starting with a dash lands verbatim",
+			Fn: func(e *Env) {
+				// Each piece is its own injection, so each is an argument's
+				// start and end: where a multiplexer's own parsing would eat a
+				// trailing `;`, strip a backslash from `\;`, or read a leading
+				// `-` as a flag. The line editor draws what arrived.
+				target := e.StartShell()
+				e.Warm(target)
+				for _, text := range []string{"semi-7;", `bs-7\;`, "-dash-7 "} {
+					if err := e.Backend.Type(e.Ctx(), target, text); err != nil {
+						e.T.Fatalf("typing %q: %v", text, err)
+					}
+				}
+				for _, want := range []string{"semi-7;", `bs-7\;`, "-dash-7"} {
+					e.WaitFor(target, want)
+				}
+			},
+		},
+		{
 			Name: "§4.6 paste carries multiple lines and still never auto-submits",
 			Fn: func(e *Env) {
 				target := e.StartShell()

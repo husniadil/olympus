@@ -122,6 +122,10 @@ func TestAVanishedClientIsNotReportedAsAMissingOne(t *testing.T) {
 	if strings.Contains(got, "requires an attached client") {
 		t.Errorf("a vanished client was described as a missing one:\n%s", got)
 	}
+	// The mark is what stops a composed submit from retrying it (§4.4).
+	if !backend.UncertainOf(vanished(errors.New("target client disconnected"), "build")) {
+		t.Error("a vanished client's error is not marked uncertain, so a submit would retry it")
+	}
 }
 
 // The two are told apart by their messages, and neither predicate may claim

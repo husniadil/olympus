@@ -47,6 +47,10 @@ type Error struct {
 	// Typed marks an AGENT_BLOCKED whose text was typed before the agent
 	// started waiting (behavior §7.5): a second send would type it again.
 	Typed bool
+	// Uncertain marks a write the backend accepted and then lost track of, so
+	// whether it reached the pane is unknown. It is never retried: a resend
+	// could deliver it twice (behavior §4.4).
+	Uncertain bool
 }
 
 // Errorf builds a classified error with a formatted message.
@@ -102,4 +106,11 @@ func CodeOf(err error) Code {
 func TypedOf(err error) bool {
 	var classified *Error
 	return errors.As(err, &classified) && classified.Typed
+}
+
+// UncertainOf reports whether err is a write of unknown delivery (behavior
+// §4.4). Every other error, and nil, is false.
+func UncertainOf(err error) bool {
+	var classified *Error
+	return errors.As(err, &classified) && classified.Uncertain
 }

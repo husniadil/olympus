@@ -1,6 +1,7 @@
 package backendtest
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -60,6 +61,100 @@ func lifecycleCases() []Case {
 				screen := e.Screen(target).Text
 				if strings.Contains(screen, "printf 'spawned-") {
 					e.T.Errorf("the spawn argv was echoed, so it was typed into a shell rather than executed. Screen was:\n%s", screen)
+				}
+			},
+		},
+		{
+			Name: "§2.6 a session whose process exits by itself leaves no row behind",
+			Fn: func(e *Env) {
+				// The process ends on its own, never by Kill: a backend that
+				// leaves a dead row on exit would make ensure's reaped branch
+				// reachable, and only a natural exit can show that.
+				target := e.StartProgram("sh", "-c", "sleep 1")
+				deadline := time.Now().Add(e.budgets.Screen + 2*time.Second)
+				for {
+					listed := false
+					if sessions, err := e.Backend.Sessions(e.Ctx()); err == nil {
+						for _, s := range sessions {
+							listed = listed || s.Name == target
+						}
+					}
+					if !listed && e.Backend.Probe(e.Ctx(), target) == backend.StateAbsent {
+						return
+					}
+					if time.Now().After(deadline) {
+						e.T.Errorf("session %s is still listed or present after its process exited, so ensure would find a dead row rather than an absent one", target)
+						return
+					}
+					time.Sleep(e.budgets.Poll)
+				}
+			},
+		},
+		{
+			Name: "§2.7 remain-on-exit is refused as unsupported where it is not declared",
+			Fn: func(e *Env) {
+				if e.Backend.Capabilities().RemainOnExit {
+					return
+				}
+				name := e.Name()
+				e.T.Cleanup(func() { _ = e.Backend.Kill(context.Background(), name) })
+				_, err := e.Backend.Create(e.Ctx(), backend.CreateSpec{
+					Name: name, Dir: e.T.TempDir(), Cols: 80, Rows: 24, RemainOnExit: true,
+				})
+				if !errors.Is(err, backend.ErrUnsupported) {
+					e.T.Errorf("creating with remain-on-exit is %v (%q), want %q", err, backend.CodeOf(err), backend.CodeUnsupported)
+				}
+				if got := e.Backend.Probe(e.Ctx(), name); got == backend.StatePresent {
+					e.T.Errorf("the refused create left session %s present", name)
+				}
+			},
+		},
+		{
+			Name: "§6.9 a corpse stays listed and present, with the dead flag set",
+			Fn: func(e *Env) {
+				caps := e.Backend.Capabilities()
+				if !caps.RemainOnExit {
+					return
+				}
+				name := e.Name()
+				spec := backend.CreateSpec{Name: name, Dir: e.T.TempDir(), Cols: 80, Rows: 24, RemainOnExit: true}
+				if caps.SpawnCommand {
+					spec.Command = []string{"sh", "-c", "sleep 1"}
+				}
+				if _, err := e.Backend.Create(e.Ctx(), spec); err != nil {
+					e.T.Fatalf("creating session %s with remain-on-exit: %v", name, err)
+				}
+				e.T.Cleanup(func() { _ = e.Backend.Kill(context.Background(), name) })
+				if !caps.SpawnCommand {
+					e.Warm(name)
+					if err := e.Backend.SendAtomic(e.Ctx(), name, "exit"); err != nil {
+						e.T.Fatalf("ending the shell: %v", err)
+					}
+				}
+
+				deadline := time.Now().Add(e.budgets.Screen + 2*time.Second)
+				var row backend.Session
+				for {
+					if sessions, err := e.Backend.Sessions(e.Ctx()); err == nil {
+						for _, s := range sessions {
+							if s.Name == name {
+								row = s
+							}
+						}
+					}
+					if row.Dead {
+						break
+					}
+					if time.Now().After(deadline) {
+						e.T.Fatalf("session %s never listed as dead after its process exited (last row %+v)", name, row)
+					}
+					time.Sleep(e.budgets.Poll)
+				}
+				if row.Liveness != backend.LivenessPresent {
+					e.T.Errorf("the corpse's liveness is %q, want %q: liveness and deadness are different questions (§3.2)", row.Liveness, backend.LivenessPresent)
+				}
+				if got := e.Backend.Probe(e.Ctx(), name); got != backend.StatePresent {
+					e.T.Errorf("probe of a corpse is %q, want %q", got, backend.StatePresent)
 				}
 			},
 		},

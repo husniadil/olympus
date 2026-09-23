@@ -185,11 +185,12 @@ func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, err
 			code := result.ExitCode
 			return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output}, nil
 		}
-		// A poll never grows its window — it asks for the deepest one on every
-		// call — so a start marker missing here is missing for good, and
-		// reporting pending forever would withhold an exit code the capture
-		// already carries (§6.2, §6.4).
-		if !markers.Started(capture) {
+		// A poll never grows its window, so at the deepest one a start marker
+		// missing here is missing for good, and reporting pending forever would
+		// withhold an exit code the capture already carries (§6.2, §6.4). A
+		// smaller window the caller chose still has a deeper look available.
+		deepest := r.Backend.Capabilities().NativeScrollback || r.PollWindow() >= maxWindow
+		if deepest && !markers.Started(capture) {
 			if result, ok := markers.ParseTruncated(capture); ok {
 				code := result.ExitCode
 				return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output, Truncated: true}, nil
@@ -213,7 +214,13 @@ func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, err
 		// label (§10.1). The backend's own probe reads the target's shape.
 		return PollResult{Status: PollPending}, nil
 	}
-	if listErr != nil || !found {
+	if listErr != nil {
+		// A listing that failed is doubt, not death, and died is final: a
+		// caller that reaps on it would finalize a run that may still be going
+		// (§3.2).
+		return PollResult{Status: PollPending, Reason: "the session's liveness could not be confirmed: " + listErr.Error()}, nil
+	}
+	if !found {
 		return PollResult{Status: PollDied, Reason: "the session is no longer present"}, nil
 	}
 	if row.Dead {

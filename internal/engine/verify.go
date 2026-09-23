@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
@@ -83,13 +84,24 @@ func (d Delivery) Verified(ctx context.Context, target, text string, submit bool
 // per call site is one that ends up present on some paths and missing on the
 // rest, which is exactly the state this repository was in.
 //
+// A terminator whose delivery is unknown is the exception: it may already have
+// submitted, and a second one would submit twice. A second failure that already
+// carries its own code keeps it, so it answers to one sentinel, not two.
+//
 // It does NOT take the lock: the caller already holds it, and the whole point
 // is that nothing lands between the injection and its terminator.
 func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
-	if err := b.Submit(ctx, target); err == nil {
+	err := b.Submit(ctx, target)
+	if err == nil {
 		return nil
 	}
+	if backend.UncertainOf(err) {
+		return err
+	}
 	if err := b.Submit(ctx, target); err != nil {
+		if backend.UncertainOf(err) || backend.CodeOf(err) != backend.CodeUnexpected {
+			return err
+		}
 		return backend.Wrapf(backend.CodeTimeout, err,
 			"text was delivered to %s but not submitted, and is still sitting in the input line", target)
 	}
@@ -108,18 +120,25 @@ func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
 // must not read as dropped.
 func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch) error {
 	head, tail := Normalize(text), NormalizeTail(text)
+	// Text with no letters or digits normalizes to nothing, and an empty needle
+	// matches any screen. Such text is looked for as typed instead, trailing
+	// whitespace aside since some backends drop it (§7.1).
+	raw := ""
+	if head == "" {
+		raw = strings.TrimSpace(text)
+	}
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {
 		return err
 	}
-	if seen, err := d.observed(ctx, target, head, tail, watch); seen || err != nil {
+	if seen, err := d.observed(ctx, target, head, tail, raw, watch); seen || err != nil {
 		return err
 	}
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {
 		return err
 	}
-	if seen, err := d.observed(ctx, target, head, tail, watch); seen || err != nil {
+	if seen, err := d.observed(ctx, target, head, tail, raw, watch); seen || err != nil {
 		return err
 	}
 
@@ -129,8 +148,9 @@ func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch)
 
 // observed polls the screen for either needle within one attempt budget, by
 // the watch where there is one and over the whole screen where there is not.
-// Only a watch's own error stops it early.
-func (d Delivery) observed(ctx context.Context, target, head, tail string, watch Watch) (bool, error) {
+// Only a watch's own error stops it early. A non-empty raw needle must also
+// appear verbatim on the screen.
+func (d Delivery) observed(ctx context.Context, target, head, tail, raw string, watch Watch) (bool, error) {
 	deadline := time.Now().Add(d.Budget)
 	for {
 		capture, err := d.Backend.Screen(ctx, target, backend.ScreenOpts{})
@@ -138,12 +158,15 @@ func (d Delivery) observed(ctx context.Context, target, head, tail string, watch
 		// budget is what bounds this, so a transient read failure costs one
 		// poll rather than the whole attempt.
 		if err == nil {
+			rawSeen := raw == "" || strings.Contains(capture.Text, raw)
 			if watch == nil {
-				if ScreenContains(capture.Text, head) || ScreenContains(capture.Text, tail) {
+				if rawSeen && (ScreenContains(capture.Text, head) || ScreenContains(capture.Text, tail)) {
 					return true, nil
 				}
-			} else if seen, werr := watch(capture.Text, head, tail); seen || werr != nil {
-				return seen && werr == nil, werr
+			} else if seen, werr := watch(capture.Text, head, tail); werr != nil {
+				return false, werr
+			} else if seen && rawSeen {
+				return true, nil
 			}
 		}
 		if time.Now().After(deadline) {

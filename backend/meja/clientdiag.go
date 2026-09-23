@@ -85,8 +85,10 @@ func giveUp(err error, target string, ev clientEvidence) error {
 // it arrived from CI reading only "submitting: target client disconnected",
 // which named the symptom and left the reader to guess the rest.
 func vanished(err error, target string) error {
-	return backend.Wrapf(backend.CodeUnexpected, err,
+	lost := backend.Wrapf(backend.CodeUnexpected, err,
 		"driving %s; a client was attached and went away mid-command, so whether it ran is unknown — not retried, because resending could deliver it twice", target)
+	lost.Uncertain = true
+	return lost
 }
 
 // tail keeps the last n bytes, marking that it truncated.

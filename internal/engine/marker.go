@@ -131,7 +131,10 @@ func (m Markers) Parse(capture string) (Result, bool) {
 		return Result{}, false
 	}
 
-	from := rawOffset(offsets, startAt+len(m.start), len(capture))
+	// Just past the marker's last byte in the raw capture. Mapping the index
+	// after the marker instead would land on the next non-newline byte and
+	// swallow every blank line the output opened with.
+	from := offsets[startAt+len(m.start)-1] + 1
 	to := rawOffset(offsets, doneAt, len(capture))
 	if from > to {
 		return Result{}, false
@@ -250,6 +253,14 @@ func ValidateCommand(command string) error {
 	if strings.ContainsAny(command, "\n\r") {
 		return backend.Errorf(backend.CodeUsage,
 			"the command contains a line break, which would run as separate commands and report only the last one's exit code")
+	}
+	// An odd run of trailing backslashes escapes the `;` the protocol appends,
+	// so the completion echo becomes the command's own argument and prints a
+	// marker that reads as exit 0 whatever the command did.
+	trailing := len(command) - len(strings.TrimRight(command, `\`))
+	if trailing%2 == 1 {
+		return backend.Errorf(backend.CodeUsage,
+			"the command ends in an unpaired backslash, which would escape the separator after it and report a false success")
 	}
 	return nil
 }

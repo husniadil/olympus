@@ -248,3 +248,59 @@ func TestReleasingTwiceIsSafe(t *testing.T) {
 		t.Errorf("second release: %v", err)
 	}
 }
+
+// §11.1: the lock directory lives under a shared temp root, where another user
+// may have created it first. A directory this process does not own, or a
+// symlink planted in its place, would put our lock files in someone else's
+// hands, so both are refused. A directory we own but left group- or
+// world-accessible is tightened. A directory owned by someone else cannot be
+// made without root, so that case is exercised through the symlink alone.
+func TestTheLockDirectoryMustBePrivateAndOurs(t *testing.T) {
+	for name, open := range map[string]func(string) error{
+		"locks": func(dir string) error { _, err := engine.NewLocksIn(dir); return err },
+		"guard": func(dir string) error { _, err := engine.NewAttachGuard(dir); return err },
+	} {
+		t.Run(name+"/loose mode is tightened", func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "d")
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(dir, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			if err := open(dir); err != nil {
+				t.Fatalf("a directory we own was refused: %v", err)
+			}
+			fi, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+				t.Errorf("the directory is still mode %o, want no group or world access", perm)
+			}
+		})
+		t.Run(name+"/a symlink is refused", func(t *testing.T) {
+			root := t.TempDir()
+			real := filepath.Join(root, "elsewhere")
+			if err := os.Mkdir(real, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(root, "d")
+			if err := os.Symlink(real, link); err != nil {
+				t.Fatal(err)
+			}
+			if err := open(link); err == nil {
+				t.Error("a symlink in place of the directory was accepted")
+			}
+		})
+		t.Run(name+"/a file is refused", func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "d")
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := open(path); err == nil {
+				t.Error("a regular file in place of the directory was accepted")
+			}
+		})
+	}
+}

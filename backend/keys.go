@@ -83,7 +83,9 @@ func MetaSymbol(k Key) byte {
 // accepting one Olympus cannot faithfully deliver would be worse than saying it
 // is unknown.
 func FunctionNumber(k Key) int {
-	if len(k) < 2 || k[0] != 'f' {
+	// One spelling per key: no sign and no leading zero, which Atoi would
+	// otherwise accept as f+5 or f05.
+	if len(k) < 2 || k[0] != 'f' || k[1] < '1' || k[1] > '9' {
 		return 0
 	}
 	n, err := strconv.Atoi(string(k[1:]))

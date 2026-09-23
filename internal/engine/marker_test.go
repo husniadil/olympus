@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/internal/engine"
 )
 
@@ -264,5 +265,35 @@ func TestTheRelaxedParseStillNeedsACompletion(t *testing.T) {
 	m := engine.NewMarkers("abc")
 	if _, ok := m.ParseTruncated("OLY_S_abc\nworking\n"); ok {
 		t.Error("a run with no completion parsed, want a refusal")
+	}
+}
+
+// §6.2: only the ONE newline the start marker's echo contributes is trimmed. A
+// command whose output opens with a blank line (`echo; echo x`) keeps it.
+func TestALeadingBlankLineOfOutputIsKept(t *testing.T) {
+	capture := pane("echo; echo x") + "\nx\n" + doneMarker(0)
+	got, ok := markers().Parse(capture)
+	if !ok {
+		t.Fatalf("no completion found in:\n%s", capture)
+	}
+	if got.Output != "\nx" {
+		t.Errorf("output %q, want %q", got.Output, "\nx")
+	}
+}
+
+// §6.3: a command ending in an odd run of backslashes escapes the protocol's
+// own `;`, so the done marker's echo becomes an argument of the command. That
+// argument still reads as a completion with exit 0: a false success.
+func TestACommandEndingInAnEscapingBackslashIsRejected(t *testing.T) {
+	for _, command := range []string{`echo x\`, `echo x\\\`} {
+		err := engine.ValidateCommand(command)
+		if backend.CodeOf(err) != backend.CodeUsage {
+			t.Errorf("command %q: error %v, want USAGE", command, err)
+		}
+	}
+	for _, command := range []string{`echo x\\`, `echo x\ `, `printf 'a\nb'`} {
+		if err := engine.ValidateCommand(command); err != nil {
+			t.Errorf("command %q was rejected: %v", command, err)
+		}
 	}
 }

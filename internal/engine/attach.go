@@ -259,6 +259,13 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 			}
 		case <-ctx.Done():
 			_ = child.Process.Signal(syscall.SIGTERM)
+			// A client that ignores SIGTERM would otherwise hold a cancelled
+			// attach open for as long as it chose to run.
+			select {
+			case <-exited:
+			case <-time.After(targetGoneGrace):
+				_ = child.Process.Kill()
+			}
 		case <-exited:
 		}
 	}()
@@ -382,7 +389,12 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 				return
 			}
 			if err := attachment.Go(ctx, target, tty, watch.expect); err != nil {
-				settleFailed <- err
+				// Non-blocking: only the first failure is read, and a later
+				// one must not hang this goroutine on a full channel.
+				select {
+				case settleFailed <- err:
+				default:
+				}
 			}
 		}
 		focus := func(target string) {
@@ -400,7 +412,10 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 				return
 			}
 			if err != nil {
-				settleFailed <- err
+				select {
+				case settleFailed <- err:
+				default:
+				}
 			}
 		}
 		forwardInput(io.In, tty, settled, exited, move, focus)
@@ -426,6 +441,11 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	}
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
+		// A client ended by a signal has no code of its own, and Go's -1
+		// becomes 255 at a process exit. 128+n is what a shell reports.
+		if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			return 128 + int(status.Signal()), nil
+		}
 		return exit.ExitCode(), nil
 	}
 	if err != nil {

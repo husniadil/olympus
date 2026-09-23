@@ -39,8 +39,8 @@ type AttachGuard struct {
 
 // NewAttachGuard builds a guard rooted at a directory.
 func NewAttachGuard(dir string) (*AttachGuard, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, backend.Wrapf(backend.CodeUnexpected, err, "creating the attach-guard directory")
+	if err := privateDir(dir, "attach-guard directory"); err != nil {
+		return nil, err
 	}
 	return &AttachGuard{dir: dir}, nil
 }

@@ -116,6 +116,25 @@ func TestTextNeverObservedIsNeverSubmitted(t *testing.T) {
 	}
 }
 
+// §7.1: text with no letters or digits normalizes to nothing, and an empty
+// needle matches any screen. Verification then checked nothing, so such text
+// is looked for as typed instead.
+func TestPunctuationOnlyTextIsStillVerified(t *testing.T) {
+	f := &fakeBackend{screen: "$ "}
+	err := delivery(t, f, nil).VerifiedSubmit(context.Background(), "build", ";;")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout: the text never reached the screen", err)
+	}
+	if _, submits := f.counts(); submits != 0 {
+		t.Errorf("submitted %d times without seeing the text, want 0", submits)
+	}
+
+	f = &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("$ " + text) }}
+	if err := delivery(t, f, nil).VerifiedSubmit(context.Background(), "build", ";;"); err != nil {
+		t.Fatalf("punctuation that did reach the screen was not observed: %v", err)
+	}
+}
+
 // §7.4 requires this elapsed time to be asserted, so a future change cannot
 // silently return early on the first miss and quietly drop the resend.
 func TestFailingTakesBothBudgets(t *testing.T) {
@@ -249,6 +268,40 @@ func TestATerminatorThatKeepsFailingIsSurfaced(t *testing.T) {
 	}
 	if f.submitFailures != 0 {
 		t.Errorf("%d scripted failures were never reached, so the terminator was tried fewer than twice", f.submitFailures)
+	}
+}
+
+// §4.4's exception: a terminator whose delivery is unknown is not retried. The
+// backend accepted it and then lost the client carrying it, so it may already
+// have submitted; a second Enter would then submit twice.
+func TestATerminatorOfUnknownDeliveryIsNotRetried(t *testing.T) {
+	lost := &backend.Error{Code: backend.CodeUnexpected, Msg: "client went away mid-command", Uncertain: true}
+	f := &fakeBackend{submitErr: lost}
+
+	err := engine.SubmitOnce(context.Background(), f, "build")
+	if err != lost {
+		t.Fatalf("error is %v, want the backend's own uncertain-delivery error unchanged", err)
+	}
+	if f.submitCalls != 1 {
+		t.Errorf("the terminator was tried %d times, want 1 — an uncertain Enter must not be resent", f.submitCalls)
+	}
+}
+
+// A second failure that already carries its own classification keeps it. Were
+// it rewrapped as TIMEOUT, errors.Is would answer to two sentinels at once.
+func TestAClassifiedSecondTerminatorFailureKeepsItsCode(t *testing.T) {
+	gone := backend.Errorf(backend.CodeSessionNotFound, "session build is gone")
+	f := &fakeBackend{submitErr: gone}
+
+	err := engine.SubmitOnce(context.Background(), f, "build")
+	if backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Fatalf("code is %s, want SESSION_NOT_FOUND", backend.CodeOf(err))
+	}
+	if errors.Is(err, backend.ErrTimeout) {
+		t.Errorf("error %v also answers to ErrTimeout", err)
+	}
+	if f.submitCalls != 2 {
+		t.Errorf("the terminator was tried %d times, want 2", f.submitCalls)
 	}
 }
 

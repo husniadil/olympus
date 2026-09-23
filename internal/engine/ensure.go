@@ -29,22 +29,25 @@ func Ensure(ctx context.Context, b backend.Backend, spec backend.CreateSpec) (ba
 		return backend.Session{}, err
 	}
 
+	// A row the backend classified gone is positive evidence of death (§3.2),
+	// the same answer as a dead flag. Unknown is doubt and is not.
+	dead := existing.Dead || existing.Liveness == backend.LivenessGone
+
 	switch {
-	case found && !existing.Dead:
+	case found && !dead:
 		// Options other than the name are ignored, and are NOT applied
 		// retroactively: they belong to the create path (§2.7).
 		existing.Outcome = backend.OutcomeReused
 		return existing, nil
 
-	case found && existing.Dead:
+	case found && dead:
 		// Present but dead: reap, then recreate with the given options.
 		//
-		// This branch is unreachable on both shipped backends — a session
-		// created without a corpse flag takes its session with it, and a
-		// backend that auto-reaps leaves nothing to find — so a finished
-		// session is indistinguishable from an absent one and yields
-		// "created". It is implemented anyway so a backend that does leave
-		// dead rows behaves correctly rather than reusing a corpse.
+		// A session created without a corpse flag takes its session with it,
+		// and a backend that auto-reaps leaves nothing to find, so a finished
+		// session usually reads as absent and yields "created". This branch is
+		// for the rows that do remain: a corpse, or a zmx row whose socket
+		// refused this pass.
 		if err := b.Kill(ctx, spec.Name); err != nil && !isAlreadyGone(err) {
 			return backend.Session{}, err
 		}

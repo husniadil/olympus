@@ -149,6 +149,7 @@ func TestEveryCaseFailsAgainstABackendThatDoesNothing(t *testing.T) {
 			TracksAltScreen: true,
 			ControlKeys:     true,
 			SpawnCommand:    true,
+			RemainOnExit:    true,
 		}),
 	}
 

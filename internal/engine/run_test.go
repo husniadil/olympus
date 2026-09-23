@@ -244,6 +244,22 @@ func TestATargetTheListingDoesNotNameIsPendingWhileItIsPresent(t *testing.T) {
 	}
 }
 
+// §6.8: a listing that failed is doubt, not death. Answering died would let a
+// caller finalize a run that may still be going (§3.2: never finalize on doubt).
+func TestAFailedListingIsPendingNotDied(t *testing.T) {
+	f := &fakeBackend{sessionsErr: backend.Errorf(backend.CodeTimeout, "the listing timed out")}
+	got, err := runner(f, nil).PollRun(context.Background(), "build", "someid")
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if got.Status != engine.PollPending {
+		t.Errorf("status %q when the listing failed, want %q", got.Status, engine.PollPending)
+	}
+	if !strings.Contains(got.Reason, "listing timed out") {
+		t.Errorf("reason %q does not say why liveness is unconfirmed", got.Reason)
+	}
+}
+
 // §6.9: a corpse keeps the session listed, so session-level death detection
 // alone reports pending forever even though the command has died.
 func TestACorpsePaneIsDiedNotPending(t *testing.T) {
@@ -460,5 +476,22 @@ func TestAPollTakesTheExitCodeItCanStillRead(t *testing.T) {
 	}
 	if !got.Truncated {
 		t.Error("the poll result was not marked truncated")
+	}
+}
+
+// The relaxation is for the deepest look only. A caller that asked for a small
+// window has a deeper one available, so a missing start marker there says
+// "look deeper", not "the start is gone for good" (§6.2, §6.7).
+func TestASmallPollWindowDoesNotSettleForATruncatedCompletion(t *testing.T) {
+	f := &fakeBackend{screen: "line 998\nline 999\nOLY_D_abc123_5_\n"}
+	f.sessions = []backend.Session{{Name: "build", Liveness: backend.LivenessPresent}}
+	r := runner(f, nil)
+	r.Window = 50
+	got, err := r.PollRun(context.Background(), "build", "abc123")
+	if err != nil {
+		t.Fatalf("PollRun: %v", err)
+	}
+	if got.Status != engine.PollPending {
+		t.Errorf("status %q from a 50-line window, want pending so the caller re-polls deeper", got.Status)
 	}
 }

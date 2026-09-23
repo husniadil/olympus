@@ -33,8 +33,10 @@ type fakeBackend struct {
 	pasted  []string
 	atomic  []string
 	submits int
-	kills   []string
-	created []backend.CreateSpec
+	// submitCalls counts every terminator asked for, landed or not.
+	submitCalls int
+	kills       []string
+	created     []backend.CreateSpec
 
 	// onType runs after each Type, so a test can make the screen react the way
 	// a pane's echo would.
@@ -51,6 +53,7 @@ type fakeBackend struct {
 	submitErr      error
 	screenErr      error
 	createErr      error
+	sessionsErr    error
 }
 
 func (f *fakeBackend) Capabilities() backend.Capabilities { return f.caps }
@@ -73,6 +76,9 @@ func (f *fakeBackend) Create(_ context.Context, spec backend.CreateSpec) (backen
 func (f *fakeBackend) Sessions(context.Context) ([]backend.Session, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.sessionsErr != nil {
+		return nil, f.sessionsErr
+	}
 	out := make([]backend.Session, len(f.sessions))
 	copy(out, f.sessions)
 	return out, nil
@@ -140,6 +146,7 @@ func (f *fakeBackend) Press(context.Context, string, ...backend.Key) error { ret
 func (f *fakeBackend) Submit(context.Context, string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.submitCalls++
 	if f.submitFailures > 0 {
 		f.submitFailures--
 		return backend.Errorf(backend.CodeUnexpected, "the terminator was dropped")

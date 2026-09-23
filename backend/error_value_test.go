@@ -56,6 +56,17 @@ func TestTypedSurvivesWrappingAndIsFalseElsewhere(t *testing.T) {
 	}
 }
 
+func TestUncertainSurvivesWrappingAndIsFalseElsewhere(t *testing.T) {
+	lost := backend.Errorf(backend.CodeUnexpected, "client went away")
+	lost.Uncertain = true
+	if !backend.UncertainOf(fmt.Errorf("submit: %w", lost)) {
+		t.Error("UncertainOf through a wrap = false, want true")
+	}
+	if backend.UncertainOf(backend.Errorf(backend.CodeUnexpected, "x")) || backend.UncertainOf(errors.New("x")) || backend.UncertainOf(nil) {
+		t.Error("UncertainOf = true on an error that was not uncertain")
+	}
+}
+
 // The code must survive an intermediate wrap, or every layer between the
 // backend and the door has to re-tag failures by hand.
 func TestCodeSurvivesWrapping(t *testing.T) {

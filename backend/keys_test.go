@@ -41,7 +41,7 @@ func TestFunctionKeysAreRecognisedWithinTheirRange(t *testing.T) {
 	}
 	// Beyond 12 terminals disagree about the encoding, so accepting one would
 	// mean promising a keypress Olympus cannot faithfully deliver.
-	for _, key := range []backend.Key{"f0", "f13", "f99", "f", "fx", "enter"} {
+	for _, key := range []backend.Key{"f0", "f13", "f99", "f", "fx", "enter", "f05", "f+5", "f012", "f-1", "f 5"} {
 		if got := backend.FunctionNumber(key); got != 0 {
 			t.Errorf("FunctionNumber(%q) = %d, want none", key, got)
 		}

@@ -559,6 +559,10 @@ happened:
 | present but dead | `reaped` | kill, then recreate with the given options |
 | absent | `created` | plain create |
 
+"Dead" is a row with the dead flag set or a row whose liveness is `gone`
+(§3.2). A row whose liveness is `unknown` counts as alive: never finalize on
+doubt.
+
 Options apply on the create path only, and are **not retroactive** on a reused
 session (§2.7).
 
@@ -567,9 +571,9 @@ session (§2.7).
 A backend that leaves no dead row makes a finished session indistinguishable
 from an absent one, so it yields `created`. tmux sessions created without
 `remain-on-exit` take their session with them when the pane exits, and zmx
-auto-reaps immediately. The conformance suite MUST assert this explicitly, so a
-backend that starts leaving dead rows surfaces there instead of silently
-changing behavior.
+auto-reaps immediately. The conformance suite MUST assert this explicitly, with
+a process that exits by itself rather than one that is killed, so a backend that
+starts leaving dead rows surfaces there instead of silently changing behavior.
 
 #### Locking belongs to the caller
 
@@ -1570,11 +1574,24 @@ It keeps injection symmetric across backends and composable, and it means
 Any composed operation that injects then submits MUST retry the Enter exactly
 once before surfacing an error.
 
+The one exception is an Enter whose delivery is unknown: the backend accepted
+it and then lost the client carrying it, so it may already have submitted. Such
+a failure MUST be surfaced unchanged and MUST NOT be retried. A backend marks it
+(`Uncertain` on its error); nothing else skips the retry.
+
+When the retry fails too, a failure that already carries a code other than
+`UNEXPECTED` keeps that code. Only an unclassified one becomes `TIMEOUT`, so the
+error answers to exactly one code.
+
 #### Why
 
 Once text sits in the input line, a failed Enter does not merely fail visibly.
 It leaves unsubmitted text there, and the next injection silently concatenates
 onto it, corrupting both.
+
+The exception exists because the retry's premise, that the first Enter did not
+land, is unknown there. Text left unsubmitted is a visible fault; a command
+submitted twice is not recoverable.
 
 ### 4.5 The submit terminator MUST be a separate, delayed, lone write
 
@@ -2054,6 +2071,9 @@ shows a literal `$?`, while the real DONE marker is followed by digits.
   its maximum window whose START is absent MUST take the exit code DONE
   carries, report the output that remained above it, and mark the result
   truncated. The loss of where the output began MUST be disclosed (§0.8).
+  A detached poll is at its maximum only when it asked for the deepest window,
+  or when the backend ignores the window (§6.4). A smaller window the caller
+  chose still has a deeper look available, so it reads as pending.
 - DONE is never relaxed. Without a completion there is no exit code and nothing
   separates the capture from a command still running.
 
@@ -2074,8 +2094,9 @@ which is why the loss is disclosed.
 
 ### 6.3 The command MUST be validated up front
 
-An empty or newline-containing command MUST be rejected before any injection.
-Rejecting up front also means no partial pane interaction happens.
+An empty or newline-containing command, or one ending in an odd run of
+backslashes, MUST be rejected as `USAGE` before any injection. Rejecting up
+front also means no partial pane interaction happens.
 
 #### Why
 
@@ -2087,6 +2108,10 @@ Neither degradation is a timeout, so only an explicit check catches them:
 - An empty command is shell-dependent. bash hard-errors (no markers, a genuine
   timeout), but zsh, macOS's default login shell, tolerates it and reports
   success with exit 0.
+- A trailing unpaired backslash escapes the `;` the protocol appends after the
+  command (§6.1). The done marker's echo then becomes an argument of the
+  command, and its output, `…OLY_D_<id>_0_`, reads as a completion with exit 0
+  whatever the command did. An even run is a literal backslash and is accepted.
 
 ### 6.4 The capture window grows where the depth can be requested
 
@@ -2208,6 +2233,14 @@ instead of the backend-unavailable error every other operation gives. A caller
 cannot read `died` as "this session died" versus "the whole backend
 disappeared".
 
+#### A listing that fails answers `pending`, with a reason
+
+An empty listing is an answer; a listing that errors is not. When the listing
+itself fails, poll MUST answer `pending` and say in `reason` that the session's
+liveness could not be confirmed. `died` is final, and a caller that reaps on it
+would be finalizing on doubt (§3.2). The listing's failure is still not surfaced
+as an error, for the same posture as above.
+
 ### 6.9 Died detection MUST cover a corpse pane, not just a dead session
 
 Poll MUST check the per-session dead flag it already parses. When no completion
@@ -2245,6 +2278,13 @@ observed there, resending once before failing.
 Normalization is UI-tolerant: lowercase, then strip every rune that is not a
 Unicode letter or digit (punctuation, whitespace, box-drawing and prompt glyphs
 all drop).
+
+#### Text with no letter or digit is looked for as typed
+
+Such text normalizes to an empty needle, and an empty needle matches any
+screen, so verification would check nothing. The text, trimmed of surrounding
+whitespace, MUST then appear verbatim on the screen as well. Text that is only
+whitespace has nothing to look for and is not checked.
 
 #### The 24-character truncation applies to the needle only
 
@@ -3745,6 +3785,11 @@ The key is the (backend, socket-or-directory, session) triple:
 - **Sanitize the session name** for a readable prefix: keep `[A-Za-z0-9._-]`,
   replace everything else with `_`.
 - **Place the lock file** under a private temporary directory with mode 0700.
+  An existing directory is used only if it is a real directory (not a symlink)
+  owned by the current user; one with group or world access is tightened to
+  0700 first. Anything else is refused. The temp root can be shared, and a
+  directory another user created first would put the locks in their hands. The
+  attach guard's directory follows the same rule.
 
 Two different sockets, directories or backends MUST never contend on the same
 lock file, even when a session name collides.
@@ -3915,6 +3960,12 @@ Once the presence gate (§8.1) passes, attach hands off to the backend's own
 client inside the PTY Olympus owns, and the process's exit code follows *that
 client's*. An attach exiting `3` is therefore not necessarily not-found. It may
 be the attach client's own unrelated status.
+
+A client ended by a signal has no exit code of its own. The attach reports
+`128 + n` for signal `n`, as a shell does, never a raw `-1` that a process exit
+would turn into `255`. A cancelled attach ends its client with SIGTERM and then
+SIGKILL after the same short grace as §8.10, so a client that ignores SIGTERM
+cannot hold it open.
 
 ### 12.2 Usage errors MUST NOT escape through the argument parser
 

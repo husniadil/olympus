@@ -306,6 +306,40 @@ func TestAttachReturnsTheClientsOwnExitCode(t *testing.T) {
 	}
 }
 
+// §12.1 A client ended by a signal has no exit code of its own; Go reports -1,
+// which a process exit turns into 255. The shell's 128+n is the status that
+// composes in a pipeline.
+func TestAClientEndedByASignalExitsAsAShellWould(t *testing.T) {
+	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "kill -TERM $$")}
+
+	code, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil)
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if code != 128+int(syscall.SIGTERM) {
+		t.Errorf("exit code %d, want %d for a client ended by SIGTERM", code, 128+int(syscall.SIGTERM))
+	}
+}
+
+// A cancelled attach ends its client the way every other ending does: SIGTERM,
+// then SIGKILL after a grace. SIGTERM alone waits forever on a client that
+// ignores it.
+func TestACancelledAttachDoesNotWaitOnAClientThatIgnoresSIGTERM(t *testing.T) {
+	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "trap '' TERM; while :; do sleep 0.1; done")}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	if _, err := engine.Attach(ctx, attachment,
+		engine.AttachIO{Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
+		t.Errorf("the attach took %s to end after cancellation, want it bounded by the kill grace", elapsed)
+	}
+}
+
 // §8.3 The client is started with the size the caller gave, not handed it a
 // moment later. A client that reads its size as it starts saw 0x0 when the
 // PTY was sized after the start, and herdr's exits on that ("terminal reported
