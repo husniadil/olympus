@@ -158,6 +158,25 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		Backends:     []BackendReport{},
 		InstallHints: []string{},
 	}
+
+	resolution, resolveErr := resolve(cfg.explicit, cfg.env, cfg.installs)
+	// The addressing Open would apply, and refuse, so what is diagnosed is
+	// the server a verb given the same options would address. Applied before
+	// the entries are built, so the resolved backend's entry describes that
+	// server rather than the default one.
+	applied := cfg
+	var addressErr error
+	if resolveErr == nil {
+		addressErr = checkServerExclusive(cfg)
+		if addressErr == nil {
+			addressErr = checkAddressing(resolution.Backend, cfg)
+		}
+		if addressErr == nil && cfg.server != "" {
+			addressErr = applyServer(resolution.Backend, &applied)
+		}
+	}
+	addressed := resolveErr == nil && addressErr == nil
+
 	for _, name := range preference {
 		report := BackendReport{Name: name, Floor: floors[name], Installed: cfg.installs(name)}
 		if !report.Installed {
@@ -167,9 +186,13 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 			continue
 		}
 
-		b, scope := buildBackend(name, cfg)
+		entry, server := cfg, ""
+		if addressed && name == resolution.Backend {
+			entry, server = applied, applied.server
+		}
+		b, scope := buildBackend(name, entry)
 		report.Capabilities = b.Capabilities()
-		report.Isolation = isolationOf(name, scope)
+		report.Isolation = isolationOf(name, scope, server)
 		report.Managed = managedOf(name)
 		version, err := probeVersion(ctx, b)
 		if err == nil {
@@ -180,27 +203,17 @@ func Diagnose(ctx context.Context, opts ...Option) Diagnosis {
 		diagnosis.Backends = append(diagnosis.Backends, report)
 	}
 
-	resolution, err := resolve(cfg.explicit, cfg.env, cfg.installs)
-	if err != nil {
-		diagnosis.Resolved.Problem = err.Error()
+	if resolveErr != nil {
+		diagnosis.Resolved.Problem = resolveErr.Error()
 		return diagnosis
 	}
-	// The addressing Open would apply, and refuse, so what is diagnosed is
-	// the server a verb given the same options would address.
-	err = checkServerExclusive(cfg)
-	if err == nil {
-		err = checkAddressing(resolution.Backend, cfg)
-	}
-	if err == nil && cfg.server != "" {
-		err = applyServer(resolution.Backend, &cfg)
-	}
-	if err != nil {
+	if addressErr != nil {
 		diagnosis.Resolved.Backend = resolution.Backend
 		diagnosis.Resolved.Reason = resolution.Reason
-		diagnosis.Resolved.Problem = err.Error()
+		diagnosis.Resolved.Problem = addressErr.Error()
 		return diagnosis
 	}
-	b, scope := buildBackend(resolution.Backend, cfg)
+	b, scope := buildBackend(resolution.Backend, applied)
 	diagnosis.Resolved = ResolvedReport{
 		Backend: resolution.Backend,
 		Reason:  resolution.Reason,
@@ -310,10 +323,16 @@ func effectiveOf(ctx context.Context, b backend.Backend) (map[string]string, boo
 }
 
 // isolationOf states the posture in the user's terms. The two are opposite and
-// both are surprising if you learned the other first (behavior §17.2).
-func isolationOf(name backend.Name, scope string) string {
+// both are surprising if you learned the other first (behavior §17.2). server
+// is the server name the scope was resolved from, where one was given.
+func isolationOf(name backend.Name, scope, server string) string {
 	switch name {
 	case backend.Herdr:
+		if server != "" {
+			// A named server lives in the operator's own configuration
+			// tree and is only driven, so nothing here is private.
+			return "your own herdr server " + strconv.Quote(server) + ", socket at " + scope + "; these sessions appear in your own herdr and are saved with its layout"
+		}
 		// Worth stating separately from tmux's and meja's: pointing the socket
 		// somewhere private is not enough on its own here, because herdr keeps
 		// a session's persisted layout in its configuration directory rather

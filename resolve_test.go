@@ -1,6 +1,7 @@
 package olympus
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -399,5 +400,42 @@ func TestAServerNameResolvesPerBackend(t *testing.T) {
 	_, err = open(config{explicit: "meja", installs: everything}, WithServer("work"), WithoutLock())
 	if CodeOf(err) != backend.CodeUnsupported {
 		t.Errorf("a meja server name is %v (%v), want UNSUPPORTED", err, CodeOf(err))
+	}
+}
+
+// api §4 doctor's entry for the resolved backend describes the server a
+// server name addresses, not the default one: the name is applied before the
+// entry is built.
+func TestDiagnoseDescribesTheNamedServersIsolation(t *testing.T) {
+	// Not parallel: it sets TMUX_TMPDIR. A plain file stands in for the
+	// socket: the name is resolved by the file's presence, and nothing
+	// listens on it, so reading its options fails at once.
+	base, err := os.MkdirTemp(os.TempDir(), "olyt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	t.Setenv("TMUX_TMPDIR", base)
+	if err := os.MkdirAll(tmux.SocketDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmux.SocketDir(), "work"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	onlyTmux := func(c *config) { c.installs = installed(backend.Tmux) }
+
+	diagnosis := Diagnose(context.Background(), onlyTmux, WithBackend("tmux"), WithServer("work"))
+	if diagnosis.Resolved.Problem != "" {
+		t.Fatalf("the named server did not resolve: %s", diagnosis.Resolved.Problem)
+	}
+	for _, report := range diagnosis.Backends {
+		if report.Name == backend.Tmux && !strings.Contains(report.Isolation, `"work"`) {
+			t.Errorf("the tmux entry reads %q, want the named server's socket", report.Isolation)
+		}
+	}
+
+	// A named herdr server is the operator's own, configuration and all.
+	if got := isolationOf(backend.Herdr, "/x/work.sock", "work"); strings.Contains(got, "invisible to your own herdr") {
+		t.Errorf("a named herdr server reads %q, as if it were private", got)
 	}
 }

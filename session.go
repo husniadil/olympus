@@ -230,9 +230,14 @@ func WithoutSubmit() SendOption {
 }
 
 // VerifyBudget sets ONE attempt's window. A verified send spends it twice, so
-// the worst case before failing is double this.
+// the worst case before failing is double this. Zero or less leaves the
+// default, rather than failing every attempt at once.
 func VerifyBudget(d time.Duration) SendOption {
-	return func(c *sendConfig) { c.delivery.Budget = d }
+	return func(c *sendConfig) {
+		if d > 0 {
+			c.delivery.Budget = d
+		}
+	}
 }
 
 // Send delivers text, waits until it is observed on screen, and only then
@@ -408,7 +413,10 @@ func (s *Session) WaitFor(ctx context.Context, pattern string, opts ...WaitOptio
 			}
 		}
 		if time.Now().After(deadline) {
-			return last, backend.Errorf(backend.CodeTimeout,
+			// A capture that failed on the last read is the cause, carried
+			// under the timeout: a pattern that never appeared and a screen
+			// that could not be read are otherwise the same answer.
+			return last, backend.Wrapf(backend.CodeTimeout, err,
 				"the pattern %q did not appear on %s within %s%s",
 				pattern, s.name, cfg.timeout, anchorHint(expression, last.Text))
 		}
@@ -432,14 +440,24 @@ type Result struct {
 // A RunOption configures Exec and Start.
 type RunOption func(*engine.Runner)
 
-// RunTimeout bounds how long a run waits for its command.
+// RunTimeout bounds how long a run waits for its command. Zero or less leaves
+// the default, rather than timing the run out at once.
 func RunTimeout(d time.Duration) RunOption {
-	return func(r *engine.Runner) { r.Timeout = d }
+	return func(r *engine.Runner) {
+		if d > 0 {
+			r.Timeout = d
+		}
+	}
 }
 
-// RunInterval sets how often a run checks for its completion marker.
+// RunInterval sets how often a run checks for its completion marker. Zero or
+// less leaves the default, rather than checking without a pause.
 func RunInterval(d time.Duration) RunOption {
-	return func(r *engine.Runner) { r.Poll = d }
+	return func(r *engine.Runner) {
+		if d > 0 {
+			r.Poll = d
+		}
+	}
 }
 
 // PollWindow sets how deep into scrollback a detached poll looks for the
@@ -601,15 +619,45 @@ func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollR
 // The marker is always caller-supplied and there is deliberately no default: a
 // fixed one would collide with ordinary output or stale scrollback, and weaken
 // the caller-controlled uniqueness the design assumes (behavior §14).
+//
+// It drops what the capture disclosed; ReadExitStatus is the same reading
+// with its warnings kept.
 func (s *Session) ExitStatus(ctx context.Context, marker string, lines int) (int, bool, error) {
+	got, err := s.ReadExitStatus(ctx, marker, lines)
+	if err != nil || !got.Found {
+		return 0, false, err
+	}
+	return *got.ExitCode, true, nil
+}
+
+// An ExitReading is a completion marker read off the screen. It marshals to
+// the exit-status payload (api §5), with ExitCode absent when the marker was
+// not found.
+type ExitReading struct {
+	Found    bool      `json:"found"`
+	ExitCode *int      `json:"exit_code,omitempty"`
+	Warnings []Warning `json:"-"`
+}
+
+// ReadExitStatus is ExitStatus with the capture's warnings kept, such as a
+// history request clamped to the backend's ceiling (behavior §0.8).
+func (s *Session) ReadExitStatus(ctx context.Context, marker string, lines int) (ExitReading, error) {
 	if lines <= 0 {
 		lines = engine.DetachedWindow
 	}
 	screen, err := s.Screen(ctx, WithHistory(lines))
 	if err != nil {
-		return 0, false, err
+		return ExitReading{}, err
 	}
-	return engine.ExitMarker(screen.Text, marker)
+	code, found, err := engine.ExitMarker(screen.Text, marker)
+	if err != nil {
+		return ExitReading{}, err
+	}
+	out := ExitReading{Found: found, Warnings: screen.Warnings}
+	if found {
+		out.ExitCode = &code
+	}
+	return out, nil
 }
 
 // A Stopped reports how a session ended.

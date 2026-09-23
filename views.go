@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -65,13 +66,20 @@ func WithViewWindow(window string) ViewOption {
 // every session not pointing at it, so it does not change what an operator's
 // own sessions do on a server Olympus is merely aimed at.
 func (o *Olympus) CreateView(ctx context.Context, base string, opts ...ViewOption) (backend.View, error) {
+	spec := backend.ViewSpec{Mouse: true}
+	for _, opt := range opts {
+		opt(&spec)
+	}
+	if spec.Name != "" && !strings.HasPrefix(spec.Name, viewPrefix) {
+		return backend.View{}, backend.Errorf(backend.CodeUsage,
+			"a view is named %s<base>-<nonce>; %q would be invisible to `view ls` and to every sweep", viewPrefix, spec.Name)
+	}
 	resolved, err := o.resolveTarget(ctx, base)
 	if err != nil {
 		return backend.View{}, err
 	}
-	spec := backend.ViewSpec{Name: viewName(resolved), Mouse: true}
-	for _, opt := range opts {
-		opt(&spec)
+	if spec.Name == "" {
+		spec.Name = viewName(resolved)
 	}
 	return o.backend.CreateView(ctx, resolved, spec)
 }

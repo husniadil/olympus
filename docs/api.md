@@ -41,7 +41,7 @@ same operation.
 | attach a terminal | `attach` | *(none: interactive)* | `Attach` |
 | steer the server's focus onto a target | `focus` | `focus_session` | `Focus` |
 | rename a session, window, tab or pane | `rename` | `rename_session` | `Rename` |
-| read an exit marker | `exit-status` | `exit_status` | `ExitStatus` |
+| read an exit marker | `exit-status` | `exit_status` | `ExitStatus`, `ReadExitStatus` |
 | create a view | `view create` | `create_view` | `CreateView` |
 | scroll a view | `view scroll` | `scroll_view` | `ScrollView` |
 | focus a pane in a view by cell | `view focus` | `focus_view` | `FocusView` |
@@ -1001,7 +1001,7 @@ makes that unnecessary.
 | `name`, `installed`, `version` | `version` is omitted when it could not be read. |
 | `floor` | The oldest version of that backend Olympus is supported against. |
 | `below_floor` | That comparison, already made for the reported version. |
-| `isolation` | One sentence: which socket or directory answers, and whether the sessions show up in the user's own plain listing. |
+| `isolation` | One sentence: which socket or directory answers, and whether the sessions show up in the user's own plain listing. For the resolved backend it describes the server `--server` names, when one is given. |
 | `capabilities` | What that backend can do. |
 | `managed_options` | Every option Olympus pins on servers **it starts**. Omitted where there are none. |
 | `problem` | Present when the backend is on PATH but could not be run. |

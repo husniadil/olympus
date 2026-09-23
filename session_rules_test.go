@@ -361,3 +361,61 @@ func TestAStartDirectoryThatIsNotThereIsUsage(t *testing.T) {
 		t.Errorf("a throwaway in a missing directory is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
 	}
 }
+
+// §0.8: an exit marker is read through a capture, and what the capture
+// discloses (here a history request clamped to the backend's ceiling) reaches
+// the caller with the marker's reading.
+func TestReadExitStatusKeepsTheCaptureWarnings(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "DONE:3\n"}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	got, err := s.ReadExitStatus(context.Background(), "DONE:", 5000)
+	if err != nil {
+		t.Fatalf("ReadExitStatus: %v", err)
+	}
+	if !got.Found || got.ExitCode == nil || *got.ExitCode != 3 {
+		t.Errorf("read %+v, want found with exit code 3", got)
+	}
+	if len(got.Warnings) == 0 {
+		t.Errorf("a clamped history request reads with no warning")
+	}
+
+	code, found, err := s.ExitStatus(context.Background(), "DONE:", 5000)
+	if err != nil || !found || code != 3 {
+		t.Errorf("ExitStatus = (%d, %v, %v), want (3, true, nil)", code, found, err)
+	}
+}
+
+// A duration of zero or less leaves the default, as WaitInterval does: a zero
+// budget, timeout or interval is never a useful setting, and one that fails
+// every send or run at once, or polls without a pause, is what it would mean.
+func TestNonPositiveDurationsLeaveTheDefaults(t *testing.T) {
+	var cfg sendConfig
+	cfg.delivery.Budget = DefaultVerifyBudget
+	for _, d := range []time.Duration{0, -time.Second} {
+		VerifyBudget(d)(&cfg)
+		if cfg.delivery.Budget != DefaultVerifyBudget {
+			t.Errorf("VerifyBudget(%s) set the budget to %s, want the default", d, cfg.delivery.Budget)
+		}
+		r := (&Session{ol: fakeOlympus(&fakeBackend{})}).runner(RunTimeout(d), RunInterval(d))
+		if r.Timeout != DefaultRunTimeout || r.Poll != DefaultRunPoll {
+			t.Errorf("RunTimeout/RunInterval(%s) set (%s, %s), want the defaults", d, r.Timeout, r.Poll)
+		}
+	}
+}
+
+// A wait whose captures keep failing times out, and says why: the capture's
+// own error travels with the timeout rather than being dropped.
+func TestWaitForReportsTheCaptureErrorItTimedOutOn(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Tmux},
+		screenErr: backend.Errorf(backend.CodeUnexpected, "the capture broke")}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	_, err := s.WaitFor(context.Background(), "ready", WaitTimeout(30*time.Millisecond), WaitInterval(10*time.Millisecond))
+	if backend.CodeOf(err) != backend.CodeTimeout {
+		t.Fatalf("error is %v (%q), want TIMEOUT", err, backend.CodeOf(err))
+	}
+	if !strings.Contains(err.Error(), "the capture broke") {
+		t.Errorf("the timeout %q does not say the capture failed", err)
+	}
+}

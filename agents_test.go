@@ -314,6 +314,8 @@ func TestAgentVocabularyMatchesAliasesScriptsAndPackagePaths(t *testing.T) {
 		"node -- /x/bin/codex":                                "codex",
 		"bun /x/bin/kimi":                                     "kimi",
 		"python3.12 /x/bin/aider":                             "aider",
+		"python3 -S /x/bin/aider":                             "aider",
+		"python3 -W ignore -X utf8 /x/bin/aider":              "aider",
 		"/x/Codex.js":                                         "codex",
 		"node":                                                "",
 		"node -e require('codex')":                            "",

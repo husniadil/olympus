@@ -83,6 +83,18 @@ var agentPackages = []struct{ dir, agent string }{
 	{"@letta-ai/letta-code", "letta"},
 }
 
+// agentResume is how each agent, by canonical name, opens its own list of
+// past conversations. A vocabulary fact of the same shape as the aliases: a
+// consumer starting an agent asks `kinds` rather than keeping a table that
+// covers four of the agents Olympus knows. Only the agents whose picker is
+// known are here; an absent entry is an absent field, not a guess.
+var agentResume = map[string][]string{
+	"claude": {"--resume"},
+	"codex":  {"resume"},
+	"cursor": {"--resume"},
+	"droid":  {"--resume"},
+}
+
 // Kinds is the agent vocabulary: every canonical name the agent listing can
 // report, with the tokens that identify it, in alphabetical order by name
 // (behavior §3.7).
@@ -101,18 +113,6 @@ var agentPackages = []struct{ dir, agent string }{
 // sorted, since a map has no order to preserve. Muse's versioned launcher
 // (`muse-bin-<version>`) is a shape rather than a token, so it is not
 // enumerable here.
-// agentResume is how each agent, by canonical name, opens its own list of
-// past conversations. A vocabulary fact of the same shape as the aliases: a
-// consumer starting an agent asks `kinds` rather than keeping a table that
-// covers four of the agents Olympus knows. Only the agents whose picker is
-// known are here; an absent entry is an absent field, not a guess.
-var agentResume = map[string][]string{
-	"claude": {"--resume"},
-	"codex":  {"resume"},
-	"cursor": {"--resume"},
-	"droid":  {"--resume"},
-}
-
 func Kinds() []backend.AgentKind {
 	executables := map[string][]string{}
 	for alias, name := range agentAliases {
@@ -436,15 +436,20 @@ func (o *Olympus) screenStatus(ctx context.Context, pane backend.Pane, agent str
 	if o.backend.Capabilities().NativeScrollback {
 		screen = tailLines(screen, detectionRows)
 	}
-	title := pane.Title
-	if host, err := os.Hostname(); err == nil && title == host {
-		title = ""
-	}
-	state := manifest.Evaluate(agentstate.Input{Screen: screen, OSCTitle: title})
+	state := manifest.Evaluate(agentstate.Input{Screen: screen, OSCTitle: agentTitle(pane)})
 	if state.State == agentstate.Unknown {
 		return backend.AgentUnknown, ""
 	}
 	return string(state.State), backend.StatusSourceScreen
+}
+
+// agentTitle is a pane's title as the manifests read it: the one the agent
+// set, with tmux's default for an untitled pane, the host name, dropped.
+func agentTitle(pane backend.Pane) string {
+	if host, err := os.Hostname(); err == nil && pane.Title == host {
+		return ""
+	}
+	return pane.Title
 }
 
 // trimLineEnds drops trailing spaces, tabs and carriage returns from every
@@ -536,7 +541,7 @@ func scriptArgument(runtime string, rest []string) string {
 			return ""
 		}
 		if strings.HasPrefix(arg, "-") {
-			if optionTakesValue(arg) {
+			if optionTakesValue(runtime, arg) {
 				i++
 			}
 			continue
@@ -565,8 +570,12 @@ func flagMatches(arg string, flags []string) bool {
 }
 
 // optionTakesValue lists the runtime options whose value is the next argv
-// token, so that value is not mistaken for the script.
-func optionTakesValue(arg string) bool {
+// token, so that value is not mistaken for the script. Per runtime: python's
+// -S and -L take none, and reading them as taking one skips the script.
+func optionTakesValue(runtime, arg string) bool {
+	if isPython(runtime) {
+		return arg == "-W" || arg == "-X"
+	}
 	switch arg {
 	case "-r", "--require", "--loader", "--import", "--experimental-loader",
 		"--inspect-port", "-W", "-X", "-S", "-L", "-o":

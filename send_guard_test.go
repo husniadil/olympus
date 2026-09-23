@@ -437,3 +437,20 @@ func TestSendReadsOnlyTheTargetPanesAgent(t *testing.T) {
 		}
 	})
 }
+
+// §7.5: a blocker the agent states only in its terminal title refuses a send
+// as one on its screen does, since the agent listing reads the title too.
+func TestSendRefusesAnAgentWhoseTitleSaysItIsWaiting(t *testing.T) {
+	f := &fakeBackend{text: "some output\n"}
+	f.panes = []backend.Pane{{ID: "%1", SessionName: "build", SessionID: "$1", CurrentCommand: "amp",
+		Title: "Plugin confirmation needed - amp - work"}}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), "ZEBRA-4417", VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("error is %v, want AGENT_BLOCKED", err)
+	}
+	if len(f.typed) != 0 {
+		t.Errorf("typed %d times into a waiting agent, want nothing", len(f.typed))
+	}
+}

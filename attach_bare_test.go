@@ -68,6 +68,16 @@ func TestAViewNameOutsideTheReservedShapeIsUsage(t *testing.T) {
 	}
 }
 
+// The same shape binds a name given to CreateView: a view outside it is one
+// `view ls` never shows and whose base nothing can identify.
+func TestCreateViewRefusesANameOutsideTheReservedShape(t *testing.T) {
+	ol := fakeOlympus(&fakeBackend{caps: backend.Capabilities{Backend: backend.Tmux}})
+	_, err := ol.CreateView(context.Background(), "base", WithViewName("mine"))
+	if backend.CodeOf(err) != backend.CodeUsage {
+		t.Errorf("an unprefixed view name is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+	}
+}
+
 // tmux rewrites a colon out of any session name it is given, so the first
 // colon is the session's end and everything after it is the window, whole — a
 // window name may itself carry one.

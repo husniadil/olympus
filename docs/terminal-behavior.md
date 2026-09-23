@@ -2390,6 +2390,13 @@ verified send reads the target. Where the target's pane holds a known agent
 and that agent's manifest reads the capture as `blocked` (§3.7), the send
 fails with `AGENT_BLOCKED` (§12) and types nothing.
 
+The manifest is given what the agent listing gives it for the same pane: for
+an agent detected from the pane's command, the pane's title as well as the
+capture, with the host name dropped (§3.7). A blocker some agents state only
+in their title (a plugin confirmation, a status-prefixed title) would
+otherwise read as `blocked` in the listing and pass a send. The title is read
+once, before anything is typed.
+
 The same reading is repeated on every capture while the echo is polled for. A
 capture read as `blocked` stops the delivery at once, with no resend and no
 terminator, and fails with `AGENT_BLOCKED` marked `typed`.
@@ -3464,6 +3471,13 @@ what the operator's existing sessions do.
   pane is the shared window's (§9.4), so the base follows, exactly as a click in
   the base would.
 - **No drag.** Copy-mode on a shared pane would drag the base into it.
+
+#### A caller-chosen name keeps the reserved prefix
+
+A view created under a name the caller gives MUST carry the reserved prefix
+(§17.1), or creation is `USAGE` before anything is created, as on the bare
+attach path (§8.9). Listing views selects on the prefix (§9.5), so a view
+without it is one `view ls` never shows and whose base nothing identifies.
 
 #### A view MUST NOT touch `terminal-features`
 

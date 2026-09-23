@@ -19,12 +19,12 @@ import (
 // does a listing that cannot be read: the guard exists for agents, and a
 // shell must not stop accepting input because a process table could not be.
 func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine.Watch, error) {
-	agents := o.agentsAt(ctx, target)
+	agents, title := o.agentsAt(ctx, target)
 	if len(agents) == 0 {
 		return nil, nil
 	}
 	blocked := func(screen string, typed bool) error {
-		in := agentstate.Input{Screen: o.detectionScreen(screen)}
+		in := agentstate.Input{Screen: o.detectionScreen(screen), OSCTitle: title}
 		for _, agent := range agents {
 			if agentstate.Detect(agent, in) != agentstate.Blocked {
 				continue
@@ -150,29 +150,33 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 // (§10), and where there are several nothing says which one input lands in.
 // On a backend that lists agents itself the row for that pane names it, and
 // an agent in another pane of the same session is not on the screen read.
-// Elsewhere the pane's own process tree or foreground command names it.
-func (o *Olympus) agentsAt(ctx context.Context, target string) []string {
+// Elsewhere the pane's own process tree or foreground command names it, and
+// the pane's title is handed back with it: the agent listing reads a
+// command-detected agent's status off its title as well as its screen
+// (§3.7), and a manifest can state a blocker in the title alone. The title is
+// read once, before anything is typed.
+func (o *Olympus) agentsAt(ctx context.Context, target string) ([]string, string) {
 	panes, err := o.Panes(ctx, target)
 	if err != nil || len(panes) != 1 {
-		return nil
+		return nil, ""
 	}
 	var names []string
 	if lister, ok := o.backend.(backend.AgentLister); ok {
 		rows, err := lister.Agents(ctx)
 		if err != nil {
-			return nil
+			return nil, ""
 		}
 		for _, row := range rows {
 			if row.PaneID == panes[0].ID {
 				names = append(names, row.Agent)
 			}
 		}
-		return names
+		return names, ""
 	}
 	if name, _, ok := agentOf(panes[0], o.processTreeFor(ctx, panes)); ok {
 		names = append(names, name)
 	}
-	return names
+	return names, agentTitle(panes[0])
 }
 
 // detectionScreen is a capture as the manifests read it: trailing blanks off
