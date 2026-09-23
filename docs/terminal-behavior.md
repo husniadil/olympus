@@ -331,10 +331,13 @@ and `XDG_STATE_HOME` pointed at its private state (§2.9), and a pane inherits
 the server's environment. Every program in the session would then read its
 configuration from a directory holding nothing but herdr's. The creation
 request therefore carries both at the caller's own values. herdr has no way to
-unset a variable in a pane, so a home the caller does not set arrives as an
-empty value, which the XDG base directory rules read as unset. A program that
-takes an empty value as a path instead resolves it against its working
-directory; herdr's own configuration lookup is one.
+unset a variable in a pane, so a home the caller does not set, or sets empty
+or relative, arrives as its XDG default under the caller's home directory
+(`~/.config`, `~/.local/state`). It used to arrive as an empty value, which
+the XDG rules read as unset, but a program that takes an empty value as a
+path resolves it against its working directory instead. Claude Code and
+herdr both do: their state landed in the pane's directory, and a herdr run
+there started a second server in it (0.34.0).
 
 ### 1.2 The tmux server's global environment is a second leak
 

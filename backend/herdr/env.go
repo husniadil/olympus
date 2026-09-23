@@ -1,6 +1,9 @@
 package herdr
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // The sanitized spawn environment (behavior §1.1).
 const (
@@ -111,12 +114,38 @@ func spawnEnvArgs() []string {
 	}
 	// The caller's own homes, since a server this backend started carries its
 	// private ones (§2.9) and every pane would inherit them. herdr offers no
-	// way to unset a variable, so an unset home travels as an empty one, which
-	// the XDG base directory rules read the same way.
-	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_STATE_HOME"} {
-		args = append(args, "--env", name+"="+os.Getenv(name))
+	// way to unset a variable, so an unset home travels as its XDG default.
+	// An empty one, which the XDG rules read as unset, was joined as a
+	// relative path by Claude Code and herdr, so every pane dropped their
+	// state into its working directory and a herdr run there started a
+	// second server in it (0.34.0).
+	for _, h := range []struct{ name, def string }{
+		{"XDG_CONFIG_HOME", ".config"},
+		{"XDG_STATE_HOME", filepath.Join(".local", "state")},
+	} {
+		if v := xdgHome(h.name, h.def); v != "" {
+			args = append(args, "--env", h.name+"="+v)
+		}
 	}
 	return args
+}
+
+// xdgHome is the caller's XDG home by the base directory rules: the variable
+// when it holds an absolute path, else def under the home directory. With no
+// home directory either there is nothing to send, and the pane keeps the
+// server's.
+func xdgHome(name, def string) string {
+	if v := os.Getenv(name); filepath.IsAbs(v) {
+		return v
+	}
+	home := os.Getenv("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, def)
 }
 
 func isStripped(kv string) bool {

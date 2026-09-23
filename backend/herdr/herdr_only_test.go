@@ -927,15 +927,16 @@ func TestSessionsMarkTheFocusedWorkspace(t *testing.T) {
 // pointed at its private state (§2.9), and a pane inherits the server's
 // environment. Every program in the session would otherwise read its
 // configuration from a directory holding nothing but herdr's. An unset home
-// travels as an empty value, which the XDG base directory rules read as unset.
+// travels as its XDG default: an empty value was joined as a relative path
+// by Claude Code and herdr, which put their state in the pane's directory.
 func TestTheCreationRequestCarriesTheCallersXDGHomes(t *testing.T) {
+	t.Setenv("HOME", "/probe/home")
 	t.Setenv("XDG_CONFIG_HOME", "/probe/config")
 	t.Setenv("XDG_STATE_HOME", "")
 	if err := os.Unsetenv("XDG_STATE_HOME"); err != nil {
 		t.Fatal(err)
 	}
-	args := spawnEnvArgs()
-	has := func(want string) bool {
+	has := func(args []string, want string) bool {
 		for i := 0; i+1 < len(args); i++ {
 			if args[i] == "--env" && args[i+1] == want {
 				return true
@@ -943,8 +944,18 @@ func TestTheCreationRequestCarriesTheCallersXDGHomes(t *testing.T) {
 		}
 		return false
 	}
-	for _, want := range []string{"XDG_CONFIG_HOME=/probe/config", "XDG_STATE_HOME="} {
-		if !has(want) {
+	args := spawnEnvArgs()
+	for _, want := range []string{"XDG_CONFIG_HOME=/probe/config", "XDG_STATE_HOME=/probe/home/.local/state"} {
+		if !has(args, want) {
+			t.Errorf("the creation request does not carry --env %q: %v", want, args)
+		}
+	}
+	// Empty and relative are unset by the same rules.
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "state")
+	args = spawnEnvArgs()
+	for _, want := range []string{"XDG_CONFIG_HOME=/probe/home/.config", "XDG_STATE_HOME=/probe/home/.local/state"} {
+		if !has(args, want) {
 			t.Errorf("the creation request does not carry --env %q: %v", want, args)
 		}
 	}

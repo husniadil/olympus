@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1]
+
+### Fixed
+
+- **A herdr pane gets the caller's XDG homes as paths, never as an empty
+  value.** With `XDG_CONFIG_HOME` or `XDG_STATE_HOME` unset, 0.34.0 sent them
+  empty. Claude Code and herdr read an empty home as a relative path, so they
+  wrote their state into the pane's working directory, and a herdr command
+  run there started a second herdr server in it. An unset, empty or relative
+  home now travels as its XDG default under the caller's home directory.
+
 ## [0.34.0]
 
 ### Changed
