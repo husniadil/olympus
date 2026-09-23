@@ -23,6 +23,9 @@ func (a *App) kindsCmd() *cobra.Command {
 			scriptsNote,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseAddressing(cmd); err != nil {
+				return err
+			}
 			// Deliberately not routed through open(): the vocabulary is
 			// Olympus's own and identical on every backend, so resolving one
 			// would only be a way to fail.

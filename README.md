@@ -199,7 +199,7 @@ saved or exited. `olympus capabilities` reports this as `control_keys`.
 ### Servers are the level above sessions
 
 `olympus servers` lists the servers a backend can see, and `--server <name>`
-points any verb at one. `olympus servers stop <name>` takes one down with every
+points any verb that addresses a backend at one. `olympus servers stop <name>` takes one down with every
 session on it. meja cannot enumerate its servers.
 
 ### Agents are found in panes

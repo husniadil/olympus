@@ -637,7 +637,6 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 		{"info", name},
 		{"capabilities"},
 		{"doctor"},
-		{"self"},
 		{"type", name, "echo served"},
 		{"press", name, "enter"},
 		{"screen", name},
@@ -645,7 +644,6 @@ func TestEveryCLIVerbIsServedOrRefusedOnMeja(t *testing.T) {
 		{"send", name, "echo confirmed"},
 		{"run", name, "echo ran"},
 		{"wait", name, "ran", "--timeout", "15s"},
-		{"version"},
 		// The marker is always the caller's to choose; there is no default.
 		{"exit-status", name, "OLYDONE"},
 	} {
@@ -1118,7 +1116,6 @@ func TestTheREADMEExamplesStillRun(t *testing.T) {
 		{"status --set", []string{"status", name, "--set", "ready"}},
 		{"status --wait", []string{"status", name, "--wait", "ready", "--timeout", "10s"}},
 		{"throwaway run", []string{"run", "echo throwaway-ok"}},
-		{"self", []string{"self"}},
 		{"doctor", []string{"doctor"}},
 		{"ls --json", []string{"ls", "--json"}},
 		{"stop", []string{"stop", name}},
@@ -1127,6 +1124,10 @@ func TestTheREADMEExamplesStillRun(t *testing.T) {
 		if got.code != 0 {
 			t.Errorf("README example %q exited %d\n%s%s", example.what, got.code, got.stdout, got.stderr)
 		}
+	}
+	// self addresses no backend, so it runs without the isolation flags.
+	if got := run(t, "self"); got.code != 0 {
+		t.Errorf("README example \"self\" exited %d\n%s%s", got.code, got.stdout, got.stderr)
 	}
 }
 

@@ -111,10 +111,10 @@ func addressing() []olympus.Option {
 
 // A Result is what every tool returns alongside its payload.
 type Result[T any] struct {
-	// Backend is the RESOLVED backend, present on every result because
-	// sessions are backend-scoped and a client must be able to tell which one
-	// answered (behavior §0.4).
-	Backend backend.Name `json:"backend"`
+	// Backend is the RESOLVED backend, present on every result that resolved
+	// one, because sessions are backend-scoped and a client must be able to
+	// tell which one answered (behavior §0.4).
+	Backend backend.Name `json:"backend,omitempty"`
 	Data    T            `json:"data"`
 	// Warnings carries degraded-operation disclosure. Structured doors have no
 	// stderr to narrate on, so it rides on the result (behavior §0.8).
@@ -143,21 +143,21 @@ type handler[In, Out any] func(context.Context, *olympus.Olympus, In) (Out, []ol
 // Deliberately narrow. Everything else still opens a handle and still refuses
 // with BACKEND_UNAVAILABLE, because a blanket exemption would scatter one
 // answerable condition across a pile of per-tool failures.
-func addFreestandingTool[In, Out any](s *sdk.Server, name, description string,
+func addFreestandingTool[In, Out any](s *sdk.Server, name, description string, reportsBackend bool,
 	fn func(context.Context, In) (Out, []olympus.Warning, error)) {
 	sdk.AddTool(s, &sdk.Tool{Name: name, Description: description},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Result[Out], error) {
 			out, warnings, err := fn(ctx, in)
-			// The envelope still names the resolved backend when one resolves,
-			// on failure as well as success. It is a shipped field (api §2), so
-			// it must not disappear from these results on a healthy machine
-			// merely because they stopped REQUIRING a backend to answer.
+			// Only doctor names a backend, because only doctor resolves one;
+			// the others answer without asking any, as the CLI's do (api §2).
 			// Failure to resolve is the case this whole function exists for,
 			// and is simply left empty.
 			var name backend.Name
-			if ol, openErr := open(); openErr == nil {
-				name = ol.Backend()
-				ol.Close()
+			if reportsBackend {
+				if ol, openErr := open(); openErr == nil {
+					name = ol.Backend()
+					ol.Close()
+				}
 			}
 			if err != nil {
 				return toolError(err), Result[Out]{Backend: name}, nil
@@ -171,6 +171,10 @@ func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Result[Out], error) {
 			ol, err := open()
 			if err != nil {
+				// A failure after resolution still names the backend (api §2).
+				if name, ok := olympus.ResolvedBackendOf(err); ok {
+					return withBackend(toolError(err), name), Result[Out]{Backend: name}, nil
+				}
 				return toolError(err), Result[Out]{}, nil
 			}
 			defer ol.Close()
@@ -205,8 +209,10 @@ func toolError(err error) *sdk.CallToolResult {
 }
 
 func toolErrorFrom(ol *olympus.Olympus, err error) *sdk.CallToolResult {
-	result := toolError(err)
-	result.Content = append(result.Content,
-		&sdk.TextContent{Text: fmt.Sprintf("backend: %s", ol.Backend())})
+	return withBackend(toolError(err), ol.Backend())
+}
+
+func withBackend(result *sdk.CallToolResult, name backend.Name) *sdk.CallToolResult {
+	result.Content = append(result.Content, &sdk.TextContent{Text: fmt.Sprintf("backend: %s", name)})
 	return result
 }

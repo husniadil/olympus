@@ -260,7 +260,13 @@ func (h *Herdr) attachSessionClient(ctx context.Context, target string, spec bac
 		ring, origin = snap.Workspaces, snap.FocusedWorkspaceID
 	}
 
-	cmd, env := h.sessionClientCommand(ctx)
+	cmd, env, err := h.sessionClientCommand(ctx)
+	if err != nil {
+		if lock != nil {
+			lock.release()
+		}
+		return backend.Attachment{}, err
+	}
 
 	// The client is attached to the whole session, so it does not end when
 	// the target it was steered onto does: herdr closes the pane, the
@@ -328,14 +334,23 @@ const keepOthersNotice = "herdr's session client has no co-attach control, so --
 // the environment it runs with: `herdr session attach <name>` for a server
 // selected by name, plain `herdr` with the socket override for one selected
 // by path (§8.10).
-func (h *Herdr) sessionClientCommand(ctx context.Context, args ...string) (*exec.Cmd, []string) {
+//
+// Plain `herdr` starts a server when none answers, so a server that died
+// after the target resolved would come back here under the caller's own
+// configuration. It is asked once more first. That narrows the window to the
+// moment between this check and the engine starting the client; herdr's
+// client has no way to refuse to start a server, so it cannot be closed.
+func (h *Herdr) sessionClientCommand(ctx context.Context, args ...string) (*exec.Cmd, []string, error) {
 	if h.serverName != "" {
 		// The named session resolves under the operator's real configuration
 		// directory, which attachEnv already reads; the socket override would
 		// only say the same thing a second way.
-		return exec.CommandContext(ctx, "herdr", append([]string{"session", "attach", h.serverName}, args...)...), attachEnv()
+		return exec.CommandContext(ctx, "herdr", append([]string{"session", "attach", h.serverName}, args...)...), attachEnv(), nil
 	}
-	return exec.CommandContext(ctx, "herdr", args...), h.clientEnv()
+	if !h.serverAnswers(ctx) {
+		return nil, nil, backend.Errorf(backend.CodeSessionNotFound, "the herdr server at %s stopped answering before its client started", h.socketPath)
+	}
+	return exec.CommandContext(ctx, "herdr", args...), h.clientEnv(), nil
 }
 
 // attachClientView runs a bare client on a server that moves one client's
@@ -364,7 +379,10 @@ func (h *Herdr) attachClientView(ctx context.Context, r resolved, spec backend.A
 	if _, _, err := h.zoomSteps(ctx, r); err != nil {
 		return backend.Attachment{}, err
 	}
-	cmd, env := h.sessionClientCommand(ctx, "--workspace", r.workspace.WorkspaceID, "--client-tag", tag)
+	cmd, env, err := h.sessionClientCommand(ctx, "--workspace", r.workspace.WorkspaceID, "--client-tag", tag)
+	if err != nil {
+		return backend.Attachment{}, err
+	}
 	path, err := writeBareConfig(rawConfiguredPrefix(filepath.Dir(h.socketPath)))
 	if err != nil {
 		return backend.Attachment{}, err

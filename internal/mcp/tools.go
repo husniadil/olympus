@@ -470,7 +470,7 @@ func register(s *sdk.Server) {
 			return out, nil, nil
 		})
 
-	addFreestandingTool(s, "self", "Report which session this MCP server is running inside, if any. Being outside one is an answer, not a failure. Nested sessions report no single address, because the environment cannot say which is inner.",
+	addFreestandingTool(s, "self", "Report which session this MCP server is running inside, if any. Being outside one is an answer, not a failure. Nested sessions report no single address, because the environment cannot say which is inner.", false,
 		func(ctx context.Context, _ emptyParams) (olympus.Identity, []olympus.Warning, error) {
 			// Answers about this PROCESS, so the handle's configured backend
 			// is deliberately not consulted: it describes what this server
@@ -682,12 +682,12 @@ func register(s *sdk.Server) {
 	// The vocabulary is Olympus's own table, not a backend's, so this tool
 	// resolves none: an agent asking what Olympus knows must get an answer on
 	// a machine with no multiplexer installed.
-	addFreestandingTool(s, "list_kinds", "List the agent vocabulary list_agents reports names in: one row per canonical agent name, with every executable token that names it and the package directories that identify it. Derived from the detection tables themselves, so it cannot disagree with what list_agents matches on.",
+	addFreestandingTool(s, "list_kinds", "List the agent vocabulary list_agents reports names in: one row per canonical agent name, with every executable token that names it and the package directories that identify it. Derived from the detection tables themselves, so it cannot disagree with what list_agents matches on.", false,
 		func(ctx context.Context, _ emptyParams) ([]backend.AgentKind, []olympus.Warning, error) {
 			return olympus.Kinds(), nil, nil
 		})
 
-	addFreestandingTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.",
+	addFreestandingTool(s, "doctor", "Report what is installed, which backend resolves and why, where sessions live, and what each backend can do.", true,
 		func(ctx context.Context, _ emptyParams) (olympus.Diagnosis, []olympus.Warning, error) {
 			return olympus.Diagnose(ctx, addressing()...), nil, nil
 		})
@@ -695,7 +695,7 @@ func register(s *sdk.Server) {
 	// A version tool must exist so a consumer can floor-check without shelling
 	// out, and it reports the same literal the server identity carries
 	// (behavior §15.6).
-	addFreestandingTool(s, "version", "Report the Olympus version.",
+	addFreestandingTool(s, "version", "Report the Olympus version.", false,
 		func(ctx context.Context, _ emptyParams) (versionResult, []olympus.Warning, error) {
 			return versionResult{Version: olympus.Version}, nil, nil
 		})

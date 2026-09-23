@@ -412,10 +412,10 @@ func TestTheBackendDependentToolsStillRefuseWithNothingInstalled(t *testing.T) {
 	}
 }
 
-// The exemption must not cost the envelope a field. `backend` is shipped and
-// semver-bound (api §2), so a healthy machine keeps naming the resolved backend
-// on these three results; only a machine where nothing resolves leaves it empty.
-func TestAFreestandingToolStillNamesTheResolvedBackend(t *testing.T) {
+// doctor is the one freestanding tool that resolves a backend, so on a healthy
+// machine its envelope names it (api §2); only a machine where nothing
+// resolves leaves it empty. The others resolve none and name none.
+func TestDoctorStillNamesTheResolvedBackend(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
@@ -423,7 +423,7 @@ func TestAFreestandingToolStillNamesTheResolvedBackend(t *testing.T) {
 	w := newWire(t)
 
 	result := resultOf(t, w.call("tools/call", map[string]any{
-		"name": "version", "arguments": map[string]any{}, "_meta": modernMeta(modernVersion)}))
+		"name": "doctor", "arguments": map[string]any{}, "_meta": modernMeta(modernVersion)}))
 	structured, ok := result["structuredContent"].(map[string]any)
 	if !ok {
 		t.Fatalf("the tool returned no structured content: %v", result)

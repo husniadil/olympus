@@ -19,6 +19,9 @@ func (a *App) versionCmd() *cobra.Command {
 		Short: "Print the Olympus version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseAddressing(cmd); err != nil {
+				return err
+			}
 			return a.emit(map[string]any{"version": olympus.Version}, nil, func(w io.Writer) {
 				fmt.Fprintf(w, "olympus %s\n", olympus.Version)
 			})

@@ -175,7 +175,7 @@ one envelope.
 | Field | Rule |
 |---|---|
 | `ok` | Always present, and the only field a consumer needs to branch on. |
-| `backend` | The **resolved** backend, never the requested one (behavior spec §0.4). Present on failure as well as success, because a failure is when knowing which backend answered matters most. Omitted only when the failure came before any backend was resolved, such as a `USAGE` error from argument checking. |
+| `backend` | The **resolved** backend, never the requested one (behavior spec §0.4). Present on failure as well as success, because a failure is when knowing which backend answered matters most. Omitted when no backend was resolved: a failure that came before resolution, such as a `USAGE` error from argument checking, and `version`, `kinds` and `self`, which answer without resolving one. A failure after resolution, such as an addressing option the resolved backend cannot use, names it. |
 | `data` | The per-operation payload. Absent for operations with no payload. An object or an array, never a bare scalar. |
 | `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. |
 | `error` | Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
@@ -365,6 +365,10 @@ is ignored when it does not parse or is not positive.
 Honouring `--backend` or `--socket` there would let a caller's configuration
 contradict the truth. It is a package-level `Self(ctx)` in Go for the same
 reason: a handle cannot change which session its own process is sitting in.
+
+`kinds` and `version` address no backend either. All three refuse `--backend`,
+`--socket`, `--socket-path`, `--server`, `--zmx-dir` and `--no-lock` as
+`USAGE` rather than ignoring them.
 
 ---
 

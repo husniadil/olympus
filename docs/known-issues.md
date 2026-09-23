@@ -25,6 +25,32 @@ there.
 The MCP door speaks stdio and nothing else (behavior §15). There is no remote or
 multi-client transport, and none is planned.
 
+## A herdr session client can boot a server that just died
+
+A path-addressed attach on herdr runs plain `herdr`, which starts a server when
+none answers on its socket. Olympus asks the server once more immediately
+before the client is built and refuses as not-found when it is gone, but a
+server that dies between that check and the client starting is booted again,
+under the configuration the client was given. herdr's client has no option to
+attach only, so the window cannot be closed from Olympus.
+
+## The herdr status token is not scoped to Olympus
+
+herdr keeps one token map per pane, and whoever reports a token only orders the
+reports. Another tool that writes a token named `status` is read back by
+`status` as Olympus's own, and `status --set` or its clear overwrites that
+tool's value. Scoping the token is a change to a reserved name (behavior
+§17.1), so it waits for a contract decision.
+
+## A failed MCP call still carries a structured result
+
+A tool that fails returns `isError` with the error in its text content, and its
+`structuredContent` names the resolved backend. The SDK also fills the rest of
+the structured result from the tool's zero value, so a failed `run_command`
+carries `exit_code: 0` beside the error. A client must read `isError` before
+`structuredContent`. Dropping the zero data means publishing a separate output
+schema for failures, which waits on the failure-envelope decision.
+
 ## An undiagnosed meja failure on macOS
 
 Every meja case in the root package intermittently fails at once with meja's

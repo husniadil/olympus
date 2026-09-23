@@ -16,11 +16,14 @@ func (a *App) selfCmd() *cobra.Command {
 		Short: "Report which session this process is running inside",
 		Long: "Report which session THIS process is running inside, if any." +
 			"\n\nIt is for a program that needs to tell another program where to reach it — reply into this session — which is impossible if it cannot name its own." +
-			"\n\nBeing outside a session is an answer, not a failure: it exits 0 with inside false. It also does not take --backend or --socket, because the answer is about where this process actually is, not about how you would address something else." +
+			"\n\nBeing outside a session is an answer, not a failure: it exits 0 with inside false. It refuses --backend, --socket and the other addressing options, because the answer is about where this process actually is, not about how you would address something else." +
 			"\n\nWhen sessions are nested, no single address is offered: the environment cannot say which is inner, and a confident wrong answer would send a reply to somebody else's terminal." +
 			scriptsNote,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseAddressing(cmd); err != nil {
+				return err
+			}
 			// Deliberately not routed through open(): this answers about the
 			// process, so a handle's configured backend and socket would be
 			// the wrong thing to consult and could contradict the truth.

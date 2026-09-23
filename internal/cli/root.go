@@ -279,6 +279,9 @@ func (a *App) openAt(here olympus.Identity) (*olympus.Olympus, error) {
 
 	ol, err := olympus.Open(opts...)
 	if err != nil {
+		if name, ok := olympus.ResolvedBackendOf(err); ok {
+			a.resolved = name
+		}
 		return nil, err
 	}
 	a.resolved = ol.Backend()
@@ -308,3 +311,14 @@ func (a *App) emit(data any, warnings []olympus.Warning, human func(io.Writer)) 
 // Colour is deliberately not used yet. api §2.2 permits it on a TTY and forbids
 // it otherwise; emitting none satisfies the half that matters for correctness,
 // and a helper that is never called would be a promise the code does not keep.
+
+// refuseAddressing refuses the global addressing options on a verb that
+// addresses no backend, where they would change nothing (api §4).
+func refuseAddressing(cmd *cobra.Command) error {
+	for _, flag := range []string{"backend", "socket", "socket-path", "server", "zmx-dir", "no-lock"} {
+		if cmd.Flags().Changed(flag) {
+			return backend.Errorf(backend.CodeUsage, "--%s does not apply to %s, which addresses no backend", flag, cmd.Name())
+		}
+	}
+	return nil
+}

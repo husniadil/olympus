@@ -3301,6 +3301,13 @@ It depends on how the server was selected (§13.2):
   directory, the one it was booted against. A server Olympus found keeps the
   operator's (§17.5).
 
+  Plain `herdr` starts a server when none answers, and its client has no way to
+  refuse. A server that died after the target resolved would therefore be booted
+  again on that socket under the configuration the client was given. The server
+  is asked once more immediately before the client is built, and one that does
+  not answer is not-found. The moment between that check and the client
+  starting stays open (known issues).
+
 `--bare` overrides the configuration file with the stripped one (§8.9) without
 moving the configuration directory, so the client renders as a plain pane and
 still reaches the same server.

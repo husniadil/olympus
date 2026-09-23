@@ -3,6 +3,7 @@ package olympus
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"time"
@@ -146,6 +147,34 @@ func open(cfg config, opts ...Option) (*Olympus, error) {
 	if err != nil {
 		return nil, err
 	}
+	o, err := openResolved(resolution, cfg)
+	if err != nil {
+		return nil, &resolvedError{backend: resolution.Backend, err: err}
+	}
+	return o, nil
+}
+
+// resolvedError is an Open failure that came after a backend was chosen, so
+// the failure can still say which one (api §2).
+type resolvedError struct {
+	backend backend.Name
+	err     error
+}
+
+func (e *resolvedError) Error() string { return e.err.Error() }
+func (e *resolvedError) Unwrap() error { return e.err }
+
+// ResolvedBackendOf reports the backend Open had resolved before it failed. It
+// reports false for a failure that came before any backend was chosen.
+func ResolvedBackendOf(err error) (backend.Name, bool) {
+	var resolved *resolvedError
+	if errors.As(err, &resolved) {
+		return resolved.backend, true
+	}
+	return "", false
+}
+
+func openResolved(resolution Resolution, cfg config) (*Olympus, error) {
 	if err := checkAddressing(resolution.Backend, cfg); err != nil {
 		return nil, err
 	}
