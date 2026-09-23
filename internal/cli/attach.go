@@ -11,15 +11,54 @@ import (
 	"github.com/husniadil/olympus/backend"
 )
 
+// attachFlags are the attach verb's own flags.
+type attachFlags struct {
+	viewer, keepOthers, client, bare, noMouse bool
+	viewName, clientTag                       string
+	cols, rows                                int
+}
+
+// options translates the flags into the ergonomic layer's options. Every flag
+// given is passed on, so the ergonomic layer refuses a combination it cannot
+// honour rather than this door dropping part of it.
+func (f attachFlags) options() []olympus.AttachOption {
+	var opts []olympus.AttachOption
+	if f.viewer {
+		opts = append(opts, olympus.AsViewer())
+	}
+	if f.keepOthers {
+		opts = append(opts, olympus.KeepOtherClients())
+	}
+	if f.bare {
+		opts = append(opts, olympus.AsBare())
+	} else if f.client {
+		opts = append(opts, olympus.WithSessionClient())
+	}
+	if f.viewName != "" {
+		opts = append(opts, olympus.BareViewName(f.viewName))
+	}
+	if f.noMouse {
+		opts = append(opts, olympus.BareWithoutMouse())
+	}
+	if f.clientTag != "" {
+		opts = append(opts, olympus.BareClientTag(f.clientTag))
+	}
+	if f.cols > 0 || f.rows > 0 {
+		// One side alone leaves the other at its default, as start does.
+		cols, rows := f.cols, f.rows
+		if cols <= 0 {
+			cols = olympus.DefaultCols
+		}
+		if rows <= 0 {
+			rows = olympus.DefaultRows
+		}
+		opts = append(opts, olympus.AttachSize(cols, rows))
+	}
+	return opts
+}
+
 func (a *App) attachCmd() *cobra.Command {
-	var viewer bool
-	var keepOthers bool
-	var client bool
-	var bare bool
-	var viewName string
-	var noMouse bool
-	var clientTag string
-	var cols, rows int
+	var f attachFlags
 
 	cmd := &cobra.Command{
 		Use:   "attach <target>",
@@ -50,30 +89,7 @@ func (a *App) attachCmd() *cobra.Command {
 					"attach hands this terminal to the session, so it has no --json form: "+
 						"drop --json to attach, or use `info` to ask about the session instead")
 			}
-			var opts []olympus.AttachOption
-			if viewer {
-				opts = append(opts, olympus.AsViewer())
-			}
-			if keepOthers {
-				opts = append(opts, olympus.KeepOtherClients())
-			}
-			if bare {
-				opts = append(opts, olympus.AsBare())
-				if viewName != "" {
-					opts = append(opts, olympus.BareViewName(viewName))
-				}
-				if noMouse {
-					opts = append(opts, olympus.BareWithoutMouse())
-				}
-			} else if client {
-				opts = append(opts, olympus.WithSessionClient())
-			}
-			if clientTag != "" {
-				opts = append(opts, olympus.BareClientTag(clientTag))
-			}
-			if cols > 0 && rows > 0 {
-				opts = append(opts, olympus.AttachSize(cols, rows))
-			}
+			opts := f.options()
 
 			in, _ := a.In.(*os.File)
 			out, _ := a.Out.(*os.File)
@@ -98,7 +114,7 @@ func (a *App) attachCmd() *cobra.Command {
 			// session or window itself. On herdr the session client takes the
 			// same workspace, tab or pane target every other verb takes, so
 			// it is resolved and probed like one.
-			if bare {
+			if f.bare {
 				ol, err := a.open()
 				if err != nil {
 					return err
@@ -119,14 +135,14 @@ func (a *App) attachCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&viewer, "viewer", false, "attach read-only: no input, and no resizing")
-	cmd.Flags().BoolVar(&keepOthers, "keep-others", false, "co-attach instead of displacing other clients")
-	cmd.Flags().BoolVar(&client, "client", false, "attach the multiplexer's session client (sidebar, selection, scroll, copy), focused onto the target (herdr only)")
-	cmd.Flags().BoolVar(&bare, "bare", false, "attach as a plain pane, no chrome: on herdr the session client with its chrome hidden (implies --client); on tmux a throwaway view, with <session>:<window> to pick a window (see BARE)")
-	cmd.Flags().StringVar(&viewName, "view", "", "name for the view a tmux bare attach creates, so it can be driven by name while attached; must begin with olympus-view-")
-	cmd.Flags().BoolVar(&noMouse, "no-mouse", false, "create the tmux bare attach's view without mouse reporting")
-	cmd.Flags().StringVar(&clientTag, "client-tag", "", "with --bare on a herdr server that advertises client_view_focus, the tag the client is launched with, so `clients --tag` can find it")
-	cmd.Flags().IntVar(&cols, "cols", 0, "initial width, for a caller whose stdin is not a terminal")
-	cmd.Flags().IntVar(&rows, "rows", 0, "initial height, for a caller whose stdin is not a terminal")
+	cmd.Flags().BoolVar(&f.viewer, "viewer", false, "attach read-only: no input, and no resizing")
+	cmd.Flags().BoolVar(&f.keepOthers, "keep-others", false, "co-attach instead of displacing other clients")
+	cmd.Flags().BoolVar(&f.client, "client", false, "attach the multiplexer's session client (sidebar, selection, scroll, copy), focused onto the target (herdr only)")
+	cmd.Flags().BoolVar(&f.bare, "bare", false, "attach as a plain pane, no chrome: on herdr the session client with its chrome hidden (implies --client); on tmux a throwaway view, with <session>:<window> to pick a window (see BARE)")
+	cmd.Flags().StringVar(&f.viewName, "view", "", "name for the view a tmux bare attach creates, so it can be driven by name while attached; must begin with olympus-view-")
+	cmd.Flags().BoolVar(&f.noMouse, "no-mouse", false, "create the tmux bare attach's view without mouse reporting")
+	cmd.Flags().StringVar(&f.clientTag, "client-tag", "", "with --bare on a herdr server that advertises client_view_focus, the tag the client is launched with, so `clients --tag` can find it")
+	cmd.Flags().IntVar(&f.cols, "cols", 0, "initial width, for a caller whose stdin is not a terminal")
+	cmd.Flags().IntVar(&f.rows, "rows", 0, "initial height, for a caller whose stdin is not a terminal")
 	return cmd
 }

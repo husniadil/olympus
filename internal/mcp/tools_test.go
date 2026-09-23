@@ -661,3 +661,44 @@ func TestDoctorReadsTheServersAddressing(t *testing.T) {
 		t.Errorf("doctor diagnosed %v, want the server's own socket %q", resolved["socket_or_dir"], want)
 	}
 }
+
+// The MCP door takes what the CLI takes: session_status can pace its wait, and
+// scroll_view without lines scrolls the ergonomic layer's default distance, as
+// `view scroll` does.
+func TestStatusIntervalAndScrollLinesMatchTheCLI(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	w.callTool(t, "session_status", map[string]any{"target": name, "set": "ready"})
+	got := w.callTool(t, "session_status", map[string]any{"target": name, "wait": "ready", "interval_ms": 50})
+	if data, _ := got["data"].(map[string]any); data["status"] != "ready" {
+		t.Errorf("waiting with an interval returned %v", data)
+	}
+
+	created := w.callTool(t, "create_view", map[string]any{"base": name})
+	view, _ := created["data"].(map[string]any)["name"].(string)
+	w.callTool(t, "scroll_view", map[string]any{"view": view})
+}
+
+// api §2: a failure names the backend that answered, since that is when
+// knowing which one did matters most. The structured content of a tool error
+// used to carry an empty backend even after one had resolved.
+func TestAToolFailureNamesTheResolvedBackend(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+
+	result := resultOf(t, w.call("tools/call", map[string]any{
+		"name":      "session_status",
+		"arguments": map[string]any{"target": "oly-never-existed"},
+		"_meta":     modernMeta(modernVersion),
+	}))
+	if isError, _ := result["isError"].(bool); !isError {
+		t.Fatalf("a missing session did not fail: %v", result)
+	}
+	structured, _ := result["structuredContent"].(map[string]any)
+	if structured["backend"] != "tmux" {
+		t.Errorf("the failure's structured content names backend %v, want tmux", structured["backend"])
+	}
+}

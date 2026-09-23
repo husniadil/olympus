@@ -588,6 +588,10 @@ func (j *Job) Poll(ctx context.Context, opts ...RunOption) (PollResult, error) {
 // Poll reports on a detached run by id, for a caller resuming from nothing but
 // the pair.
 func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollResult, error) {
+	if id == "" {
+		// No run carries an empty id, so scanning for one would report died.
+		return PollResult{}, backend.Errorf(backend.CodeUsage, "polling needs the id the detached run returned")
+	}
 	runner := s.runner(opts...)
 	got, err := runner.PollRun(ctx, s.name, id)
 	if err != nil {
@@ -668,30 +672,46 @@ type Stopped struct {
 }
 
 // A StopOption configures Stop.
-type StopOption func(*engine.KillPolicy)
+type StopOption func(*stopSettings)
 
-// Force skips the graceful attempt entirely.
+type stopSettings struct {
+	policy engine.KillPolicy
+	force  bool
+}
+
+// Force skips the graceful attempt entirely. It wins over Presses and
+// InterruptTimeout whichever order they are given in.
 func Force() StopOption {
-	return func(p *engine.KillPolicy) { p.Presses = 0; p.Timeout = 0 }
+	return func(s *stopSettings) { s.force = true }
 }
 
 // Presses sets how many interrupts to send before waiting.
 func Presses(n int) StopOption {
-	return func(p *engine.KillPolicy) { p.Presses = n }
+	return func(s *stopSettings) { s.policy.Presses = n }
 }
 
 // InterruptTimeout bounds the POLL phase only, so total wall time is
 // presses*gap plus this.
 func InterruptTimeout(d time.Duration) StopOption {
-	return func(p *engine.KillPolicy) { p.Timeout = d }
+	return func(s *stopSettings) { s.policy.Timeout = d }
+}
+
+// stopPolicy applies the options over the default schedule. Force is applied
+// last, so no option given after it can bring the graceful attempt back.
+func stopPolicy(opts []StopOption) engine.KillPolicy {
+	settings := stopSettings{policy: engine.DefaultKillPolicy}
+	for _, opt := range opts {
+		opt(&settings)
+	}
+	if settings.force {
+		settings.policy.Presses, settings.policy.Timeout = 0, 0
+	}
+	return settings.policy
 }
 
 // Stop ends a session, trying to interrupt it before forcing.
 func (s *Session) Stop(ctx context.Context, opts ...StopOption) (Stopped, error) {
-	policy := engine.DefaultKillPolicy
-	for _, opt := range opts {
-		opt(&policy)
-	}
+	policy := stopPolicy(opts)
 
 	ops := engine.KillOps{
 		Interrupt: func(ctx context.Context) error { return s.ol.backend.Interrupt(ctx, s.name) },

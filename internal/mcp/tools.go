@@ -164,6 +164,8 @@ type statusParams struct {
 	Set     string `json:"set,omitempty" jsonschema:"record this status on the session instead of reading it"`
 	Wait    string `json:"wait,omitempty" jsonschema:"block until the session reports exactly this status"`
 	Seconds int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
+	// Interval matches wait_for's, the same pacing under the same name.
+	Interval int `json:"interval_ms,omitempty" jsonschema:"how often a wait re-reads the status, in milliseconds"`
 }
 
 // A statusResult is what the status tool answers with, in every mode, so a
@@ -224,8 +226,10 @@ type viewParams struct {
 }
 
 type scrollParams struct {
-	View  string `json:"view" jsonschema:"the view to scroll"`
-	Lines int    `json:"lines" jsonschema:"lines to scroll; negative scrolls back toward the live bottom"`
+	View string `json:"view" jsonschema:"the view to scroll"`
+	// A pointer so an absent count takes the ergonomic layer's default while
+	// an explicit zero still means zero.
+	Lines *int `json:"lines,omitempty" jsonschema:"lines to scroll, 10 when omitted; negative scrolls back toward the live bottom"`
 }
 
 type focusParams struct {
@@ -448,6 +452,9 @@ func register(s *sdk.Server) {
 				if in.Seconds > 0 {
 					opts = append(opts, olympus.WaitTimeout(time.Duration(in.Seconds)*time.Second))
 				}
+				if in.Interval > 0 {
+					opts = append(opts, olympus.WaitInterval(time.Duration(in.Interval)*time.Millisecond))
+				}
 				got, err := session.WaitForStatus(ctx, in.Wait, opts...)
 				if err != nil {
 					return statusResult{}, nil, err
@@ -559,17 +566,10 @@ func register(s *sdk.Server) {
 			if in.Lines > 0 {
 				opts = append(opts, olympus.PollWindow(in.Lines))
 			}
-			id := in.runID()
-			if id == "" {
-				// Neither spelling given. Loosening the schema so either name
-				// works means the schema can no longer require one, so the
-				// requirement moves here rather than disappearing — a poll with
-				// no id would otherwise scan the scrollback for a marker that
-				// cannot exist and report died.
-				return olympus.PollResult{}, nil, backend.Errorf(backend.CodeUsage,
-					"polling needs the id start_run returned, as either id or command_id")
-			}
-			result, err := session.Poll(ctx, id, opts...)
+			// Neither spelling given leaves the id empty, which the ergonomic
+			// layer refuses as USAGE: the schema accepts either name, so it
+			// can no longer require one.
+			result, err := session.Poll(ctx, in.runID(), opts...)
 			return result, result.Warnings, err
 		})
 
@@ -602,7 +602,11 @@ func register(s *sdk.Server) {
 
 	addTool(s, "scroll_view", "Scroll a view back into its history, leaving its base untouched.",
 		func(ctx context.Context, ol *olympus.Olympus, in scrollParams) (acknowledged, []olympus.Warning, error) {
-			return acknowledged{Target: in.View}, nil, ol.ScrollView(ctx, in.View, in.Lines)
+			lines := olympus.DefaultScrollLines
+			if in.Lines != nil {
+				lines = *in.Lines
+			}
+			return acknowledged{Target: in.View}, nil, ol.ScrollView(ctx, in.View, lines)
 		})
 
 	addTool(s, "focus_view", "Select the pane of a view's current window that contains a cell (col, row), 0-based within the client area, and report its id. For a view attached with mouse reporting off, where a click never reaches the multiplexer. The active pane is shared with the base, so the base follows. A cell on a border or outside every pane selects nothing and reports an empty pane, which is a result rather than an error.",

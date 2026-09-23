@@ -202,6 +202,7 @@ func capabilityRows() []capabilityRow {
 		{"server environment", func(c backend.Capabilities) bool { return c.ServerEnv }},
 		{"control keys", func(c backend.Capabilities) bool { return c.ControlKeys }},
 		{"spawn sizing", func(c backend.Capabilities) bool { return c.SpawnSizing }},
+		{"spawn command", func(c backend.Capabilities) bool { return c.SpawnCommand }},
 		{"session status", func(c backend.Capabilities) bool { return c.SessionStatus }},
 		{"alt-screen tracking", func(c backend.Capabilities) bool { return c.TracksAltScreen }},
 		{"servers", func(c backend.Capabilities) bool { return c.Servers }},

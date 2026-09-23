@@ -69,8 +69,12 @@ func (a *App) statusCmd() *cobra.Command {
 				}
 				report.Status = set
 			case wait != "":
-				got, err := s.WaitForStatus(cmd.Context(), wait,
-					olympus.WaitTimeout(timeout), olympus.WaitInterval(poll))
+				// Zero or less leaves the default, as `wait` does.
+				opts := []olympus.WaitOption{olympus.WaitInterval(poll)}
+				if timeout > 0 {
+					opts = append(opts, olympus.WaitTimeout(timeout))
+				}
+				got, err := s.WaitForStatus(cmd.Context(), wait, opts...)
 				if err != nil {
 					return err
 				}
@@ -95,7 +99,7 @@ func (a *App) statusCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&set, "set", "", "record this status on the target")
 	cmd.Flags().StringVar(&wait, "wait", "", "block until the target reports exactly this status")
-	cmd.Flags().DurationVar(&timeout, "timeout", olympus.DefaultWaitTimeout, "how long --wait blocks")
+	cmd.Flags().DurationVar(&timeout, "timeout", olympus.DefaultWaitTimeout, "how long --wait blocks; zero means the default")
 	cmd.Flags().DurationVar(&poll, "interval", olympus.DefaultWaitPoll, "how often --wait re-reads the status")
 	return cmd
 }

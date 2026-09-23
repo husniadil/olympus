@@ -1669,6 +1669,55 @@ func TestMCPRefusesTheGlobalAddressingFlags(t *testing.T) {
 	}
 }
 
+// `status --wait --timeout 0` means the default wait, as `wait --timeout 0`
+// and the MCP door's zero seconds do, rather than giving up at once.
+func TestAZeroStatusWaitTimeoutMeansTheDefault(t *testing.T) {
+	flags := isolation(t)
+	session := name()
+	if got := run(t, append(flags, "start", session)...); got.code != 0 {
+		t.Fatalf("start exited %d: %s", got.code, got.stderr)
+	}
+	done := make(chan result, 1)
+	go func() {
+		done <- run(t, append(flags, "status", session, "--wait", "ready", "--timeout", "0", "--interval", "50ms")...)
+	}()
+	time.Sleep(time.Second)
+	if got := run(t, append(flags, "status", session, "--set", "ready")...); got.code != 0 {
+		t.Fatalf("status --set exited %d: %s", got.code, got.stderr)
+	}
+	if got := <-done; got.code != 0 {
+		t.Errorf("status --wait --timeout 0 exited %d, want it to wait for the status: %s", got.code, got.stderr)
+	}
+}
+
+// Every spelling the flag parser accepts for --json decides the output mode of
+// a parse failure too, not only the two literal ones.
+func TestEverySpellingOfJSONReachesAParseFailure(t *testing.T) {
+	for _, spelling := range []string{"--json=1", "--json=t", "--json=TRUE"} {
+		got := run(t, "ls", "--nonesuch", spelling)
+		if e := got.envelope(t); e.Error == nil || e.Error.Code != backend.CodeUsage {
+			t.Errorf("%s: the failure is %+v, want a USAGE envelope", spelling, e)
+		}
+	}
+	got := run(t, "ls", "--nonesuch", "--json=false")
+	if got.stdout != "" || got.stderr == "" {
+		t.Errorf("--json=false: a parse failure went to stdout %q, stderr %q; want stderr only", got.stdout, got.stderr)
+	}
+}
+
+// A failure of the MCP server itself is not the caller's argument mistake, so
+// it must not exit as USAGE. A cancelled context stands in for a transport
+// that ends in an error.
+func TestAnMCPServerFailureIsNotUsage(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var out, errOut bytes.Buffer
+	code := cli.Execute(ctx, []string{"mcp"}, &out, &errOut, strings.NewReader(""))
+	if code != olympus.ExitCode(backend.CodeUnexpected) {
+		t.Errorf("a server that ended in an error exits %d, want the unexpected exit: %s", code, errOut.String())
+	}
+}
+
 // A process inside a session whose name cannot be read is still inside one,
 // so self succeeds, but the JSON says why the name is missing, as the human
 // output does.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -82,11 +83,22 @@ func (a *App) presetOutputMode(args []string) {
 			// What follows is the spawned command's, not Olympus's.
 			break
 		}
-		switch arg {
-		case "--json", "--json=true":
-			a.json = true
-		case "-q", "--quiet", "--quiet=true":
-			a.quiet = true
+		name, value, given := strings.Cut(arg, "=")
+		on := true
+		if given {
+			// The spellings the flag parser itself accepts. One it rejects
+			// leaves the mode alone, and the parser reports it.
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				continue
+			}
+			on = parsed
+		}
+		switch name {
+		case "--json":
+			a.json = on
+		case "-q", "--quiet":
+			a.quiet = on
 		}
 	}
 }
@@ -232,6 +244,10 @@ func (a *App) openAt(here olympus.Identity) (*olympus.Olympus, error) {
 				opts = append(opts, olympus.WithSocketPath(here.Scope))
 			case backend.Zmx:
 				opts = append(opts, olympus.WithZmxDir(here.Scope))
+			case backend.Meja:
+				// Self reports meja's scope as the socket path meja itself
+				// publishes into the session.
+				opts = append(opts, olympus.WithSocketPath(here.Scope))
 			case backend.Herdr:
 				// Passed explicitly rather than left to the environment. The
 				// herdr binary does read HERDR_SOCKET_PATH itself, but the

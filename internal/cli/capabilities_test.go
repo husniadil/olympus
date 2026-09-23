@@ -43,3 +43,25 @@ func TestTheAgentsHelpNamesEveryKind(t *testing.T) {
 		}
 	}
 }
+
+// The doctor's capability matrix has a row for every capability, checked
+// against the struct itself: each capability set alone lights exactly one row.
+func TestTheDoctorMatrixHasARowForEveryCapability(t *testing.T) {
+	v := reflect.ValueOf(backend.Capabilities{})
+	for i := 0; i < v.NumField(); i++ {
+		if v.Field(i).Kind() != reflect.Bool {
+			continue
+		}
+		var one backend.Capabilities
+		reflect.ValueOf(&one).Elem().Field(i).SetBool(true)
+		lit := 0
+		for _, row := range capabilityRows() {
+			if row.get(one) {
+				lit++
+			}
+		}
+		if lit != 1 {
+			t.Errorf("%s lights %d rows of the doctor matrix, want 1", v.Type().Field(i).Name, lit)
+		}
+	}
+}

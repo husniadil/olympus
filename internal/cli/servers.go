@@ -89,7 +89,7 @@ func (a *App) serversStartCmd() *cobra.Command {
 		Use:   "start [name]",
 		Short: "Bring a server up, without creating a session on it",
 		Long: "Bring a server up, without creating a session on it. With no name, the backend's default server." +
-			"\n\nFor the machine that has just come back: a backend that restores what it was running does that when its server boots, and every other verb here refuses to boot one, since a listing that started what it was asked to list would answer with a thing it had made. This says come up and says only that — no session, no window, no pane." +
+			"\n\nFor the machine that has just come back: a backend that restores what it was running does that when its server boots, and no verb that only reads boots one, since a listing that started what it was asked to list would answer with a thing it had made. Creating a session boots its server as a side effect; this says come up and says only that — no session, no window, no pane." +
 			"\n\nReports which happened: running (it was already up and was left alone) or started. Both are successes. An unknown name is not found; a backend that cannot start a server on its own — tmux and zmx come up with their first session — answers unsupported." +
 			scriptsNote,
 		Args: cobra.MaximumNArgs(1),

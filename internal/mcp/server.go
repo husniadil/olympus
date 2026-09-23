@@ -130,14 +130,15 @@ type handler[In, Out any] func(context.Context, *olympus.Olympus, In) (Out, []ol
 // addFreestandingTool registers a tool that answers about Olympus or about this
 // process, and therefore must NOT require a multiplexer.
 //
-// Three tools are in this class, and each is most needed exactly when nothing is
+// Four tools are in this class, and each is most needed exactly when nothing is
 // installed. `doctor` is what a caller is sent to when the environment is
 // broken; refusing because the environment is broken is the same self-defeating
 // shape as a diagnostic that hangs. `version` exists so a consumer can
 // floor-check without shelling out, which it cannot do if the answer depends on
 // an unrelated binary. And `self` outside a session is documented to answer
 // `inside: false` — an answer a caller can act on, where an error leaves them
-// unable to tell "nowhere" from "could not tell" (api §5).
+// unable to tell "nowhere" from "could not tell" (api §5). `list_kinds` reports
+// Olympus's own agent vocabulary, which is the same on every backend.
 //
 // Deliberately narrow. Everything else still opens a handle and still refuses
 // with BACKEND_UNAVAILABLE, because a blanket exemption would scatter one
@@ -147,18 +148,19 @@ func addFreestandingTool[In, Out any](s *sdk.Server, name, description string,
 	sdk.AddTool(s, &sdk.Tool{Name: name, Description: description},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Result[Out], error) {
 			out, warnings, err := fn(ctx, in)
-			if err != nil {
-				return toolError(err), Result[Out]{}, nil
-			}
-			// The envelope still names the resolved backend when one resolves.
-			// It is a shipped field (api §2), so it must not disappear from
-			// these three results on a healthy machine merely because they
-			// stopped REQUIRING a backend to answer. Failure to resolve is the
-			// case this whole function exists for, and is simply left empty.
+			// The envelope still names the resolved backend when one resolves,
+			// on failure as well as success. It is a shipped field (api §2), so
+			// it must not disappear from these results on a healthy machine
+			// merely because they stopped REQUIRING a backend to answer.
+			// Failure to resolve is the case this whole function exists for,
+			// and is simply left empty.
 			var name backend.Name
 			if ol, openErr := open(); openErr == nil {
 				name = ol.Backend()
 				ol.Close()
+			}
+			if err != nil {
+				return toolError(err), Result[Out]{Backend: name}, nil
 			}
 			return nil, Result[Out]{Backend: name, Data: out, Warnings: warnings}, nil
 		})
@@ -175,7 +177,8 @@ func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In
 
 			out, warnings, err := fn(ctx, ol, in)
 			if err != nil {
-				return toolErrorFrom(ol, err), Result[Out]{}, nil
+				// api §2: a failure names the backend that answered.
+				return toolErrorFrom(ol, err), Result[Out]{Backend: ol.Backend()}, nil
 			}
 			return nil, Result[Out]{Backend: ol.Backend(), Data: out, Warnings: warnings}, nil
 		})

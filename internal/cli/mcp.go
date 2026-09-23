@@ -22,7 +22,12 @@ func (a *App) mcpCmd() *cobra.Command {
 						"--%s is not read by the MCP server, which takes its configuration from the environment; see `olympus mcp --help`", flag)
 				}
 			}
-			return mcp.Serve(cmd.Context())
+			// Classified here: an unclassified error would be read as the
+			// argument parser's, and exit as USAGE.
+			if err := mcp.Serve(cmd.Context()); err != nil {
+				return backend.Wrapf(backend.CodeUnexpected, err, "the MCP server stopped")
+			}
+			return nil
 		},
 	}
 }

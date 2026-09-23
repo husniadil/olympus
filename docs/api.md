@@ -94,7 +94,7 @@ ignored (behavior spec §8.7, §8.9).
 | `--view` | `BareViewName` | With `--bare` on tmux, the view's name, which must begin with `olympus-view-` (§17.1). A caller can then `view scroll` and `view focus` it while attached, since an attach has no channel to report a generated name back. | tmux; usage elsewhere |
 | `--client-tag` | `BareClientTag` | With `--bare` on a herdr server that advertises `client_view_focus`, the tag the client is launched with instead of a generated one: 1 to 128 bytes, no control characters. A caller can then find it with `clients --tag` while attached (§5 "Client row", behavior §13.5). | herdr; usage elsewhere, without `--bare`, and on a herdr server without `client_view_focus` |
 | `--no-mouse` | `BareWithoutMouse` | With `--bare` on tmux, create the view without mouse reporting, for a client that keeps its own selection and scrolls through `view scroll`. | tmux; usage elsewhere |
-| `--cols`, `--rows` | `AttachSize` | Initial size when stdin is not a terminal. | all |
+| `--cols`, `--rows` | `AttachSize` | Initial size when stdin is not a terminal. One given alone leaves the other at its default, as on `start`. | all |
 
 ### 1.1 Verbs are named for intent, not mechanism
 
@@ -267,7 +267,8 @@ machine-readable.
 
 It is never a JSON-RPC protocol error (behavior spec §15.6). Its first text
 content is `CODE: message`, and an `AGENT_BLOCKED` marked `typed` adds a text
-content reading `typed: true`.
+content reading `typed: true`. Its structured content names the resolved
+`backend` whenever one resolved, as §2 requires of a failure.
 
 ### The Go door returns typed errors
 
@@ -381,6 +382,11 @@ where an entry below says otherwise. They are semver-bound once shipped.
 
 The shape is the same in all three modes (read, `--set`, `--wait`), so a caller
 needs one parser rather than three.
+
+A wait is bounded by `--timeout` and paced by `--interval` on the CLI, and by
+`seconds` and `interval_ms` on `session_status`, as `wait` and `wait_for` are.
+Zero or an omitted value means the default at both doors, never "give up at
+once".
 
 The value is **opaque**. Olympus stores and returns it exactly as given, defines
 no vocabulary of states, and matches `--wait` exactly rather than as a pattern.
@@ -660,8 +666,12 @@ The capture that satisfied the wait, plus which line did it:
   "line": "$ make build", "matched": true }
 ```
 
-`line` and `matched` are omitted when nothing matched: a capture that timed out
-carries its `text` and no claim about it.
+`line` and `matched` are omitted when nothing matched. A wait that runs out of
+time is a `TIMEOUT` failure. In Go, `WaitFor` returns the last capture beside
+that error, carrying its `text` and no claim about it. The CLI and MCP doors
+report the failure alone: a failure envelope (§2) has no `data`, so the capture
+does not reach it. The error message says when the pattern was on screen but
+rejected by its line anchors.
 
 Matching is per line, never against the whole screen as one string (behavior
 spec §7.2). `line` is the specific line the pattern hit rather than a slice of
@@ -697,7 +707,9 @@ Ask tmux.
 #### Scrolling a view
 
 `scroll_view` returns `{"target": "<view>"}`. The CLI's `view scroll` returns
-`{"view": "<view>", "lines": 10}`, another divergence between the doors.
+`{"view": "<view>", "lines": 10}`, another divergence between the doors. Both
+take the distance as optional and scroll `DefaultScrollLines` (10) when it is
+omitted: `--lines` on the CLI, `lines` on `scroll_view`.
 
 ### Focus result (`view focus`, `focus_view`)
 

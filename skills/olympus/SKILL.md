@@ -65,7 +65,7 @@ Otherwise run the command directly.
 - `olympus servers` lists the level above sessions: tmux socket names, herdr named sessions, zmx's one directory. meja has none.
 - `--server <name>` points any verb at one.
 - `olympus servers stop <name>` takes every session on it down. Use it only when the user means the whole server.
-- `olympus servers start [name]` brings one up without creating anything. After a reboot this is how a herdr server comes back with the panes it was running; no other verb boots one.
+- `olympus servers start [name]` brings one up without creating anything. After a reboot this is how a herdr server comes back with the panes it was running. `start` and `new` boot one too, as a side effect of creating a session; no verb that only reads does.
 
 ### Agents
 
