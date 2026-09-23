@@ -507,8 +507,9 @@ what its sidebar shows, and `olympus panes <workspace>` every pane in it:
 
 ```sh
 $ olympus ls --backend herdr --socket-path ~/.config/herdr/herdr.sock
-demo   w1   present
-tmp    w3   present
+NAME  LIVENESS  ATTACHED  DEAD  DIRECTORY
+demo  present   no        no    /repo
+tmp   present   no        no    /tmp
 $ olympus panes demo --json | jq '.data[] | [.pane_id, .window_index, .session_name]'
 ["w1:p1", 1, "demo"]
 ["w1:p2", 1, "demo"]
@@ -1074,9 +1075,10 @@ wrote.
 supported mode.** It is how you drive a box's own headless herdr, or an
 operator's, and read and attach to panes other tools created.
 
-Olympus never starts, reconfigures or stops such a server. A request to stop one
-it did not start is refused with `CONFLICT`, because stopping takes every pane on
-the server down, including every one you never named. Close the sessions you own
+Olympus never starts or reconfigures such a server, and stops it only when a
+caller names it to `servers stop`. Any other request to stop one it did not start
+is refused with `CONFLICT`, because stopping takes every pane on the server down,
+including every one you never named. Close the sessions you own
 instead. Behavior spec §2.9.1.
 
 ---
