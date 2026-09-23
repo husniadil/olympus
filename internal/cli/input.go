@@ -266,20 +266,16 @@ func (a *App) exitStatusCmd() *cobra.Command {
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.withSession(cmd, args[0], func(_ *olympus.Olympus, s *olympus.Session) error {
-				code, found, err := s.ExitStatus(cmd.Context(), args[1], lines)
+				got, err := s.ReadExitStatus(cmd.Context(), args[1], lines)
 				if err != nil {
 					return err
 				}
-				data := map[string]any{"found": found}
-				if found {
-					data["exit_code"] = code
-				}
-				return a.emit(data, nil, func(w io.Writer) {
-					if !found {
+				return a.emit(got, got.Warnings, func(w io.Writer) {
+					if !got.Found {
 						fmt.Fprintln(w, "no marker on screen")
 						return
 					}
-					fmt.Fprintf(w, "%d\n", code)
+					fmt.Fprintf(w, "%d\n", *got.ExitCode)
 				})
 			})
 		},

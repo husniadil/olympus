@@ -575,13 +575,12 @@ func register(s *sdk.Server) {
 
 	addTool(s, "exit_status", "Read a caller-supplied completion marker off the screen, for the wrapper pattern `cmd; echo DONE:$?`. The marker is the whole prefix, separator included — `DONE:`, not `DONE` — and the exit code is the token immediately after it; Olympus skips no separator of its own. The marker is always yours to choose; there is no default. An unmatched marker reports not-found, which legitimately means the command has not finished, so a wrong marker waits forever without erroring.",
 		func(ctx context.Context, ol *olympus.Olympus, in markerParams) (markerResult, []olympus.Warning, error) {
-			return withSession(ctx, ol, in.Target, func(s *olympus.Session) (markerResult, error) {
-				code, found, err := s.ExitStatus(ctx, in.Marker, in.Lines)
-				if err != nil || !found {
-					return markerResult{Found: false}, err
-				}
-				return markerResult{Found: true, ExitCode: &code}, nil
-			})
+			session, err := ol.Open(ctx, in.Target)
+			if err != nil {
+				return markerResult{}, nil, err
+			}
+			got, err := session.ReadExitStatus(ctx, in.Marker, in.Lines)
+			return markerResult{Found: got.Found, ExitCode: got.ExitCode}, got.Warnings, err
 		})
 
 	addTool(s, "create_view", "Create an independently-scrollable view onto a session. Not every backend has this concept.",
