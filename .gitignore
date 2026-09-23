@@ -8,6 +8,9 @@ CLAUDE.local.md
 # machine.
 .claude/settings.local.json
 
+# Worktrees an agent session creates for isolated work; branches, not source.
+.claude/worktrees/
+
 /olympus
 /bin/
 /dist/

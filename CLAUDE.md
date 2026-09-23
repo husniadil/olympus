@@ -148,10 +148,67 @@ mechanical: package backend: the interface backends implement
 
 - `TestTheToolSurfaceIsPinned` compares the served tools with `ToolNames`.
 - `TestTheToolNamesMatchTheSpecTable` compares the served tools with a list
-  transcribed by hand from the api §1 table. No test reads `docs/api.md` itself.
+  transcribed by hand from the api §1 table.
+
+`TestTheVocabularyTableMatchesTheDoors` in `internal/cli/docs_test.go` reads
+the api §1 table itself and holds its CLI column to the command tree and its MCP
+column to `ToolNames`.
 
 Adding or renaming a tool means `ToolNames`, the registration, the transcribed
 list, and the api §1 table all move together.
+
+## Docs are part of the change, not a follow-up
+
+### What obliges a doc edit in the same commit
+
+Five things oblige a documentation edit in the same commit as the code. They
+are not judgement calls, and `internal/cli/docs_test.go` fails on the first.
+
+1. **A CLI verb or flag, or an MCP tool or parameter, changed.** The api §1
+   table, `README.md`, `CONTRIBUTING.md` and `skills/olympus/SKILL.md` print
+   commands somebody is meant to type. The test fails on a documented
+   `olympus ...` line that no longer parses, and on an api §1 table that
+   disagrees with the command tree or the served tools.
+2. **A specified behavior changed.** `docs/terminal-behavior.md` moves with it
+   ("The specification comes first").
+3. **A `--json` field, error code, exit code or warning changed.** api §2 to §5
+   describe them, and §7 says which are bound.
+4. **A version floor moved.** The table above, `floors` in `doctor.go`, and the
+   CI matrix in `CONTRIBUTING.md`.
+5. **A doc says something is outstanding and it now is not.** An entry in
+   `docs/known-issues.md` that promises a limit the code no longer has is read
+   as a decision.
+
+Everything else is judgement, and the question is whether the change would take
+somebody by surprise:
+
+- A default a doc quotes needs its new value.
+- A race you found and fixed needs its comment, and a paragraph in the spec when
+  the shape of the fix is worth more than a comment.
+
+### Do not delegate it
+
+A subagent that assesses whether the docs need touching is a step somebody has
+to remember, which is the thing that fails. Whoever wrote the change knows
+better than a reader of it what moved.
+
+What a subagent is good for is the periodic audit: the `docs-keeper` agent
+(`.claude/agents/docs-keeper.md`) reads `docs/api.md`, the skill and
+`docs/known-issues.md` whole against the source, by the procedure in
+`docs/docs-keeper.md`. Run it before a release tag and every twentieth commit
+that touches Go source.
+
+### Where each kind of doc lives
+
+- `README.md` is for someone who wants to install and use Olympus through any
+  of its three doors, and links out to everything else.
+- `CONTRIBUTING.md` is building from a checkout, the gate, CI and releasing.
+- `docs/terminal-behavior.md` is the normative mechanics. Code follows it.
+- `docs/api.md` is what the doors expose, and what is semver-bound.
+- `docs/adding-a-backend.md` is the route for a new backend.
+- `docs/known-issues.md` is what is still outstanding, as current state.
+- `docs/docs-keeper.md` is the procedure the `docs-keeper` agent audits by.
+- `skills/olympus/SKILL.md` teaches an agent which verb fits. It is shipped.
 
 ## Where to look
 
@@ -160,5 +217,6 @@ list, and the api §1 table all move together.
 | [`docs/terminal-behavior.md`](docs/terminal-behavior.md) | The behavior spec. |
 | [`docs/api.md`](docs/api.md) | The exposed contract. |
 | [`docs/adding-a-backend.md`](docs/adding-a-backend.md) | The route for a new backend: spike first, isolation, the conformance suite as the definition of correct. |
-| [`docs/known-issues.md`](docs/known-issues.md) | What is still outstanding: attach by a human, macOS outside CI, the stdio-only MCP door, the undiagnosed meja flake. |
+| [`docs/docs-keeper.md`](docs/docs-keeper.md) | How the docs are audited against the source, and what the keeper may change. |
+| [`docs/known-issues.md`](docs/known-issues.md) | What is still outstanding, each as its current state: untested paths, limits a backend imposes, and decisions still open. |
 | [`skills/olympus/SKILL.md`](skills/olympus/SKILL.md) | Teaches an agent harness when Olympus beats a plain shell and which verb fits. A shipped surface: a changed verb or MCP tool is reflected there too. |
