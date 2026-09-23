@@ -20,7 +20,7 @@ Otherwise run the command directly.
 
 ### Start with doctor
 
-- Run `olympus doctor` once per task before anything else. It never fails.
+- Run `olympus doctor` before the first session you create or drive in a task, and again when a backend behaves unexpectedly. It never fails.
 - It says which backend answers, where sessions live, and what that backend cannot do.
 - Do not assume tmux behavior on zmx, or the reverse.
 
@@ -46,7 +46,7 @@ Otherwise run the command directly.
 - `type` places text and never submits. `send` confirms the text landed, then submits.
 - Prefer `send`. For text left unsubmitted, use `send --no-enter`.
 - `wait` matches per line. Match something the program prints, never your prompt: `'\$\s*$'` fails under zsh, fish and themed prompts.
-- Do not require a trailing space: `^>>>\s*$`, not `^>>> $`.
+- Allow for trailing whitespace, since tmux keeps a prompt's trailing space and zmx strips it: `^>>>\s*$`, not `^>>> $`.
 
 ### Backend limits
 

@@ -484,7 +484,7 @@ func register(s *sdk.Server) {
 			return ol.Capabilities(), nil, nil
 		})
 
-	addTool(s, "wait_for", "Block until a regular expression appears on the screen.",
+	addTool(s, "wait_for", "Block until a regular expression matches a line of the visible screen, and report the screen with the matched line. The pattern is tried against each line on its own, so ^ and $ anchor to a line: write `^>>>\\s*$` for a REPL prompt, and match text the program prints rather than a shell prompt, whose shape varies by shell and theme. Waits 30 seconds by default, re-reading every 250 ms; running out of time is a TIMEOUT error, and a session that disappears fails at once with SESSION_NOT_FOUND.",
 		func(ctx context.Context, ol *olympus.Olympus, in waitParams) (olympus.Screen, []olympus.Warning, error) {
 			session, err := ol.Open(ctx, in.Target)
 			if err != nil {
