@@ -229,6 +229,11 @@ func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, err
 		// has died (behavior §6.9).
 		return PollResult{Status: PollDied, Reason: "the session's command exited"}, nil
 	}
+	if row.Liveness == backend.LivenessGone {
+		// Positive evidence of death while the row is still listed, as zmx
+		// reports a session whose socket refuses connections (§2.6).
+		return PollResult{Status: PollDied, Reason: "the session is gone"}, nil
+	}
 	return PollResult{Status: PollPending}, nil
 }
 

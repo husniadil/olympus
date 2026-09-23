@@ -2247,6 +2247,10 @@ Poll MUST check the per-session dead flag it already parses. When no completion
 marker is found and the session is listed, a dead pane means `died`, not
 `pending`. This is a no-op on zmx, which has no corpse concept.
 
+A row whose liveness is `gone` is dead in the same sense, as ensure reads it
+(§2.6): zmx keeps listing a session whose socket refuses connections. Poll
+answers `died` for it. An `unknown` row is doubt and stays `pending`.
+
 #### Why
 
 With `remain-on-exit`, a dead command's pane becomes a corpse but the session

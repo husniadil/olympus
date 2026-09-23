@@ -495,3 +495,25 @@ func TestASmallPollWindowDoesNotSettleForATruncatedCompletion(t *testing.T) {
 		t.Errorf("status %q from a 50-line window, want pending so the caller re-polls deeper", got.Status)
 	}
 }
+
+// §6.8: a row classified gone is positive evidence of death, as ensure reads
+// it (§2.6), so a poll against it is died rather than pending forever. An
+// unknown row is doubt and stays pending.
+func TestPollingAGoneRowIsDied(t *testing.T) {
+	for _, c := range []struct {
+		liveness backend.Liveness
+		want     engine.PollStatus
+	}{
+		{backend.LivenessGone, engine.PollDied},
+		{backend.LivenessUnknown, engine.PollPending},
+	} {
+		f := &fakeBackend{sessions: []backend.Session{{Name: "build", Liveness: c.liveness}}}
+		got, err := runner(f, nil).PollRun(context.Background(), "build", "someid")
+		if err != nil {
+			t.Fatalf("PollRun: %v", err)
+		}
+		if got.Status != c.want {
+			t.Errorf("a %s row polls %q, want %q", c.liveness, got.Status, c.want)
+		}
+	}
+}
