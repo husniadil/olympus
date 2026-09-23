@@ -4,6 +4,67 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0]
+
+### Changed
+
+- **Breaking for MCP clients: `version`, `list_kinds` and `self` no longer
+  name a `backend`.** They resolve none, and the CLI never named one for them.
+  `doctor` still does. A client that read `backend` off those three results
+  reads nothing now.
+- **`self`, `kinds` and `version` refuse the addressing options** (`--backend`,
+  `--socket`, `--socket-path`, `--server`, `--zmx-dir`, `--no-lock`) as USAGE
+  rather than ignoring them.
+- **An Open that fails after resolving names its backend.** An addressing
+  option the resolved backend cannot use is USAGE with `backend` set, at both
+  doors, and `ResolvedBackendOf` reads it in Go.
+- **api §2 says what an MCP result carries:** `backend`, `data` and
+  `warnings`, with a failure reported by `isError`. It never carried `ok` or
+  `error`, as the doc said it did.
+
+### Added
+
+- **`ReadExitStatus`** returns the exit-status reading with its capture's
+  warnings, and both doors now disclose them, such as a history request clamped
+  to herdr's depth.
+- **MCP `session_status` takes `interval_ms`,** and `scroll_view`'s `lines`
+  is optional with the same default as the CLI.
+- **A docs test** parses every `olympus ...` command the docs print and holds
+  the api §1 table to the command tree and the served tools.
+
+### Fixed
+
+- **Concurrent MCP calls no longer swap text between sessions.** tmux and meja
+  named paste buffers per handle, and the MCP door builds a handle per call.
+- **herdr panes keep the caller's own configuration and state directories**
+  instead of Olympus's private ones. A duplicate workspace name is refused on
+  rename, a vanished server is not-found rather than UNEXPECTED, a server that
+  exits during startup fails at once with its stderr, a confirmed stop ends
+  ownership, and a path-addressed attach refuses a server that stopped
+  answering instead of letting the client boot a new one.
+- **A run no longer reports certainty it lacks.** A meja Enter whose delivery
+  is unknown is not retried, a failed listing polls pending with a reason, a
+  row zmx marks gone polls died, a command ending in an unpaired backslash is
+  USAGE instead of a false exit 0, leading blank output lines survive, and a
+  small poll window does not settle for a truncated completion.
+- **Input arrives as sent.** Punctuation-only text is verified as typed, an
+  agent blocked only in its title refuses a send as the listing reports it,
+  empty text on tmux is a presence check, and a trailing ";" is escaped in a
+  working directory, window target, view name and server environment key.
+- **Sessions are addressed and cleaned up correctly.** A stale `watch` pipe is
+  taken over instead of blocking every later watch, zmx looks under
+  `XDG_RUNTIME_DIR` and refuses a name with "/", a dotted tmux name is refused
+  where tmux would rewrite it, meja's identity variables no longer leak into
+  sessions, and a view name must carry the reserved prefix.
+- **Lock directories must be ours.** The lock, attach-guard and herdr walk-lock
+  directories refuse a symlink or another user's directory and are tightened
+  to 0700.
+- **The doors pass through what they are given.** `stop --force` wins over
+  `--presses`, `attach --view` without `--bare` is refused, `--json=1` selects
+  JSON, `status --timeout 0` is the default, an empty poll id is USAGE, a
+  signalled attach client reports 128+n, and the human `poll` output says why
+  it is pending.
+
 ## [0.33.2]
 
 ### Fixed
