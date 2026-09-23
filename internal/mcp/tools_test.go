@@ -354,11 +354,9 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 		{"wait_for", map[string]any{"target": name, "pattern": "ran", "seconds": 15}},
 		{"exit_status", map[string]any{"target": name, "marker": "OLYDONE"}},
 	}
+	// callTool fails the test on a tool error, which is what "not served" is.
 	for _, c := range served {
-		got := w.callTool(t, c.tool, c.args)
-		if got["ok"] == false {
-			t.Errorf("%s is not served on meja: %v", c.tool, got)
-		}
+		w.callTool(t, c.tool, c.args)
 	}
 
 	// meja has no read-only client, no key table and no option store, so these
@@ -380,9 +378,7 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 	// new_session means "must not already exist", so it needs its own name, and
 	// its refusal on a taken one is part of what it is.
 	fresh := name + "-fresh"
-	if got := w.callTool(t, "new_session", map[string]any{"name": fresh}); got["ok"] == false {
-		t.Errorf("new_session is not served on meja: %v", got)
-	}
+	w.callTool(t, "new_session", map[string]any{"name": fresh})
 	if text := w.callToolExpectingError(t, "new_session", map[string]any{"name": fresh}); !strings.Contains(text, "CONFLICT") {
 		t.Errorf("new_session on a taken meja name reports %q, want CONFLICT", text)
 	}
@@ -396,9 +392,7 @@ func TestEveryMCPToolIsServedOrRefusedOnMeja(t *testing.T) {
 	if id == "" {
 		t.Fatalf("start_run on meja returned no id to poll: %v", started)
 	}
-	if got := w.callTool(t, "poll_run", map[string]any{"target": name, "id": id}); got["ok"] == false {
-		t.Errorf("poll_run is not served on meja: %v", got)
-	}
+	w.callTool(t, "poll_run", map[string]any{"target": name, "id": id})
 
 	for _, c := range refused {
 		text := w.callToolExpectingError(t, c.tool, c.args)
@@ -423,10 +417,8 @@ func TestAForeignZmxDirDoesNotBreakAnotherBackend(t *testing.T) {
 	t.Setenv("ZMX_DIR", "/tmp/some-operator-daemon")
 
 	w := newWire(t)
+	// callTool fails the test on a tool error, which is what "broke" is.
 	got := w.callTool(t, "list_sessions", map[string]any{})
-	if got["ok"] == false {
-		t.Fatalf("an exported ZMX_DIR broke a tmux server: %v", got)
-	}
 	if got["backend"] != "tmux" {
 		t.Errorf("resolved %v, want tmux", got["backend"])
 	}
