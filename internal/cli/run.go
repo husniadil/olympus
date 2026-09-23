@@ -165,22 +165,28 @@ and both read as pending. Bounding how long you wait is yours to do.`) +
 			if err != nil {
 				return err
 			}
-			return a.emit(result, result.Warnings, func(w io.Writer) {
-				switch result.State {
-				case "completed":
-					fmt.Fprint(w, result.Output)
-					if result.Output != "" && !strings.HasSuffix(result.Output, "\n") {
-						fmt.Fprintln(w)
-					}
-					fmt.Fprintf(w, "completed (exit %d)\n", *result.ExitCode)
-				case "died":
-					fmt.Fprintf(w, "died: %s\n", result.Reason)
-				default:
-					fmt.Fprintln(w, "pending")
-				}
-			})
+			return a.emit(result, result.Warnings, func(w io.Writer) { renderPoll(w, result) })
 		},
 	}
 	cmd.Flags().IntVar(&lines, "lines", 0, "scrollback window to search for the completion marker (default 10000; ignored where scrollback is native)")
 	return cmd
+}
+
+func renderPoll(w io.Writer, result olympus.PollResult) {
+	switch result.State {
+	case "completed":
+		fmt.Fprint(w, result.Output)
+		if result.Output != "" && !strings.HasSuffix(result.Output, "\n") {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintf(w, "completed (exit %d)\n", *result.ExitCode)
+	case "died":
+		fmt.Fprintf(w, "died: %s\n", result.Reason)
+	default:
+		if result.Reason != "" {
+			fmt.Fprintf(w, "pending: %s\n", result.Reason)
+			return
+		}
+		fmt.Fprintln(w, "pending")
+	}
 }
