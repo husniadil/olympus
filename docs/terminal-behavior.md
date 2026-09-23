@@ -3810,7 +3810,8 @@ The key is the (backend, socket-or-directory, session) triple:
   owned by the current user; one with group or world access is tightened to
   0700 first. Anything else is refused. The temp root can be shared, and a
   directory another user created first would put the locks in their hands. The
-  attach guard's directory follows the same rule.
+  attach guard's directory, and herdr's walk lock (§8.10), which shares the
+  lock directory, follow the same rule.
 
 Two different sockets, directories or backends MUST never contend on the same
 lock file, even when a session name collides.

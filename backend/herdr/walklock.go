@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/privatedir"
 )
 
 // A walkLock serializes the bare attaches onto one server, across processes:
@@ -40,8 +41,8 @@ const (
 
 func acquireWalkLock(ctx context.Context, socketPath string) (*walkLock, error) {
 	dir := filepath.Join(os.TempDir(), walkLockDir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, backend.Wrapf(backend.CodeUnexpected, err, "creating the lock directory")
+	if err := privatedir.Ensure(dir, "lock directory"); err != nil {
+		return nil, err
 	}
 	digest := sha256.Sum256([]byte(socketPath))
 	path := filepath.Join(dir, "herdr-walk-"+hex.EncodeToString(digest[:8])+".lock")

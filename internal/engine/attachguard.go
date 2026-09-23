@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/privatedir"
 )
 
 // Attach-guard defaults (behavior §17.3).
@@ -39,7 +40,7 @@ type AttachGuard struct {
 
 // NewAttachGuard builds a guard rooted at a directory.
 func NewAttachGuard(dir string) (*AttachGuard, error) {
-	if err := privateDir(dir, "attach-guard directory"); err != nil {
+	if err := privatedir.Ensure(dir, "attach-guard directory"); err != nil {
 		return nil, err
 	}
 	return &AttachGuard{dir: dir}, nil

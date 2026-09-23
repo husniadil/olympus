@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/privatedir"
 )
 
 // LockDirName is the reserved directory for lock files (behavior §17.1). It is
@@ -94,39 +95,10 @@ func NewLocks() (*Locks, error) {
 // NewLocksIn builds a lock manager rooted at a given directory, so tests can
 // use a private one.
 func NewLocksIn(dir string) (*Locks, error) {
-	if err := privateDir(dir, "lock directory"); err != nil {
+	if err := privatedir.Ensure(dir, "lock directory"); err != nil {
 		return nil, err
 	}
 	return &Locks{dir: dir}, nil
-}
-
-// privateDir creates dir 0700, or accepts an existing one only if it is a real
-// directory this user owns, tightening its mode if it is looser.
-//
-// The default root is a shared temp directory, where another user can create
-// the name first. MkdirAll accepts whatever it finds, so without this check our
-// lock files and pidfiles would live in a directory someone else controls: they
-// could hold our locks, swap our pidfiles, or read the session names.
-func privateDir(dir, what string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return backend.Wrapf(backend.CodeUnexpected, err, "creating the %s", what)
-	}
-	fi, err := os.Lstat(dir)
-	if err != nil {
-		return backend.Wrapf(backend.CodeUnexpected, err, "inspecting the %s", what)
-	}
-	if !fi.IsDir() {
-		return backend.Errorf(backend.CodeUnexpected, "the %s %s is not a directory (a symlink or file is in its place), so it is not used", what, dir)
-	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
-		return backend.Errorf(backend.CodeUnexpected, "the %s %s belongs to another user (uid %d), so it is not used", what, dir, st.Uid)
-	}
-	if fi.Mode().Perm()&0o077 != 0 {
-		if err := os.Chmod(dir, 0o700); err != nil {
-			return backend.Wrapf(backend.CodeUnexpected, err, "restricting the %s %s to its owner", what, dir)
-		}
-	}
-	return nil
 }
 
 // Acquire takes a session's write lock, waiting up to the given budget.
