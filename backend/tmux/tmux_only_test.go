@@ -227,6 +227,71 @@ func TestConcurrentInjectionsDoNotClobberEachOther(t *testing.T) {
 	}
 }
 
+// §4.1: empty text delivers nothing and succeeds, as it does on the other
+// backends; only the session's presence is checked. tmux cannot paste an empty
+// buffer, so without that a no-op fails as UNEXPECTED.
+func TestInjectingNothingIsAPresenceCheck(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	name := create(t, b, backend.CreateSpec{Name: "oly-empty"})
+	if err := b.Type(ctx, name, ""); err != nil {
+		t.Errorf("typing nothing: %v", err)
+	}
+	if err := b.Paste(ctx, name, ""); err != nil {
+		t.Errorf("pasting nothing: %v", err)
+	}
+	if err := b.Type(ctx, "oly-empty-missing", ""); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("typing nothing into a missing session is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeSessionNotFound, err)
+	}
+	if buffers := listBuffers(t, b); buffers != "" {
+		t.Errorf("injecting nothing left a buffer behind:\n%s", buffers)
+	}
+}
+
+// §4.1: the name is unique per PROCESS, not per handle. A caller that builds a
+// fresh handle for every operation — the MCP door does, one per tool call, and
+// runs calls concurrently — must not have its handles all start their counters
+// at the same value and share a buffer name.
+func TestConcurrentInjectionsThroughSeparateHandlesDoNotClobber(t *testing.T) {
+	b := newBackend(t)
+	socket := socketOf(t, b)
+	ctx := context.Background()
+
+	const sessions = 4
+	names := make([]string, sessions)
+	for i := range names {
+		names[i] = create(t, b, backend.CreateSpec{Name: "oly-hconc-" + itoa(i)})
+		warm(t, b, names[i])
+	}
+
+	var wg sync.WaitGroup
+	for i, name := range names {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			own := tmux.New(tmux.WithSocketPath(socket))
+			text := `printf 'hconc` + itoa(i) + `-%d\n' ` + itoa(i)
+			if err := own.Type(ctx, name, text); err != nil {
+				t.Errorf("typing into %s: %v", name, err)
+				return
+			}
+			if err := own.Submit(ctx, name); err != nil {
+				t.Errorf("submitting to %s: %v", name, err)
+			}
+		}(i, name)
+	}
+	wg.Wait()
+
+	for i, name := range names {
+		screen := waitForScreen(t, b, name, "hconc"+itoa(i)+"-"+itoa(i))
+		for j := range names {
+			if j != i && strings.Contains(screen, "hconc"+itoa(j)+"-"+itoa(j)) {
+				t.Errorf("session %s received session %d's text, so the buffers collided", name, j)
+			}
+		}
+	}
+}
+
 // §1.2: the tmux server's global environment is a second leak, so new-session
 // must also pass sanitized values per-session with -e.
 //

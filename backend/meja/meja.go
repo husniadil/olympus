@@ -25,9 +25,13 @@ import (
 // A Meja drives one meja server.
 type Meja struct {
 	socketPath string
-	// buffers numbers this handle's paste buffers (see Paste).
-	buffers atomic.Int64
 }
+
+// buffers numbers paste buffers across the whole PROCESS, not per handle: a
+// caller that builds a fresh handle per operation would otherwise start every
+// handle's counter at the same value and share a buffer name between
+// concurrent pastes (§4.1).
+var buffers atomic.Int64
 
 // An Option configures New.
 type Option func(*Meja)

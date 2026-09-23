@@ -2,9 +2,13 @@ package tmux
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/husniadil/olympus/backend"
@@ -41,24 +45,46 @@ func (t *Tmux) Follow(ctx context.Context, target string) (io.ReadCloser, error)
 	// that reader would wait forever, and closing either would turn off the
 	// other's tap. So a pane already piped — by another follow or by the
 	// operator — is refused rather than taken over.
-	if out, err := t.run(ctx, nil, "display-message", "-p", "-t", pane, "#{pane_pipe}"); err != nil {
+	//
+	// The one exception is a tap a follow left behind when it was killed before
+	// it could turn it off (§5.6): the pane carries the tag naming its
+	// follower, that process is gone, and nobody reads the pipe any more.
+	out, err := t.run(ctx, nil, "display-message", "-p", "-t", pane, "#{pane_pipe}"+fieldSeparator+"#{"+followTag+"}")
+	if err != nil {
 		_ = os.Remove(path)
 		return nil, named(target, err)
-	} else if strings.TrimSpace(out) == "1" {
+	}
+	fields := SplitFields(strings.TrimRight(out, "\n"))
+	piped := fields[0] == "1"
+	var stale string
+	if len(fields) > 1 {
+		if owner, sink, ok := parseFollowTag(fields[1]); ok && !processAlive(owner) {
+			stale = sink
+		}
+	}
+	if piped && stale == "" {
 		_ = os.Remove(path)
 		return nil, backend.Errorf(backend.CodeConflict, "%s already has its output piped somewhere; tmux keeps one pipe per pane", target)
 	}
 	// -O taps output only; the shell fragment appends so nothing is lost
 	// between the tap starting and this reader opening the file. The path is
-	// quoted, since TMPDIR may hold a space.
-	if _, err := t.run(ctx, nil, "pipe-pane", "-t", pane, "-O", "cat >> "+shellQuote(path)); err != nil {
+	// quoted, since TMPDIR may hold a space. The tag is chained into the same
+	// invocation, so no tap of ours is ever left untagged.
+	if _, err := t.run(ctx, nil,
+		"pipe-pane", "-t", pane, "-O", "cat >> "+shellQuote(path),
+		";", "set-option", "-p", "-t", pane, followTag, strconv.Itoa(os.Getpid())+" "+path,
+	); err != nil {
+		_, _ = t.run(context.WithoutCancel(ctx), nil, "pipe-pane", "-t", pane, ";", "set-option", "-p", "-u", "-t", pane, followTag)
 		_ = os.Remove(path)
 		return nil, named(target, err)
+	}
+	if stale != "" {
+		removeFollowSink(stale)
 	}
 
 	file, err := os.Open(path)
 	if err != nil {
-		_, _ = t.run(context.WithoutCancel(ctx), nil, "pipe-pane", "-t", pane)
+		_, _ = t.run(context.WithoutCancel(ctx), nil, "pipe-pane", "-t", pane, ";", "set-option", "-p", "-u", "-t", pane, followTag)
 		_ = os.Remove(path)
 		return nil, backend.Wrapf(backend.CodeUnexpected, err, "following %s", target)
 	}
@@ -73,10 +99,46 @@ func (t *Tmux) Follow(ctx context.Context, target string) (io.ReadCloser, error)
 			// Turning the tap off is what stops tmux writing, so it happens
 			// before the file goes: a pipe-pane left on writes to a path that
 			// no longer exists for as long as the pane lives.
-			_, _ = t.run(context.WithoutCancel(ctx), nil, "pipe-pane", "-t", pane)
+			_, _ = t.run(context.WithoutCancel(ctx), nil,
+				"pipe-pane", "-t", pane, ";", "set-option", "-p", "-u", "-t", pane, followTag)
 			_ = os.Remove(path)
 		},
 	}, nil
+}
+
+// followTag is the pane option a follow records itself in while its tap is on:
+// the follower's process id and the file the tap writes to (§5.6). tmux does
+// not report what a pane is piped into, so without it a tap left by a killed
+// follower is indistinguishable from the operator's own pipe.
+const followTag = "@olympus-follow"
+
+// parseFollowTag reads a follow tag back.
+func parseFollowTag(tag string) (owner int, sink string, ok bool) {
+	pid, sink, found := strings.Cut(strings.TrimSpace(tag), " ")
+	if !found || sink == "" {
+		return 0, "", false
+	}
+	owner, err := strconv.Atoi(pid)
+	if err != nil || owner <= 0 {
+		return 0, "", false
+	}
+	return owner, sink, true
+}
+
+// processAlive reports whether a process exists. One that exists under another
+// user still counts: the tap is somebody's.
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// removeFollowSink removes a dead follower's file, but only one shaped like a
+// file a follow makes: the tag is a pane option anybody can set, and it must
+// not become a way to delete an arbitrary file.
+func removeFollowSink(path string) {
+	if filepath.IsAbs(path) && strings.HasPrefix(filepath.Base(path), "olympus-follow-") {
+		_ = os.Remove(path)
+	}
 }
 
 // tailReader reads a file that is still being written, waiting at the end

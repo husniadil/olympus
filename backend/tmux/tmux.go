@@ -34,8 +34,13 @@ const DefaultSocket = "olympus"
 type Tmux struct {
 	socket     string
 	socketPath string
-	buffers    atomic.Int64
 }
+
+// buffers numbers injection buffers across the whole PROCESS, not per handle: a
+// caller that builds a fresh handle per operation (the MCP door, one per tool
+// call, run concurrently) would otherwise start every handle's counter at the
+// same value and share a buffer name between concurrent calls (§4.1).
+var buffers atomic.Int64
 
 // An Option configures a backend.
 type Option func(*Tmux)
@@ -150,7 +155,7 @@ func (t *Tmux) Focus(ctx context.Context, target string) error {
 		return named(target, err)
 	}
 	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
-		_, err := t.run(ctx, nil, "select-window", "-t", exactWindow(session, window))
+		_, err := t.run(ctx, nil, "select-window", "-t", escapeTrailingSemicolon(exactWindow(session, window)))
 		return named(target, err)
 	}
 	return nil
@@ -170,15 +175,71 @@ func (t *Tmux) Rename(ctx context.Context, target, name string) error {
 		return named(target, err)
 	}
 	if session, window, ok := strings.Cut(target, ":"); ok && window != "" {
-		_, err := t.run(ctx, nil, "rename-window", "-t", exactWindow(session, window), escapeTrailingSemicolon(name))
+		_, err := t.run(ctx, nil, "rename-window", "-t", escapeTrailingSemicolon(exactWindow(session, window)), escapeTrailingSemicolon(name))
 		return named(target, err)
 	}
 	if strings.Contains(name, ":") {
 		return backend.Errorf(backend.CodeUsage,
 			"session name %q carries a colon, which no tmux target can address; a session cannot be named that", name)
 	}
+	if err := t.refuseRewrittenDot(ctx, name); err != nil {
+		return err
+	}
 	_, err := t.run(ctx, nil, "rename-session", "-t", sessionTarget(target), escapeTrailingSemicolon(name))
 	return named(target, err)
+}
+
+// refuseRewrittenDot refuses a session name carrying a dot on a tmux that would
+// not store it as given (§2.11). 3.3 through 3.6b store the dot as an
+// underscore, so a create's chained options and its cleanup both address a name
+// that does not exist, and the session it made is left behind a not-found
+// error; 3.7 refuses the name with an error of its own. The version is asked
+// only when the name has a dot, so an ordinary name costs nothing.
+func (t *Tmux) refuseRewrittenDot(ctx context.Context, name string) error {
+	if !strings.Contains(name, ".") {
+		return nil
+	}
+	version, err := t.Version(ctx)
+	if err != nil {
+		return err
+	}
+	if keepsDotInSessionName(version) {
+		return nil
+	}
+	return backend.Errorf(backend.CodeUsage,
+		"session name %q carries a dot, which tmux %s does not keep in a session name; a session cannot be named that here", name, version)
+}
+
+// keepsDotInSessionName reports whether a tmux version stores a session name
+// with a dot as given: 3.7a onwards does. A version that cannot be read — a
+// development build, a vendor's own label — is not held against the caller.
+func keepsDotInSessionName(version string) bool {
+	v := strings.TrimPrefix(strings.TrimSpace(version), "next-")
+	major, rest, ok := strings.Cut(v, ".")
+	if !ok {
+		return true
+	}
+	maj, err := strconv.Atoi(major)
+	if err != nil {
+		return true
+	}
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	minor, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return true
+	}
+	letter := rest[end:] != "" && rest[end] >= 'a' && rest[end] <= 'z'
+	switch {
+	case maj != 3:
+		return maj > 3
+	case minor != 7:
+		return minor > 7
+	default:
+		return letter
+	}
 }
 
 // capturePaneTarget is paneTarget with one extra shape: `<session>:<window>`
@@ -210,6 +271,9 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 		return backend.Session{}, backend.Errorf(backend.CodeUsage,
 			"session name %q carries a colon, which no tmux target can address; a session cannot be named that", spec.Name)
 	}
+	if err := t.refuseRewrittenDot(ctx, spec.Name); err != nil {
+		return backend.Session{}, err
+	}
 
 	// Olympus configures only servers it STARTS (§17.5). Pinning reaches every
 	// session on the server, so on one the operator already runs it would
@@ -229,7 +293,7 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 	}
 	args = append(args, "new-session", "-d", "-s", escapeTrailingSemicolon(spec.Name))
 	if spec.Dir != "" {
-		args = append(args, "-c", spec.Dir)
+		args = append(args, "-c", escapeTrailingSemicolon(spec.Dir))
 	}
 	if spec.Cols > 0 {
 		args = append(args, "-x", strconv.Itoa(spec.Cols))
@@ -433,10 +497,17 @@ func (t *Tmux) Paste(ctx context.Context, target, text string) error {
 }
 
 func (t *Tmux) inject(ctx context.Context, target, text string, bracketed bool) error {
+	if text == "" {
+		// Nothing to deliver, and tmux cannot paste an empty buffer: it
+		// reports "no buffer". What is left of the operation is whether the
+		// target exists (§4.1).
+		_, err := t.run(ctx, nil, "has-session", "-t", sessionTarget(target))
+		return named(target, err)
+	}
 	// A buffer name unique per call. Two concurrent injections sharing a name
 	// race: one call's load-buffer clobbers the other's text before
 	// paste-buffer consumes it (§4.1).
-	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), t.buffers.Add(1))
+	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), buffers.Add(1))
 
 	// load-buffer from stdin rather than send-keys -l, which mangles special
 	// characters and cannot carry arbitrary bytes (§4.1).
@@ -568,7 +639,7 @@ func (t *Tmux) screenMeta(ctx context.Context, target string) (backend.ScreenMet
 }
 
 func (t *Tmux) ServerEnv(ctx context.Context, key string) (string, bool, error) {
-	out, err := t.run(ctx, nil, "show-environment", "-g", key)
+	out, err := t.run(ctx, nil, "show-environment", "-g", escapeTrailingSemicolon(key))
 	if err != nil {
 		if isNoServer(err) || isNotFound(err) || strings.Contains(errText(err), "unknown variable") {
 			// Asked, and got a real negative answer. This is not the same as a

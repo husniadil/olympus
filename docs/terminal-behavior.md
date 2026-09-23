@@ -265,6 +265,8 @@ Every session Olympus creates MUST be spawned with a sanitized environment:
 | `ZMX_SESSION`, `ZMX_SESSION_PREFIX` | stripped |
 | `HERDR_SESSION`, `HERDR_SOCKET_PATH`, `HERDR_CLIENT_SOCKET_PATH` | stripped |
 | `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID` | stripped |
+| `HERDR_ENV` | stripped |
+| `MEJA_SESSION_TARGET`, `MEJA_PANE_ID`, `MEJA_SOCKET` | stripped |
 
 This applies to **every** spawn path: explicit creation, idempotent ensure, and
 throwaway sessions.
@@ -309,6 +311,18 @@ They are two different hazards under one rule:
   one would inherit them and answer "I am in a herdr pane" when asked its own
   address. That sends another program's reply to somebody else's terminal,
   which is what §13.1's status exists to make reliable.
+- `HERDR_ENV` is herdr's nesting marker (§1.3). A session created on another
+  backend is not inside herdr, and the marker would make herdr refuse to start
+  there.
+
+#### Why the meja variables are stripped
+
+meja sets `MEJA_SESSION_TARGET`, `MEJA_PANE_ID` and `MEJA_SOCKET` in every pane
+it spawns (measured). They IDENTIFY, like `HERDR_PANE_ID`. A session created on
+tmux or zmx from inside a meja pane would inherit them, and a process in it
+asking where it is would be told it is nested rather than given its address.
+meja's own client does not read `MEJA_SOCKET` to choose a server (measured), so
+the strip changes nothing about which meja server Olympus addresses.
 
 #### herdr: the configuration and state homes are the caller's
 
@@ -501,7 +515,9 @@ no daemon) to seconds.
 ### 2.5 zmx session names have a socket-path budget
 
 The daemon places a session's socket at `<dir>/<name>`: bare name, no suffix.
-`<dir>` is `ZMX_DIR` when set, otherwise `$TMPDIR/zmx-<uid>`. The rule is:
+`<dir>` is `ZMX_DIR` when set, otherwise `$XDG_RUNTIME_DIR/zmx` when that is
+set, otherwise `$TMPDIR/zmx-<uid>` (measured: `zmx version` prints the directory
+it resolved). The rule is:
 
 ```
 len(dir) + 1 + len(name) <= 103
@@ -513,6 +529,11 @@ Names exceeding this MUST be rejected up front with a usage-class error, before
 any zmx invocation, naming the computed path, its length, and the budget.
 Validation MUST live in the backend's `New`, so every path reaching it (create,
 ensure, throwaway run session) inherits the rejection without duplication.
+
+The name is the socket's file name, so it MUST be one path component. A name
+carrying `/` or NUL, or one that is `.` or `..`, is rejected the same way. zmx
+creates no session for one, and creation then polls for a session that never
+registers, as below.
 
 Resolving the socket directory for *validation* differs from resolving it for
 daemon selection. The daemon-selection path returns bare `$TMPDIR`, which
@@ -822,6 +843,12 @@ The operation MUST be attempted first, and the client created only if it
 refuses. The retry after attaching MUST poll the OPERATION rather than a status
 field.
 
+An operation of several steps (text then terminator, a buffer then its paste,
+runs of keys) MUST resume at the refused step, not rerun from the start. A
+client can leave between two steps, so text accepted while it was attached is
+followed by a refused terminator. Rerunning the whole operation types that text
+a second time.
+
 ##### Why
 
 A CLI process runs once and exits, so there is nowhere to keep a durable client.
@@ -891,6 +918,15 @@ underscore (§8.9) and leaves the caller addressing a name that does not exist.
 tmux 3.7c keeps it, and then no target can address the session: every target
 splits at the colon, so a create's chained options fail, its cleanup fails too,
 and a live session is left behind a not-found error (measured).
+
+A session name carrying a dot is refused as `USAGE` too, on rename and on
+create alike, but only where the running tmux would not keep it. tmux 3.3
+through 3.6b store the dot as an underscore, so a create's chained options and
+its cleanup both address a name that does not exist and the session is left
+behind a not-found error. tmux 3.7 refuses the name outright. 3.7a onwards keeps
+it, and there a dotted name is addressed as §10 says. The decision reads the
+version (`tmux -V`) only when the name has a dot. A version that cannot be read
+is not held against the caller.
 
 Presence is gated through the resolved session first, so a target naming nothing
 is `SESSION_NOT_FOUND`. An empty name is `USAGE`.
@@ -1491,11 +1527,22 @@ followed by `paste-buffer -d`. It MUST NOT use `send-keys -l`, which mangles
 special characters and cannot carry arbitrary bytes via stdin.
 
 The buffer name MUST be unique per call: process id plus a monotonic counter.
+The counter belongs to the process, not to a backend handle.
+
+Empty text is not injected at all. tmux cannot paste an empty buffer and
+reports "no buffer", which would turn a no-op into `UNEXPECTED` on tmux alone.
+Only the target's presence is checked, so a missing session is still
+`SESSION_NOT_FOUND`.
 
 #### Why
 
 Two concurrent injections sharing a name race. One call's `load-buffer`
 clobbers the other's text before `paste-buffer` consumes it.
+
+A per-handle counter is not enough. A caller that builds a fresh handle for
+every operation, as the MCP door does for every tool call, starts each handle's
+counter at the same value. Two concurrent calls then share a name, and one
+session receives the other's text.
 
 ### 4.2 `paste-buffer -d` deletes only on success
 
@@ -1933,7 +1980,18 @@ points at a temporary file the reader follows. Turning the tap off MUST happen
 before that file is removed, or tmux keeps writing to a path that no longer
 exists for as long as the pane lives. A pane has one pipe, and a second
 `pipe-pane` silently replaces the first, so a follow of a pane already piped,
-by another follow or by the operator, is `CONFLICT`. The reader cannot see the
+by another follow or by the operator, is `CONFLICT`.
+
+A follow that is killed before it can turn its tap off leaves the pane piped
+into a file nobody reads. `olympus watch s | head` does this: the follower dies
+of `SIGPIPE`. tmux reports only that a pane is piped, not into what, so a follow
+tags the pane with a user option, `@olympus-follow`, holding its process id and
+its file. The tag is set in the same invocation as the tap and unset with it. A
+pane that is piped and tagged by a process that no longer exists is taken over:
+the new tap replaces the dead one, and the dead follower's file is removed. A
+pipe with no tag, or with a live owner, is still `CONFLICT`.
+
+The reader cannot see the
 pane end through a file, so it asks whether the session still exists while it
 waits, and the stream ends when the session does, as it does on every other
 backend.
@@ -4656,6 +4714,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | attach focus control | `\x1b]olympus;focus;<pane>\x07` | §8.3, §8.10 |
 | herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view, where the caller names no tag of its own (§8.10, §13.5) |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
+| tmux follow tag | pane option `@olympus-follow`, `<pid> <follow sink>` | recognises a tap left by a dead follower (§5.6) |
 
 #### The view-session prefix MUST NOT change
 

@@ -126,13 +126,17 @@ func (z *Zmx) Dir() string { return z.dir }
 //
 // This deliberately differs from resolving it for daemon selection, which
 // returns a bare TMPDIR and would under-count the budget by the whole
-// "zmx-<uid>" component (§2.5).
+// "zmx-<uid>" component. The order is zmx's own: ZMX_DIR, then
+// $XDG_RUNTIME_DIR/zmx, then $TMPDIR/zmx-<uid> (§2.5).
 func (z *Zmx) validationDir() string {
 	if z.dir != "" {
 		return z.dir
 	}
 	if v := os.Getenv("ZMX_DIR"); v != "" {
 		return v
+	}
+	if v := os.Getenv("XDG_RUNTIME_DIR"); v != "" {
+		return filepath.Join(v, "zmx")
 	}
 	return filepath.Join(os.TempDir(), fmt.Sprintf("zmx-%d", os.Getuid()))
 }
@@ -147,6 +151,13 @@ func (z *Zmx) validationDir() string {
 func (z *Zmx) validateName(name string) error {
 	if name == "" {
 		return backend.Errorf(backend.CodeUsage, "a session needs a name")
+	}
+	// The name is the socket's own file name, so it has to be one path
+	// component. zmx does not refuse the others, and creation then polls for a
+	// session that never registers and blames the backend (§2.5).
+	if strings.ContainsAny(name, "/\x00") || name == "." || name == ".." {
+		return backend.Errorf(backend.CodeUsage,
+			"session name %q cannot be a file name in the socket directory; a session cannot be named that", name)
 	}
 	dir := z.validationDir()
 	budget := sunPathMax - 1

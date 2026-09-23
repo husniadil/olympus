@@ -141,8 +141,10 @@ type AttachSpec struct {
 	// above this interface, per backend: on herdr it is the session client
 	// with its chrome hidden, so it arrives here together with SessionClient;
 	// on tmux the ergonomic layer attaches a view — already bare by
-	// construction (§9.3) — so a tmux backend never sees it set. A backend
-	// with neither reports CodeUnsupported before anything is spawned.
+	// construction (§9.3) — so a tmux backend never sees it set. For a backend
+	// with neither, the ergonomic layer reports CodeUnsupported before
+	// anything is spawned, so no backend is asked with it set and none refuses
+	// it itself.
 	Bare bool
 	// BareView names the view a bare attach on tmux creates, instead of a
 	// generated name. A caller that has to drive the view while the attach
@@ -384,8 +386,8 @@ type Backend interface {
 	// every session that does not point at it. A view MUST NOT reconfigure
 	// anything else about the server.
 	CreateView(ctx context.Context, base string, spec ViewSpec) (View, error)
-	// ScrollView scrolls a view by a number of lines, negative for back into
-	// history.
+	// ScrollView scrolls a view by a number of lines: positive back into
+	// history, negative toward the live tail.
 	ScrollView(ctx context.Context, view string, lines int) error
 	// FocusView selects the pane of the view's current window whose
 	// rectangle contains the cell (col, row), 0-based within the client area,

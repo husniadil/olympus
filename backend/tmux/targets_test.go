@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/backend/tmux"
 )
 
 // §10 A session target is exact. tmux reads a "." in `=a.b` as a pane
@@ -19,11 +20,25 @@ import (
 // kill that cannot find it reports success.
 func TestASessionNameWithADotIsAddressable(t *testing.T) {
 	b := newBackend(t)
+	ctx := context.Background()
 	if !tmuxKeepsADotInASessionName(t) {
-		t.Skip("this tmux rewrites a dot in a session name to an underscore, so there is no dotted name to address")
+		// §2.11 This tmux stores the dot as an underscore, so the create
+		// would answer for a name that does not exist and leave the session
+		// it made behind. It is refused before tmux is asked.
+		_, err := b.Create(ctx, backend.CreateSpec{Name: "oly.dot", Dir: t.TempDir()})
+		if backend.CodeOf(err) != backend.CodeUsage {
+			t.Errorf("creating a dotted name is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeUsage, err)
+		}
+		sessions, listErr := b.Sessions(ctx)
+		if listErr != nil {
+			t.Fatalf("listing: %v", listErr)
+		}
+		if len(sessions) != 0 {
+			t.Errorf("a refused create left sessions behind: %+v", sessions)
+		}
+		return
 	}
 	name := create(t, b, backend.CreateSpec{Name: "oly.dot"})
-	ctx := context.Background()
 	if got := b.Probe(ctx, name); got != backend.StatePresent {
 		t.Fatalf("a live session named %s probes as %s", name, got)
 	}
@@ -137,6 +152,47 @@ func TestATrailingSemicolonSurvivesEveryArgument(t *testing.T) {
 
 	spawned := create(t, b, backend.CreateSpec{Name: "oly-semi3", Command: []string{"sh", "-c", "echo spawned-$0; sleep 30", "arg;"}})
 	waitForScreen(t, b, spawned, "spawned-arg;")
+
+	// A working directory, a window in a target, a view's name and a server
+	// environment key are caller-supplied arguments too.
+	dir := filepath.Join(t.TempDir(), "d;")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inDir := create(t, b, backend.CreateSpec{Name: "oly-semi4", Dir: dir})
+	warm(t, b, inDir)
+	if err := b.SendAtomic(ctx, inDir, `printf 'cwd=%s\n' "$PWD"`); err != nil {
+		t.Fatal(err)
+	}
+	waitForScreen(t, b, inDir, "cwd="+dir)
+
+	socket := socketOf(t, b)
+	if out, err := exec.Command("tmux", "-S", socket, "new-window", "-d", "-t", "="+inDir+":", "-n", `w\;`).CombinedOutput(); err != nil {
+		t.Fatalf("adding a window: %v\n%s", err, out)
+	}
+	if err := b.(backend.Focuser).Focus(ctx, inDir+":w;"); err != nil {
+		t.Errorf("focusing a window whose name ends in ;: %v", err)
+	}
+	if err := b.(backend.Renamer).Rename(ctx, inDir+":w;", "renamed"); err != nil {
+		t.Errorf("renaming a window whose name ends in ;: %v", err)
+	}
+
+	view, err := b.CreateView(ctx, inDir, backend.ViewSpec{Name: "oly-view;"})
+	if err != nil {
+		t.Fatalf("CreateView: %v", err)
+	}
+	if view.Name != "oly-view;" {
+		t.Errorf("a view named oly-view; is %q", view.Name)
+	}
+
+	for _, kv := range [][]string{{"OLY_SEMI", "without"}, {`OLY_SEMI\;`, "with"}} {
+		if out, err := exec.Command("tmux", "-S", socket, "set-environment", "-g", kv[0], kv[1]).CombinedOutput(); err != nil {
+			t.Fatalf("setting %s: %v\n%s", kv[0], err, out)
+		}
+	}
+	if value, present, err := b.ServerEnv(ctx, "OLY_SEMI;"); err != nil || !present || value != "with" {
+		t.Errorf("the server environment key OLY_SEMI; reads %q (present=%v, err %v), want %q", value, present, err, "with")
+	}
 }
 
 // §5.3 The alt-screen flag describes the pane the capture read: the window's
@@ -179,6 +235,95 @@ func TestASecondFollowOfOnePaneIsAConflict(t *testing.T) {
 		}
 		t.Errorf("a second follow is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeConflict, err)
 	}
+}
+
+// A follower killed before it could turn its tap off — `watch | head` dies of
+// SIGPIPE — leaves the pane piped. That pipe is Olympus's own and nobody reads
+// it, so the next follow takes it over rather than refusing forever. A pipe
+// somebody else set up is still a conflict.
+func TestAFollowTakesOverTheTapOfADeadFollower(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	socket := socketOf(t, b)
+	name := create(t, b, backend.CreateSpec{Name: "oly-stale"})
+	warm(t, b, name)
+
+	helper := exec.Command(os.Args[0], "-test.run=^TestFollowHelperProcess$")
+	helper.Env = append(os.Environ(), "OLY_FOLLOW_HELPER_SOCKET="+socket, "OLY_FOLLOW_HELPER_TARGET="+name)
+	out, err := helper.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := helper.Start(); err != nil {
+		t.Fatalf("starting the follower: %v", err)
+	}
+	line := make([]byte, 6)
+	if _, err := io.ReadFull(out, line); err != nil || string(line) != "ready\n" {
+		_ = helper.Process.Kill()
+		t.Fatalf("the follower never got its tap (%q, %v)", line, err)
+	}
+	_ = helper.Process.Kill()
+	_ = helper.Wait()
+
+	stream, err := b.Follow(ctx, name)
+	if err != nil {
+		t.Fatalf("following a pane whose follower died: %v", err)
+	}
+	defer stream.Close()
+	if err := b.Type(ctx, name, `printf 'took-%s\n' over`); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Submit(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan string, 1)
+	go func() {
+		var seen []byte
+		buf := make([]byte, 4096)
+		for {
+			n, err := stream.Read(buf)
+			seen = append(seen, buf[:n]...)
+			if strings.Contains(string(seen), "took-over") || err != nil {
+				got <- string(seen)
+				return
+			}
+		}
+	}()
+	select {
+	case seen := <-got:
+		if !strings.Contains(seen, "took-over") {
+			t.Errorf("the new follow never saw the output:\n%s", seen)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("the new follow saw nothing in ten seconds")
+	}
+
+	foreign := create(t, b, backend.CreateSpec{Name: "oly-foreign"})
+	if out, err := exec.Command("tmux", "-S", socket, "pipe-pane", "-t", "="+foreign+":.", "-O", "cat > /dev/null").CombinedOutput(); err != nil {
+		t.Fatalf("piping the pane: %v\n%s", err, out)
+	}
+	if s, err := b.Follow(ctx, foreign); backend.CodeOf(err) != backend.CodeConflict {
+		if s != nil {
+			_ = s.Close()
+		}
+		t.Errorf("following a pane somebody else piped is %q, want %q (err %v)", backend.CodeOf(err), backend.CodeConflict, err)
+	}
+}
+
+// TestFollowHelperProcess is the follower TestAFollowTakesOverTheTapOfADeadFollower
+// kills. It does nothing unless that test started it.
+func TestFollowHelperProcess(t *testing.T) {
+	socket := os.Getenv("OLY_FOLLOW_HELPER_SOCKET")
+	if socket == "" {
+		t.Skip("run only as a helper process")
+	}
+	stream, err := tmux.New(tmux.WithSocketPath(socket)).Follow(context.Background(), os.Getenv("OLY_FOLLOW_HELPER_TARGET"))
+	if err != nil {
+		t.Fatalf("Follow: %v", err)
+	}
+	_ = stream
+	os.Stdout.WriteString("ready\n")
+	select {}
 }
 
 // Watch stops "when the session ends", so the stream ends with it, as it does

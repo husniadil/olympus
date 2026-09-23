@@ -66,6 +66,22 @@ func TestAttachDefaultsLangOnlyWhenItIsMissing(t *testing.T) {
 	}
 }
 
+// §1.1: meja's pane identity and herdr's nesting marker are stripped like the
+// others. A session created from inside a meja pane would otherwise inherit
+// MEJA_SESSION_TARGET and answer "I am in a meja pane" as well, so asking it
+// where it is gets "nested" instead of its own address.
+func TestSpawnEnvironmentStripsMejaIdentityAndHerdrNesting(t *testing.T) {
+	leaked := []string{"MEJA_SESSION_TARGET", "MEJA_PANE_ID", "MEJA_SOCKET", "HERDR_ENV"}
+	for _, name := range leaked {
+		t.Setenv(name, "ambient-value")
+	}
+	for _, name := range leaked {
+		if value, ok := lookup(spawnEnv(), name); ok {
+			t.Errorf("%s survived into the spawn environment as %q", name, value)
+		}
+	}
+}
+
 // lookup reads the LAST assignment, which is what exec applies when a name
 // appears more than once.
 func lookup(env []string, name string) (string, bool) {

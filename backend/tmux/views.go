@@ -77,7 +77,7 @@ func (t *Tmux) CreateView(ctx context.Context, base string, spec backend.ViewSpe
 		windowIndex, paneID = index, ""
 	}
 
-	if _, err := t.run(ctx, nil, "new-session", "-d", "-t", sessionID, "-s", spec.Name); err != nil {
+	if _, err := t.run(ctx, nil, "new-session", "-d", "-t", sessionID, "-s", escapeTrailingSemicolon(spec.Name)); err != nil {
 		return backend.View{}, named(base, err)
 	}
 

@@ -37,11 +37,16 @@ const (
 // identified BY (§1.1), so a session created here from inside one would inherit
 // it and then answer "I am in a herdr pane" when asked where it is. HERDR_SESSION
 // and the two socket variables retarget herdr's own commands the way ZMX_SESSION
-// retargets zmx's.
+// retargets zmx's. HERDR_ENV is herdr's nesting marker, and a session created
+// here is not inside herdr. The MEJA_* entries are meja's own pane identity:
+// meja sets them afresh in every pane it spawns, and its client does not read
+// MEJA_SOCKET to choose a server (measured), so stripping them from its own
+// invocations costs nothing.
 var strippedVars = []string{
 	"TMUX", "TMUX_PANE", "ZMX_SESSION", "ZMX_SESSION_PREFIX",
 	"HERDR_SESSION", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID", "HERDR_TAB_ID",
-	"HERDR_SOCKET_PATH", "HERDR_CLIENT_SOCKET_PATH",
+	"HERDR_SOCKET_PATH", "HERDR_CLIENT_SOCKET_PATH", "HERDR_ENV",
+	"MEJA_SESSION_TARGET", "MEJA_PANE_ID", "MEJA_SOCKET",
 }
 
 func lang() string {

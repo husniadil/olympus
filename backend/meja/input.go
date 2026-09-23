@@ -92,6 +92,24 @@ func (m *Meja) withClient(ctx context.Context, target string, fn func() error) e
 	}
 }
 
+// resumable joins the steps of one injection into the operation withClient
+// retries, so a retry resumes at the step that was refused instead of rerunning
+// the ones that already landed. Text accepted while a client was attached,
+// followed by a terminator refused because that client left, would otherwise be
+// typed twice once the transient client arrives (§2.10).
+func resumable(steps ...func() error) func() error {
+	done := 0
+	return func() error {
+		for done < len(steps) {
+			if err := steps[done](); err != nil {
+				return err
+			}
+			done++
+		}
+		return nil
+	}
+}
+
 func needsClient(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "requires an attached client")
 }
@@ -228,14 +246,17 @@ func (m *Meja) Paste(ctx context.Context, target, text string) error {
 	if text == "" {
 		return nil
 	}
-	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), m.buffers.Add(1))
-	err := m.withClient(ctx, target, func() error {
-		if _, err := m.run(ctx, nil, "set-buffer", "-b", name, "--", text); err != nil {
+	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), buffers.Add(1))
+	err := m.withClient(ctx, target, resumable(
+		func() error {
+			_, err := m.run(ctx, nil, "set-buffer", "-b", name, "--", text)
 			return named(target, err)
-		}
-		_, err := m.run(ctx, nil, "paste-buffer", "-b", name, "-t", target, "-d", "-p")
-		return named(target, err)
-	})
+		},
+		func() error {
+			_, err := m.run(ctx, nil, "paste-buffer", "-b", name, "-t", target, "-d", "-p")
+			return named(target, err)
+		},
+	))
 	if err != nil {
 		// -d deletes the buffer only when the paste succeeds, so a failed one
 		// would leave the text on the server. Its own failure never masks the
@@ -276,14 +297,14 @@ func (m *Meja) Press(ctx context.Context, target string, keys ...backend.Key) er
 	if len(names) > 0 {
 		calls = append(calls, append([]string{"send-keys", "-t", target}, names...))
 	}
-	return m.withClient(ctx, target, func() error {
-		for _, args := range calls {
-			if _, err := m.run(ctx, nil, args...); err != nil {
-				return named(target, err)
-			}
+	steps := make([]func() error, len(calls))
+	for i, args := range calls {
+		steps[i] = func() error {
+			_, err := m.run(ctx, nil, args...)
+			return named(target, err)
 		}
-		return nil
-	})
+	}
+	return m.withClient(ctx, target, resumable(steps...))
 }
 
 // Submit presses the terminator on its own.
@@ -300,15 +321,18 @@ func (m *Meja) Submit(ctx context.Context, target string) error {
 // client across both is what stops another caller's injection landing between
 // them.
 func (m *Meja) SendAtomic(ctx context.Context, target, text string) error {
-	return m.withClient(ctx, target, func() error {
-		if text != "" {
-			if _, err := m.run(ctx, nil, "send-keys", "-t", target, "-l", "--", text); err != nil {
-				return named(target, err)
-			}
-		}
+	var steps []func() error
+	if text != "" {
+		steps = append(steps, func() error {
+			_, err := m.run(ctx, nil, "send-keys", "-t", target, "-l", "--", text)
+			return named(target, err)
+		})
+	}
+	steps = append(steps, func() error {
 		_, err := m.run(ctx, nil, "send-keys", "-t", target, "Enter")
 		return named(target, err)
 	})
+	return m.withClient(ctx, target, resumable(steps...))
 }
 
 // Interrupt asks the foreground program to stop.

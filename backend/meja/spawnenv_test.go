@@ -65,6 +65,22 @@ func TestTheSpawnInvocationCarriesTheSanitizedEnvironment(t *testing.T) {
 	}
 }
 
+// §1.1: meja's own pane identity is stripped too. meja sets it afresh in every
+// pane it spawns (measured), so here the strip keeps a meja invocation from
+// carrying an address it was not given rather than keeping a pane honest.
+// herdr's nesting marker goes for the reason the other backends give.
+func TestSpawnEnvironmentStripsMejaIdentityAndHerdrNesting(t *testing.T) {
+	leaked := []string{"MEJA_SESSION_TARGET", "MEJA_PANE_ID", "MEJA_SOCKET", "HERDR_ENV"}
+	for _, name := range leaked {
+		t.Setenv(name, "ambient-value")
+	}
+	for _, name := range leaked {
+		if value, ok := lookup(spawnEnv(), name); ok {
+			t.Errorf("%s survived into the spawn environment as %q", name, value)
+		}
+	}
+}
+
 // lookup reads the LAST assignment, which is what exec applies when a name
 // appears more than once.
 func lookup(env []string, name string) (string, bool) {

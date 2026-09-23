@@ -107,7 +107,9 @@ func TestARejectedNameIsUsage(t *testing.T) {
 // §4.1 Each paste goes through a buffer of its own. paste-buffer without -b
 // pastes the most recent buffer, so two pastes into different sessions — which
 // hold different locks — could each deliver the other's text. No buffer is
-// left behind either.
+// left behind either. Every paste goes through a handle of its own, as the MCP
+// door builds one per tool call, so the name must be unique per process rather
+// than per handle.
 func TestConcurrentPastesDeliverTheirOwnText(t *testing.T) {
 	requireMeja(t)
 	b, socket := newBackend(t)
@@ -125,7 +127,7 @@ func TestConcurrentPastesDeliverTheirOwnText(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				errs <- b.Paste(ctx, p.target, p.text)
+				errs <- meja.New(meja.WithSocketPath(socket)).Paste(ctx, p.target, p.text)
 			}()
 		}
 	}
