@@ -959,6 +959,18 @@ func TestTheCreationRequestCarriesTheCallersXDGHomes(t *testing.T) {
 			t.Errorf("the creation request does not carry --env %q: %v", want, args)
 		}
 	}
+	// A HOME that is unset or relative is no home to join a default under:
+	// whatever travels is absolute, or nothing does.
+	for _, home := range []string{"", "probe"} {
+		t.Setenv("HOME", home)
+		args = spawnEnvArgs()
+		for i := 0; i+1 < len(args); i++ {
+			name, v, _ := strings.Cut(args[i+1], "=")
+			if args[i] == "--env" && strings.HasPrefix(name, "XDG_") && !filepath.IsAbs(v) {
+				t.Errorf("with HOME=%q the creation request carries --env %q, not a path", home, args[i+1])
+			}
+		}
+	}
 }
 
 // §1.1 The same, measured in a pane on a server this backend started.
