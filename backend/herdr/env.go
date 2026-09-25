@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 )
 
@@ -119,11 +120,12 @@ func spawnEnvArgs() []string {
 	// relative path by Claude Code and herdr, so every pane dropped their
 	// state into its working directory and a herdr run there started a
 	// second server in it (0.34.0).
+	home := callerHome()
 	for _, h := range []struct{ name, def string }{
 		{"XDG_CONFIG_HOME", ".config"},
 		{"XDG_STATE_HOME", filepath.Join(".local", "state")},
 	} {
-		if v := xdgHome(h.name, h.def); v != "" {
+		if v := xdgHome(h.name, h.def, home); v != "" {
 			args = append(args, "--env", h.name+"="+v)
 		}
 	}
@@ -131,21 +133,31 @@ func spawnEnvArgs() []string {
 }
 
 // xdgHome is the caller's XDG home by the base directory rules: the variable
-// when it holds an absolute path, else def under the home directory. With no
-// home directory either there is nothing to send, and the pane keeps the
-// server's.
-func xdgHome(name, def string) string {
+// when it holds an absolute path, else def under home. With no home directory
+// either there is nothing to send, and the pane keeps the server's.
+func xdgHome(name, def, home string) string {
 	if v := os.Getenv(name); filepath.IsAbs(v) {
 		return v
-	}
-	home := os.Getenv("HOME")
-	if home == "" {
-		home, _ = os.UserHomeDir()
 	}
 	if home == "" {
 		return ""
 	}
 	return filepath.Join(home, def)
+}
+
+// callerHome is the caller's home directory as an absolute path: HOME, else
+// the account's entry in the user database. os.UserHomeDir is no fallback,
+// since on macOS and Linux it reads nothing but HOME. A relative home counts
+// as none, since a default joined under it is the relative path xdgHome
+// exists to avoid.
+func callerHome() string {
+	if home := os.Getenv("HOME"); filepath.IsAbs(home) {
+		return home
+	}
+	if u, err := user.Current(); err == nil && filepath.IsAbs(u.HomeDir) {
+		return u.HomeDir
+	}
+	return ""
 }
 
 func isStripped(kv string) bool {
