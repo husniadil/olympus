@@ -110,6 +110,15 @@ func TestARejectedNameIsUsage(t *testing.T) {
 // left behind either. Every paste goes through a handle of its own, as the MCP
 // door builds one per tool call, so the name must be unique per process rather
 // than per handle.
+//
+// The concurrency is ACROSS the two sessions only. Within one session the
+// pastes run in turn, as the per-session write lock would run them (§11.1).
+// Running them at once as well is what this case used to do, and it is not a
+// state a caller can reach. On 0.0.25 each of them attaches a transient client,
+// and meja routes a session's commands through its one current client rather
+// than through the caller's (§2.10). So one paste tearing down its client
+// dropped another's command in flight, and the case failed on the disconnect
+// about one run in eight.
 func TestConcurrentPastesDeliverTheirOwnText(t *testing.T) {
 	requireMeja(t)
 	b, socket := newBackend(t)
@@ -122,14 +131,14 @@ func TestConcurrentPastesDeliverTheirOwnText(t *testing.T) {
 	const rounds = 6
 	var wg sync.WaitGroup
 	errs := make(chan error, 2*rounds)
-	for i := 0; i < rounds; i++ {
-		for _, p := range []struct{ target, text string }{{"pa", "AAA" + strconv.Itoa(i) + " "}, {"pb", "BBB" + strconv.Itoa(i) + " "}} {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				errs <- meja.New(meja.WithSocketPath(socket)).Paste(ctx, p.target, p.text)
-			}()
-		}
+	for _, p := range []struct{ target, prefix string }{{"pa", "AAA"}, {"pb", "BBB"}} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < rounds; i++ {
+				errs <- meja.New(meja.WithSocketPath(socket)).Paste(ctx, p.target, p.prefix+strconv.Itoa(i)+" ")
+			}
+		}()
 	}
 	wg.Wait()
 	close(errs)

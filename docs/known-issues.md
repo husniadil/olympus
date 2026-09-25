@@ -100,10 +100,15 @@ twenty-four full-package runs, once as the disconnect while submitting and once
 as a stream that never carried output it should have. It attaches its own
 client, which the injection path then borrows.
 
-It is not confined to macOS. On Linux in CI, on the 0.0.25 floor, two concurrent
-pastes into two sessions each through a handle of its own failed once with the
-disconnect. Sixteen runs of the same case against 0.0.25 on macOS did not
-reproduce it.
+The concurrent paste case that failed on the disconnect on Linux in CI, on the
+0.0.25 floor, is explained and no longer fails. It ran six pastes into the same
+session at once, which the per-session write lock never lets a caller do
+(§11.1). Each attached a transient client, and 0.0.25 routes a session's
+commands through its one current client (`commandClientValue` in meja's
+`internal/server/command.go`), so one paste's teardown dropped another's
+command. It failed 5 of 40 runs locally. With each session's pastes in turn and
+the two sessions still concurrent, it passed 100 of 100. That does not explain
+the `§5.6 following` disconnect, which injects one command at a time.
 
 ### What is captured now
 

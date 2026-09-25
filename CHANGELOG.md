@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A tmux server that was just killed reads as no server.** `kill-server`
+  returns before the server stops accepting, so the next call could connect to
+  it while it exited and be told `server exited unexpectedly`. Create took that
+  for a running server and skipped the pins on the fresh one it started, and a
+  listing straight after a stop failed as `UNEXPECTED`. That message is now
+  absence, like `no server running`.
+
 ## [0.34.1]
 
 ### Fixed

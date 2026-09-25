@@ -129,6 +129,33 @@ func TestServersSeesARunningServerAndStopsIt(t *testing.T) {
 	}
 }
 
+// §12.3 kill-server returns before the server stops accepting, so the next
+// client can connect to it while it exits and be told "server exited
+// unexpectedly" rather than "no server running". That is still absence. Read as
+// a running server, it made Create skip the pins on the fresh server it went on
+// to start (§17.5), and made a listing straight after a stop fail outright.
+//
+// The window is one connection wide and opens on a few percent of kills, so a
+// single round proves nothing; a hundred rounds all but guarantee it opens.
+func TestAServerThatWasJustKilledIsNotRunning(t *testing.T) {
+	requireTmux(t)
+	socket := filepath.Join(shortTempDir(t), "s.sock")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
+	b := tmux.New(tmux.WithSocketPath(socket))
+
+	for round := range 100 {
+		if out, err := exec.Command("tmux", "-f", "/dev/null", "-S", socket, "new-session", "-d").CombinedOutput(); err != nil {
+			t.Fatalf("round %d: starting a private server: %v\n%s", round, err, out)
+		}
+		if out, err := exec.Command("tmux", "-S", socket, "kill-server").CombinedOutput(); err != nil {
+			t.Fatalf("round %d: killing it: %v\n%s", round, err, out)
+		}
+		if b.ServerRunning(context.Background()) {
+			t.Fatalf("round %d: a server that was just killed is reported running", round)
+		}
+	}
+}
+
 // requireTmuxBinary skips without the full-gate gate: a scan of a private
 // directory runs tmux only to ask a dead socket whether it answers.
 func requireTmuxBinary(t *testing.T) {
