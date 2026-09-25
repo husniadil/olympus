@@ -796,9 +796,10 @@ func named(target string, err error) error {
 
 // isNoServer reports whether tmux failed because nothing is listening.
 //
-// tmux spells this two different ways depending on the subcommand: list-sessions
-// says "no server running on <socket>", while most others fail at connect time
-// with "error connecting to <socket> (No such file or directory)". Matching only
+// tmux spells this two different ways depending on the subcommand, and a third
+// just after a kill-server (see saysNoServer): list-sessions says "no server
+// running on <socket>", while most others fail at connect time with "error
+// connecting to <socket> (No such file or directory)". Matching only
 // the first turns every no-server case on every other verb into an UNEXPECTED
 // error, which is the opposite of §12.3's rule that absence is a real answer.
 func isNoServer(err error) bool {
@@ -808,8 +809,12 @@ func isNoServer(err error) bool {
 // saysNoServer reads tmux's lowercased message. A connect failure is absence
 // only when nothing is behind the socket: permission denied or a path too long
 // is a server that cannot be reached, which is a different answer (§3.5).
+//
+// "server exited unexpectedly" is absence too: kill-server returns before the
+// server stops accepting, so the next client can connect to one that is already
+// exiting and lose it before any reply (§12.3).
 func saysNoServer(msg string) bool {
-	if strings.Contains(msg, "no server running") {
+	if strings.Contains(msg, "no server running") || strings.Contains(msg, "server exited unexpectedly") {
 		return true
 	}
 	return strings.Contains(msg, "error connecting to") &&

@@ -4047,6 +4047,15 @@ Matching only the first classifies every other verb's no-server case as
 `UNEXPECTED`. That is the opposite of this section's rule, and invisible until a
 caller hits a verb nobody tested cold.
 
+A third spelling, `server exited unexpectedly`, is absence too. `kill-server`
+returns before the server stops accepting, so the next client (anyone's, not
+only Olympus's) can connect to a server that is already exiting and lose it
+before any reply. Measured on tmux 3.4, a few percent of kills open this window,
+and it is one connection wide: the call after it reads `no server running`.
+Read as anything but absence, it made Create's server-running check report a
+dying server as up, so the fresh server Create then started went unpinned
+(§17.5), and it turned a listing straight after a stop into an error.
+
 ---
 
 ## 13. Capabilities

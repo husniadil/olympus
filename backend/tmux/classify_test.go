@@ -17,6 +17,7 @@ func TestOnlyANoServerFailureIsReadAsAbsence(t *testing.T) {
 		"no server running on /tmp/o/s",
 		"error connecting to /tmp/o/s (No such file or directory)",
 		"error connecting to /tmp/o/s (Connection refused)",
+		"server exited unexpectedly",
 	}
 	for _, stderr := range absent {
 		err := classify(exit, stderr, []string{"has-session"})
