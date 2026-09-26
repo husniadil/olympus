@@ -4,10 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.34.2]
 
 ### Fixed
 
+- **A herdr pane never gets a relative XDG home.** 0.34.1 fell back to
+  `os.UserHomeDir` when `HOME` was empty, which on macOS and Linux reads
+  nothing but `HOME`, so the pane kept the server's homes. A relative `HOME`
+  was joined as it was, sending the relative path 0.34.1 exists to prevent.
+  The caller's home is now `HOME` only when it is absolute, else the account's
+  entry in the user database, else none, and the pane keeps the server's.
 - **A tmux server that was just killed reads as no server.** `kill-server`
   returns before the server stops accepting, so the next call could connect to
   it while it exited and be told `server exited unexpectedly`. Create took that
