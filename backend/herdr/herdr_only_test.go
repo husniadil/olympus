@@ -129,6 +129,7 @@ func TestAViewerAttachIsRefused(t *testing.T) {
 // socket nothing has ever bound, so the answer cannot come from a leftover.
 func TestListingWithNoServerIsEmpty(t *testing.T) {
 	t.Parallel()
+	requireHerdrRunnable(t)
 	b := New(WithSocketPath(filepath.Join(shortDir(t), "h.sock")))
 
 	sessions, err := b.Sessions(context.Background())
@@ -269,6 +270,7 @@ func liveBackend(t *testing.T) *Herdr {
 	if testing.Short() {
 		t.Skip("driving a real multiplexer; run `make test-full` for this")
 	}
+	requireHerdrRunnable(t)
 	b := New(WithSocketPath(filepath.Join(shortDir(t), "h.sock")))
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

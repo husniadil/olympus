@@ -253,6 +253,7 @@ func TestSessionClientAttachReportsUnhonoredKeepOthers(t *testing.T) {
 // no server could answer on.
 func TestSessionClientAttachOntoNothingIsNotFound(t *testing.T) {
 	t.Parallel()
+	requireHerdrRunnable(t)
 	b := New(WithSocketPath(filepath.Join(shortDir(t), "h.sock")))
 	_, err := b.Attach(context.Background(), "nobody", backend.AttachSpec{
 		Role:          backend.RoleController,
