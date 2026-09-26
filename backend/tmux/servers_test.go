@@ -7,6 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/husniadil/olympus/backend"
@@ -129,31 +132,59 @@ func TestServersSeesARunningServerAndStopsIt(t *testing.T) {
 	}
 }
 
-// §12.3 kill-server returns before the server stops accepting, so the next
-// client can connect to it while it exits and be told "server exited
-// unexpectedly" rather than "no server running". That is still absence. Read as
-// a running server, it made Create skip the pins on the fresh server it went on
-// to start (§17.5), and made a listing straight after a stop fail outright.
+// §12.3 kill-server returns before the server stops accepting, so a client can
+// connect to it while it exits and be told "server exited unexpectedly" rather
+// than "no server running". That is still absence. Read as a running server, it
+// made Create skip the pins on the fresh server it went on to start (§17.5),
+// and made a listing straight after a stop fail outright.
 //
-// The window is one connection wide and opens on a few percent of kills, so a
-// single round proves nothing; a hundred rounds all but guarantee it opens.
+// The window opens on a few percent of kills and stays open for every client
+// that connects before the server finishes exiting, so each round races several
+// callers against the kill. Raw clients race alongside them to show the window
+// opened at all: without that the case passes whether or not it exercised the
+// race, and it skips rather than claim a pass it did not earn.
 func TestAServerThatWasJustKilledIsNotRunning(t *testing.T) {
 	requireTmux(t)
 	socket := filepath.Join(shortTempDir(t), "s.sock")
 	t.Cleanup(func() { _ = exec.Command("tmux", "-S", socket, "kill-server").Run() })
 	b := tmux.New(tmux.WithSocketPath(socket))
 
-	for round := range 100 {
-		if out, err := exec.Command("tmux", "-f", "/dev/null", "-S", socket, "new-session", "-d").CombinedOutput(); err != nil {
+	const rounds, callers = 100, 6
+	var opened atomic.Int32
+	for round := range rounds {
+		if out, err := exec.Command("tmux", "-f", "/dev/null", "-S", socket, "new-session", "-d", "sleep", "60").CombinedOutput(); err != nil {
 			t.Fatalf("round %d: starting a private server: %v\n%s", round, err, out)
 		}
 		if out, err := exec.Command("tmux", "-S", socket, "kill-server").CombinedOutput(); err != nil {
 			t.Fatalf("round %d: killing it: %v\n%s", round, err, out)
 		}
-		if b.ServerRunning(context.Background()) {
+		var wg sync.WaitGroup
+		var running atomic.Bool
+		for range callers {
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				if b.ServerRunning(context.Background()) {
+					running.Store(true)
+				}
+			}()
+			go func() {
+				defer wg.Done()
+				out, _ := exec.Command("tmux", "-S", socket, "list-sessions").CombinedOutput()
+				if strings.TrimSpace(string(out)) == "server exited unexpectedly" {
+					opened.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		if running.Load() {
 			t.Fatalf("round %d: a server that was just killed is reported running", round)
 		}
 	}
+	if opened.Load() == 0 {
+		t.Skipf("the kill-race window never opened in %d rounds, so this run proves nothing about it", rounds)
+	}
+	t.Logf("the kill-race window opened for %d raw clients over %d rounds", opened.Load(), rounds)
 }
 
 // requireTmuxBinary skips without the full-gate gate: a scan of a private

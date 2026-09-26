@@ -4050,11 +4050,23 @@ caller hits a verb nobody tested cold.
 A third spelling, `server exited unexpectedly`, is absence too. `kill-server`
 returns before the server stops accepting, so the next client (anyone's, not
 only Olympus's) can connect to a server that is already exiting and lose it
-before any reply. Measured on tmux 3.4, a few percent of kills open this window,
-and it is one connection wide: the call after it reads `no server running`.
-Read as anything but absence, it made Create's server-running check report a
-dying server as up, so the fresh server Create then started went unpinned
-(§17.5), and it turned a listing straight after a stop into an error.
+before any reply. Measured on tmux 3.4, a few percent of kills open this window
+for a lone caller, and it is not one connection wide: every client that
+connects before the server finishes exiting gets the message. With six raw
+clients racing each of a hundred kills, 54 to 78 of them got it per run. A
+single retry is not a fix; the
+message has to be classified. Read as anything but absence, it made Create's
+server-running check report a dying server as up, so the fresh server Create
+then started went unpinned (§17.5), and it turned a listing straight after a
+stop into an error.
+
+tmux prints it as the whole message, and only the whole message is read as
+absence. A message that merely quotes it, as one echoing a caller's argument
+can, keeps its own classification.
+
+Create is the exception to reading it as absence. When the server exits under
+the `new-session` chain itself, Create was asked to make a session, not whether
+one exists, so it reports `UNEXPECTED` rather than not-found.
 
 ---
 

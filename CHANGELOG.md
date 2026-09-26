@@ -13,7 +13,9 @@ All notable changes to this project are documented here. The format follows
   it while it exited and be told `server exited unexpectedly`. Create took that
   for a running server and skipped the pins on the fresh one it started, and a
   listing straight after a stop failed as `UNEXPECTED`. That message is now
-  absence, like `no server running`.
+  absence, like `no server running`, when it is the whole message. Create is
+  the exception: a server that exits under its own `new-session` is still
+  `UNEXPECTED`, not a session that was not found.
 
 ## [0.34.1]
 
