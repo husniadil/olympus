@@ -246,6 +246,7 @@ func TestASessionMayNotBeNamedLikeAnyID(t *testing.T) {
 // target-addressed read says so as not-found rather than as a transport error.
 func TestResolvingWithNoServerIsNotFound(t *testing.T) {
 	t.Parallel()
+	requireHerdrRunnable(t)
 	b := New(WithSocketPath(filepath.Join(shortDir(t), "h.sock")))
 	_, err := b.resolve(context.Background(), "w1")
 	if backend.CodeOf(err) != backend.CodeSessionNotFound {

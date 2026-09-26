@@ -332,6 +332,11 @@ func (t *Tmux) Create(ctx context.Context, spec backend.CreateSpec) (backend.Ses
 		// failed, leaving a half-configured session. Killing it best-effort is
 		// what stops that leaking (§2.2).
 		_, _ = t.run(context.WithoutCancel(ctx), nil, "kill-session", "-t", sessionTarget(spec.Name))
+		// A server that exits under new-session is not absence here: Create
+		// was asked to make a session, not whether one exists (§12.3).
+		if isNoServer(err) {
+			return backend.Session{}, backend.Wrapf(backend.CodeUnexpected, err, "the tmux server exited while creating session %s", spec.Name)
+		}
 		return backend.Session{}, err
 	}
 
@@ -811,10 +816,12 @@ func isNoServer(err error) bool {
 // is a server that cannot be reached, which is a different answer (§3.5).
 //
 // "server exited unexpectedly" is absence too: kill-server returns before the
-// server stops accepting, so the next client can connect to one that is already
-// exiting and lose it before any reply (§12.3).
+// server stops accepting, so a client can connect to one that is already
+// exiting and lose it before any reply (§12.3). tmux prints it as the whole
+// message, so only the whole message counts; one that quotes it, as a message
+// echoing a caller's argument can, is not absence.
 func saysNoServer(msg string) bool {
-	if strings.Contains(msg, "no server running") || strings.Contains(msg, "server exited unexpectedly") {
+	if strings.Contains(msg, "no server running") || strings.TrimSpace(msg) == "server exited unexpectedly" {
 		return true
 	}
 	return strings.Contains(msg, "error connecting to") &&
