@@ -100,15 +100,21 @@ twenty-four full-package runs, once as the disconnect while submitting and once
 as a stream that never carried output it should have. It attaches its own
 client, which the injection path then borrows.
 
-The concurrent paste case that failed on the disconnect on Linux in CI, on the
-0.0.25 floor, is explained and no longer fails. It ran six pastes into the same
-session at once, which the per-session write lock never lets a caller do
-(§11.1). Each attached a transient client, and 0.0.25 routes a session's
+Overlapping injections into ONE session drop each other's commands on the
+0.0.25 floor. Each attaches a transient client, and 0.0.25 routes a session's
 commands through its one current client (`commandClientValue` in meja's
-`internal/server/command.go`), so one paste's teardown dropped another's
-command. It failed 5 of 40 runs locally. With each session's pastes in turn and
-the two sessions still concurrent, it passed 100 of 100. That does not explain
-the `§5.6 following` disconnect, which injects one command at a time.
+`internal/server/command.go`), so one injection's teardown drops another's
+command in flight with the disconnect. The concurrent paste case failed this way
+on Linux in CI: it ran six pastes into the same session at once, and failed 5 of
+40 runs locally. With each session's pastes in turn it passed 100 of 100 with
+two sessions concurrent, and 20 of 20 with the six it now runs.
+
+That changed the test, not the backend, and the race is still reachable. The
+per-session write lock (§11.1) serializes Olympus's own writers, but
+`--no-lock` (`WithoutLock`) bypasses it, and a follow or attach client, or a
+human's, is a current client the lock does not cover. The fix belongs in
+`withClient`, and it is open. It does not explain the `§5.6 following`
+disconnect either, which injects one command at a time.
 
 ### What is captured now
 

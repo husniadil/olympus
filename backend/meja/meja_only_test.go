@@ -111,32 +111,36 @@ func TestARejectedNameIsUsage(t *testing.T) {
 // door builds one per tool call, so the name must be unique per process rather
 // than per handle.
 //
-// The concurrency is ACROSS the two sessions only. Within one session the
-// pastes run in turn, as the per-session write lock would run them (§11.1).
-// Running them at once as well is what this case used to do, and it is not a
-// state a caller can reach. On 0.0.25 each of them attaches a transient client,
-// and meja routes a session's commands through its one current client rather
-// than through the caller's (§2.10). So one paste tearing down its client
-// dropped another's command in flight, and the case failed on the disconnect
-// about one run in eight.
+// The concurrency is ACROSS sessions, one goroutine each, and within a session
+// the pastes run in turn, as the per-session write lock runs them (§11.1).
+// Overlapping pastes into ONE session are a different case: on 0.0.25 each
+// attaches a transient client, meja routes a session's commands through its
+// one current client (§2.10), and one paste tearing its client down drops
+// another's command in flight. That race is still reachable and is recorded in
+// known-issues.md; it is not what this case is about.
 func TestConcurrentPastesDeliverTheirOwnText(t *testing.T) {
 	requireMeja(t)
 	b, socket := newBackend(t)
 	ctx := context.Background()
-	for _, name := range []string{"pa", "pb"} {
-		if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 120, Rows: 40, Command: []string{"cat"}}); err != nil {
-			t.Fatalf("Create %s: %v", name, err)
+	const sessions, rounds = 6, 6
+	names := make([]string, sessions)
+	for i := range names {
+		names[i] = "p" + strconv.Itoa(i)
+		if _, err := b.Create(ctx, backend.CreateSpec{Name: names[i], Dir: t.TempDir(), Cols: 120, Rows: 40, Command: []string{"cat"}}); err != nil {
+			t.Fatalf("Create %s: %v", names[i], err)
 		}
 	}
-	const rounds = 6
+	// A marker no other session's marker contains, so a count of one
+	// session's marker in another's screen is exactly the crossed pastes.
+	marker := func(i int) string { return "S" + strconv.Itoa(i) + "X" }
 	var wg sync.WaitGroup
-	errs := make(chan error, 2*rounds)
-	for _, p := range []struct{ target, prefix string }{{"pa", "AAA"}, {"pb", "BBB"}} {
+	errs := make(chan error, sessions*rounds)
+	for i, name := range names {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < rounds; i++ {
-				errs <- meja.New(meja.WithSocketPath(socket)).Paste(ctx, p.target, p.prefix+strconv.Itoa(i)+" ")
+			for r := 0; r < rounds; r++ {
+				errs <- meja.New(meja.WithSocketPath(socket)).Paste(ctx, name, marker(i)+strconv.Itoa(r)+" ")
 			}
 		}()
 	}
@@ -149,17 +153,29 @@ func TestConcurrentPastesDeliverTheirOwnText(t *testing.T) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		a, errA := b.Screen(ctx, "pa", backend.ScreenOpts{})
-		c, errB := b.Screen(ctx, "pb", backend.ScreenOpts{})
-		if errA == nil && errB == nil && strings.Count(a.Text, "AAA")+strings.Count(a.Text, "BBB") == rounds &&
-			strings.Count(c.Text, "AAA")+strings.Count(c.Text, "BBB") == rounds {
-			if strings.Contains(a.Text, "BBB") || strings.Contains(c.Text, "AAA") {
-				t.Fatalf("a paste landed in the other session:\npa: %s\npb: %s", a.Text, c.Text)
+		screens := make([]string, sessions)
+		arrived := true
+		for i, name := range names {
+			scr, err := b.Screen(ctx, name, backend.ScreenOpts{})
+			screens[i] = scr.Text
+			total := 0
+			for j := range names {
+				total += strings.Count(scr.Text, marker(j))
+			}
+			if err != nil || total != rounds {
+				arrived = false
+			}
+		}
+		if arrived {
+			for i, text := range screens {
+				if n := strings.Count(text, marker(i)); n != rounds {
+					t.Fatalf("a paste landed in another session: %s holds %d of its own\n%s", names[i], n, strings.Join(screens, "\n"))
+				}
 			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the pastes never all arrived (errs %v %v):\npa: %s\npb: %s", errA, errB, a.Text, c.Text)
+			t.Fatalf("the pastes never all arrived:\n%s", strings.Join(screens, "\n"))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
