@@ -51,7 +51,7 @@ legs:
 
 | Leg | tmux | zmx | meja | herdr |
 |---|---|---|---|---|
-| Newest | system package | 0.7.0 | 0.0.26 | 0.9.1 |
+| Newest | system package | 0.7.0 | 0.0.26 | 0.9.3 |
 | Floor | 3.3, built from source | 0.6.0 | 0.0.25 | 0.8.2 |
 
 herdr's floor is below 0.9.0, where each client got a view of its own, so the

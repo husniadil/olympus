@@ -10,7 +10,7 @@ fi
 
 ZMX_VERSION=0.7.0
 MEJA_VERSION=0.0.26
-HERDR_VERSION=0.9.1
+HERDR_VERSION=0.9.3
 
 bin="$HOME/.local/bin"
 mkdir -p "$bin"

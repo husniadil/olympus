@@ -1442,8 +1442,10 @@ kind of status a row carries.
 
 #### The manifests
 
-The manifests are herdr v0.9.1's, vendored (`internal/agentstate/manifests/`,
-Apache 2.0) and evaluated by a port of herdr's engine:
+The manifests are herdr's from just after v0.9.3 (commit `07e3840b`, which
+restored the Codex title idle rule v0.9.3 dropped), vendored
+(`internal/agentstate/manifests/`, Apache 2.0) and evaluated by a port of
+herdr's engine:
 
 - regions of the screen: the bottom N non-blank lines, what follows the last
   horizontal rule, the composer box, the title;

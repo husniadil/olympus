@@ -35,7 +35,7 @@ jobs:
         tmux: [system]
         zmx: ["0.7.0"]
         meja: ["0.0.26"]
-        herdr: ["0.9.1"]
+        herdr: ["0.9.3"]
         include:
           # The floor is tmux 3.3, for allow-passthrough.
           #

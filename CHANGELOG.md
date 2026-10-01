@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Agent states are read with herdr's manifests from just after 0.9.3**
+  (commit `07e3840b`, which restored the Codex title idle rule 0.9.3
+  dropped). Codex reads a working turn whose interrupt hint is remapped or
+  hidden, a failed reconnect as no longer working, and its mention popup and
+  new trust dialog as waiting on a person. Kiro reads its approval prompts as
+  waiting and its activity from its live controls and OSC progress. Grok
+  reads activity with custom or disabled titles and while background
+  commands run. Pi reads its newer working line. The two Codex rules Olympus
+  carries (the trust dialog under the shell line, the hooks review dialog)
+  are kept, and Kiro's spinner rule, which Olympus had rewritten for RE2,
+  is gone upstream.
+- CI's newest leg runs herdr 0.9.3.
+
 ## [0.34.2]
 
 ### Fixed

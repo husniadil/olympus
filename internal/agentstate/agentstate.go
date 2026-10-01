@@ -37,8 +37,9 @@ func parseState(s string) (State, error) {
 	return "", fmt.Errorf("unknown state %q", s)
 }
 
-// Vendored from herdr v0.9.1 (commit 065ef9d6a531c49fb8bee7e818ef837065b21ee9),
-// src/detect/manifests/. Refresh by copying the directory over
+// Vendored from herdr's master after v0.9.3 (commit
+// 07e3840bfb41f433cb7f14b4f93e2ff3fbaac6d7, which restored Codex's title idle
+// rule that v0.9.3 dropped), src/detect/manifests/. Refresh by copying the directory over
 // and re-running the tests: a pattern the port cannot compile, or a region
 // or field it does not know, fails at load.
 //
