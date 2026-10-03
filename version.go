@@ -20,7 +20,11 @@ import (
 // caller's.
 var Version = devVersion
 
-const devVersion = "0.14.1-dev"
+// The placeholder carries no number. One did, "0.14.1-dev", and stayed there
+// while the releases moved on, so a build with nothing stamped and no build
+// information to read was taken by a consumer's floor check for a release
+// twenty minors old. Go spells an unknown module version this way too.
+const devVersion = "(devel)"
 
 // A `go install github.com/husniadil/olympus/cmd/olympus@v0.1.1` build gets no
 // linker flags, but the Go toolchain records the module version it resolved.
