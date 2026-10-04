@@ -11,6 +11,10 @@ fi
 ZMX_VERSION=0.7.0
 MEJA_VERSION=0.0.26
 HERDR_VERSION=0.9.3
+# The per-client view leg needs a herdr whose server advertises
+# client_view_focus, which HERDR_VERSION does not and the fork's +agm builds
+# do. CI does not run that leg, so this version has no counterpart there.
+HERDR_CLIENT_VIEW_VERSION=0.9.3+agm.3
 
 bin="$HOME/.local/bin"
 mkdir -p "$bin"
@@ -58,10 +62,30 @@ install_herdr() {
   mv "$bin/herdr.tmp" "$bin/herdr"
 }
 
+# Kept off PATH so every other leg still runs HERDR_VERSION. The test finds
+# the binary through OLYMPUS_TEST_HERDR_CLIENT_VIEW, exported only once it is
+# in place: a set variable naming a missing binary fails the leg.
+install_herdr_client_view() {
+  local dir="$HOME/.local/opt/herdr-client-view"
+  if ! "$dir/herdr" --version 2>/dev/null | grep -qF "$HERDR_CLIENT_VIEW_VERSION"; then
+    local name="herdr-linux-${arch}"
+    local base="https://github.com/husniadil/herdr/releases/download/v${HERDR_CLIENT_VIEW_VERSION/+/%2B}"
+    local expected actual
+    mkdir -p "$dir"
+    curl -fsSL -o "$dir/herdr.tmp" "$base/$name" || return 1
+    expected=$(curl -fsSL "$base/checksums.txt" | awk -v n="$name" '$2 == n {print $1}')
+    actual=$(sha256sum "$dir/herdr.tmp" | awk '{print $1}')
+    [ -n "$expected" ] && [ "$expected" = "$actual" ] || { echo "herdr_client_view sha256 mismatch: want $expected, got $actual" >&2; return 1; }
+    chmod +x "$dir/herdr.tmp"
+    mv "$dir/herdr.tmp" "$dir/herdr" || return 1
+  fi
+  echo "export OLYMPUS_TEST_HERDR_CLIENT_VIEW=\"$dir/herdr\"" >> "$CLAUDE_ENV_FILE"
+}
+
 # Each backend is attempted even when another fails, and any failure fails the
 # hook: a missing backend makes its tests skip, which must not pass unnoticed.
 failed=()
-for backend in tmux zmx meja herdr; do
+for backend in tmux zmx meja herdr herdr_client_view; do
   if ! "install_$backend"; then
     echo "installing $backend failed; its tests will skip" >&2
     failed+=("$backend")
