@@ -429,6 +429,28 @@ func TestDrivingAFullScreenEditor(t *testing.T) {
 				t.Fatalf("pressing c-x: %v", err)
 			}
 
+			// Wait for the editor to leave the alternate screen before sending
+			// to the shell. A send reads the flag before typing and does not
+			// resend where it is set (§7.4). Text sent while nano is still
+			// exiting can be read by nano and never reach the shell, which
+			// failed the tmux leg on CI. A backend that does not track the
+			// flag reads false here, ends the wait at once and keeps the
+			// resend.
+			deadline := time.Now().Add(20 * time.Second)
+			for {
+				screen, err := s.Screen(ctx)
+				if err != nil {
+					t.Fatalf("reading the screen after c-x: %v", err)
+				}
+				if !screen.Meta.AltScreen {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("the editor never left the alternate screen after c-x; screen was %q", screen.Text)
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
 			// The shell comes back, which proves the editor really exited
 			// rather than the keys landing somewhere harmless.
 			if err := s.Send(ctx, `printf 'after-editor-%d\n' 1`); err != nil {
