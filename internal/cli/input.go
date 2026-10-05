@@ -93,7 +93,7 @@ func (a *App) sendCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&atomic, "atomic", false, "deliver and submit as one unit, without verifying")
-	cmd.Flags().DurationVar(&timeout, "timeout", 0, "per-attempt verify budget, spent twice (default 5s)")
+	cmd.Flags().DurationVar(&timeout, "timeout", 0, "per-attempt verify budget, spent twice, or once on the alternate screen (default 5s)")
 	cmd.Flags().BoolVar(&noEnter, "no-enter", false, "confirm the text landed but leave it unsubmitted")
 	return cmd
 }

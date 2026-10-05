@@ -231,10 +231,9 @@ func (h *Herdr) Capabilities() backend.Capabilities {
 		// through a pane row, which is somewhere a status outlives the process
 		// that set it (§13.1).
 		SessionStatus: true,
-		// The terminal tracks the alternate screen internally
-		// (src/terminal/runtime.rs:343-346) but nothing in the socket API
-		// reports it, so the flag would always be false and a caller could not
-		// tell that from "not on the alternate screen" (§5.3).
+		// Only a server whose pane rows carry `alternate_screen` reports it, and
+		// upstream herdr's do not. A capability is static, so it cannot say
+		// which server it will meet, and a false flag stays ambiguous (§5.3).
 		TracksAltScreen: false,
 		// Named sessions are servers, listed by `herdr session list` (§13.2).
 		Servers: true,

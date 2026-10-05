@@ -118,6 +118,12 @@ func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
 // that did land is not harmless: it doubles the input line and leaves it
 // unsubmitted, so a long text whose head has scrolled out of its input box
 // must not read as dropped.
+//
+// A pane on the alternate screen is never sent the text twice: a full-screen
+// program can act on keys without showing them, so unseen text there may
+// already have done its work. The flag is read before typing, since the text
+// can end the program (a pager's q) and leave the shell the resend would land
+// in. A flag that cannot be read keeps the resend.
 func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch) error {
 	head, tail := Normalize(text), NormalizeTail(text)
 	// Text with no letters or digits normalizes to nothing, and an empty needle
@@ -127,12 +133,18 @@ func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch)
 	if head == "" {
 		raw = strings.TrimSpace(text)
 	}
+	meta, err := d.Backend.ScreenMeta(ctx, target)
+	fullScreen := err == nil && meta.AltScreen
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {
 		return err
 	}
 	if seen, err := d.observed(ctx, target, head, tail, raw, watch); seen || err != nil {
 		return err
+	}
+	if fullScreen {
+		return backend.Errorf(backend.CodeTimeout,
+			"text sent to %s was never observed on screen, and was not sent again: the pane is on the alternate screen, where a full-screen program can act on keys without showing them, so read the screen to see what they did", target)
 	}
 
 	if err := d.Backend.Type(ctx, target, text); err != nil {

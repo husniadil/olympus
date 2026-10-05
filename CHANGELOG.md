@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0]
+
+### Changed
+
+- **A pane on the alternate screen is sent the text once.** A full-screen
+  program can act on keys without showing them, so a verified send that never
+  saw its text there used to type it a second time: a pager's `q` quit the
+  pager, the resend typed `q` at the shell underneath, and the send reported
+  success because that second `q` was seen. The flag is now read
+  before typing, and where it is set a miss fails after one window with a
+  `TIMEOUT` that says the text was not sent again. A backend that does not
+  report the flag keeps the resend.
+- **herdr reports the alternate screen where its server does.** A pane row
+  carrying `alternate_screen` sets the capture metadata's flag, and a row
+  without it reads as false, as before. Upstream herdr's rows do not carry it,
+  so `tracks_alt_screen` stays false there, and a false capability no longer
+  means the flag is never set.
+
 ## [0.34.3]
 
 ### Changed

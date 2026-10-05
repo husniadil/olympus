@@ -68,12 +68,10 @@ func (h *Herdr) Screen(ctx context.Context, target string, opts backend.ScreenOp
 
 // ScreenMeta reports capture metadata without capturing (§5.5).
 //
-// The alt-screen flag is always false and no request is made to check it: the
-// terminal tracks the alternate screen internally
-// (src/terminal/runtime.rs:343-346) but nothing in the socket API reports it.
-// That is an honest answer — "not tracked" — rather than an unsupported-class
-// error, and the tracks_alt_screen capability is what tells a caller the false
-// is a declaration and not an observation (§5.3, §13).
+// The alt-screen flag is the pane row's `alternate_screen` where the server
+// sends one. A server that does not reads as false, and the tracks_alt_screen
+// capability stays false because it is static and cannot vouch for every
+// server: a true flag is an observation, a false one is not (§5.3, §13).
 //
 // The scroll position IS real, unlike on zmx and meja: a pane row carries how
 // far its viewport has been scrolled up from the live bottom, which is the same
@@ -87,7 +85,7 @@ func (h *Herdr) ScreenMeta(ctx context.Context, target string) (backend.ScreenMe
 }
 
 func metaOf(row paneRow) backend.ScreenMeta {
-	meta := backend.ScreenMeta{}
+	meta := backend.ScreenMeta{AltScreen: row.AlternateScreen}
 	if row.Scroll != nil {
 		meta.ScrollPosition = row.Scroll.OffsetFromBottom
 	}

@@ -45,6 +45,7 @@ Otherwise run the command directly.
 
 - `type` places text and never submits. `send` confirms the text landed, then submits.
 - Prefer `send`. For text left unsubmitted, use `send --no-enter`.
+- A full-screen program acts on keys without showing them, so `send` cannot see them land. Use `type` for those, such as a pager's `q`, then read `screen`. Where the backend reports the alternate screen, `send` times out after one try rather than typing the text twice.
 - `wait` matches per line. Match something the program prints, never your prompt: `'\$\s*$'` fails under zsh, fish and themed prompts.
 - Allow for trailing whitespace, since tmux keeps a prompt's trailing space and zmx strips it: `^>>>\s*$`, not `^>>> $`.
 

@@ -208,7 +208,7 @@ cases:
 | capture with history | zmx | the flag is accepted and changes nothing (§5.2) |
 | capture | zmx | wrapped lines cannot be rejoined (§5.2) |
 | capture metadata | zmx, meja | always zero, never tracked (§5.3) |
-| capture metadata | herdr | the alt-screen flag is never tracked; the scroll position is real (§5.3) |
+| capture metadata | herdr | the alt-screen flag is tracked only where the server reports it; the scroll position is real (§5.3) |
 | session creation with a size | zmx, meja, herdr | the requested size is ignored: the session takes its size from the client that attaches it (§2.1, §2.10) |
 | capture | herdr | wrapped lines cannot be rejoined, so they come back split (§5.2) |
 | capture with history | herdr | a depth over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.4) |
@@ -1922,11 +1922,14 @@ zmx never reports it. Its capture metadata is always the zero value, with no
 subprocess run to check. This is not an unsupported-class error: the question
 has an honest answer on zmx ("not tracked"), so the call succeeds with zeroes.
 
-herdr never reports it either, for a different reason. Its terminal tracks the
+herdr reports it only where its server does. A pane row that carries
+`alternate_screen` gives the flag, and a row without it reads as false.
+Upstream herdr's rows do not carry it (through 0.9.3): its terminal tracks the
 alternate screen internally, and nothing in its socket API exposes that. The
-answer is the same, "not tracked", because the capability describes what
-Olympus can observe, not what the multiplexer knows. A capture of an alt-screen
-pane there still returns the visible grid, and a scrollback request comes back
+capability stays false, because a capability is static and cannot say which
+server it will meet (§13). A true flag there is an observation, and a false
+one says nothing. A capture of an alt-screen pane on a server that does not
+report it still returns the visible grid, and a scrollback request comes back
 with the grid alone.
 
 ### 5.4 Waiting for a pattern is line-oriented
@@ -1971,7 +1974,7 @@ The two halves are independent:
 | tmux | tracked | tracked |
 | zmx | not tracked | not tracked |
 | meja | not tracked | not tracked |
-| herdr | not tracked | tracked, on every pane row |
+| herdr | where the server reports it (§5.3) | tracked, on every pane row |
 
 ### 5.6 Following is a tap on the stream, not a capture in a loop
 
@@ -2160,8 +2163,8 @@ asserting one.
 
 Measured on herdr: an alternate-screen program produces the same capture as
 output scrolled past the cap. The start marker is absent and returns when the
-program exits. herdr does not track the alternate screen (§13), so nothing can
-tell the two apart. Naming one would be a guess, and wrong for every run that
+program exits. Upstream herdr does not report the alternate screen (§5.3), so
+nothing can tell the two apart. Naming one would be a guess, and wrong for every run that
 pages its output.
 
 #### Detached polls
@@ -2393,6 +2396,26 @@ return early on the first miss.
 
 The failure guarded is a dropped or coalesced first delivery, not a garbled
 second attempt.
+
+#### A pane on the alternate screen is sent the text once
+
+Before typing, the delivery reads the target's alt-screen flag (§5.5). Where it
+is set, a miss on the first window fails at once with no resend, and the
+failure says the text was not sent again. Worst-case wall time is then one
+attempt budget.
+
+A flag that cannot be read, or that the backend does not report (§5.3), keeps
+the resend.
+
+##### Why
+
+A full-screen program can act on keys without showing them, so unseen text
+there may already have done its work, and a resend would do it twice. Measured
+on a herdr server that reports the flag: `q` sent to `less` quit it, the first
+window saw no `q`, and the resend typed `q` at the shell prompt, where it was
+seen, so the send reported success with a stray `q` on the command line. That
+is also why the flag is read before typing: afterwards, the program the text
+went to may be gone.
 
 ### 7.5 A verified send refuses an agent waiting on a person
 
@@ -4161,6 +4184,11 @@ The alt-screen flag alone is ambiguous. A backend that never sets the flag is
 indistinguishable from one whose panes are not on the alternate screen. Without
 a capability to branch on, a caller cannot tell "not on the alt screen" from
 "not tracked", which is the ambiguity the flag exists to remove.
+
+A false capability does not forbid the flag. A backend whose servers differ
+(herdr, §5.3) declares false, since a capability is static, and still sets the
+flag where a server reports it. A true flag is an observation on any backend.
+Only a false one needs the capability to be read.
 
 ### 13.1 Session status
 
