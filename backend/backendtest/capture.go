@@ -129,14 +129,11 @@ func captureCases() []Case {
 					// Not tracking it is an honest answer, not an
 					// unsupported-class error: the caller asked a question this
 					// backend answers with "not tracked". The call must still
-					// succeed, with zero metadata and no subprocess run to
-					// check (§5.3).
-					capture, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{})
-					if err != nil {
+					// succeed (§5.3). The flag is not asserted: a backend whose
+					// servers differ declares false and still sets it where a
+					// server reports it (§13).
+					if _, err := e.Backend.Screen(e.Ctx(), target, backend.ScreenOpts{}); err != nil {
 						e.T.Fatalf("capturing succeeded nowhere: %v", err)
-					}
-					if capture.Meta.AltScreen {
-						e.T.Errorf("this backend declares it does not track alt-screen, but reported the flag set")
 					}
 					return
 				}

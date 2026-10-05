@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -36,6 +37,27 @@ const fixtureSnapshot = `{"id":"cli:api:snapshot","result":{"snapshot":{"agents"
  {"active_tab_id":"w1:t1","agent_status":"unknown","focused":true,"label":"demo","number":1,"pane_count":3,"tab_count":2,"tokens":{"status":"busy"},"workspace_id":"w1"},
  {"active_tab_id":"w4:t1","agent_status":"unknown","focused":false,"label":"","number":3,"pane_count":1,"tab_count":1,"workspace_id":"w4"}]},
 "type":"session_snapshot"}}`
+
+// §5.3: a pane row read for the alternate screen where the server sends it,
+// and read as not on it where the server does not, as every herdr did before.
+func TestAPaneRowCarriesTheAlternateScreenWhereTheServerSendsIt(t *testing.T) {
+	for _, tc := range []struct {
+		row  string
+		want bool
+	}{
+		{`{"pane_id":"w1:p1","alternate_screen":true,"scroll":{"offset_from_bottom":0,"viewport_rows":40}}`, true},
+		{`{"pane_id":"w1:p1","alternate_screen":false,"scroll":{"offset_from_bottom":3,"viewport_rows":40}}`, false},
+		{`{"pane_id":"w1:p1","scroll":{"offset_from_bottom":3,"viewport_rows":40}}`, false},
+	} {
+		var row paneRow
+		if err := json.Unmarshal([]byte(tc.row), &row); err != nil {
+			t.Fatalf("parsing %s: %v", tc.row, err)
+		}
+		if got := metaOf(row).AltScreen; got != tc.want {
+			t.Errorf("%s: alt screen is %v, want %v", tc.row, got, tc.want)
+		}
+	}
+}
 
 func fixture(t *testing.T) snapshot {
 	t.Helper()

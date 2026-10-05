@@ -117,8 +117,9 @@ type textParams struct {
 	// Atomic applies to send_text: deliver and submit as one unit, skipping the
 	// on-screen check. It cannot be combined with verification.
 	Atomic bool `json:"atomic,omitempty" jsonschema:"deliver and submit as one unit, without verifying; single-line only"`
-	// Seconds applies to send_text: one attempt's verify budget, spent twice.
-	Seconds int `json:"timeout_seconds,omitempty" jsonschema:"per-attempt verify budget in seconds, spent twice (default 5)"`
+	// Seconds applies to send_text: one attempt's verify budget, spent twice,
+	// or once on the alternate screen.
+	Seconds int `json:"timeout_seconds,omitempty" jsonschema:"per-attempt verify budget in seconds, spent twice, or once on the alternate screen (default 5)"`
 	// Enter applies to paste_text: submit the final line afterwards.
 	Enter bool `json:"enter,omitempty" jsonschema:"submit the final line afterwards, retrying the terminator once"`
 }

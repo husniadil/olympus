@@ -135,6 +135,57 @@ func TestPunctuationOnlyTextIsStillVerified(t *testing.T) {
 	}
 }
 
+// §7.4: a full-screen program can act on keys without showing them, so text
+// that went unseen there may have done its work, and a resend would do it
+// twice. The delivery fails after one window instead.
+func TestAPaneOnTheAlternateScreenIsNotSentTheTextTwice(t *testing.T) {
+	f := &fakeBackend{meta: backend.ScreenMeta{AltScreen: true}}
+	d := delivery(t, f, nil)
+
+	started := time.Now()
+	err := d.VerifiedSubmit(context.Background(), "build", "q")
+	elapsed := time.Since(started)
+
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if !strings.Contains(err.Error(), "not sent again") {
+		t.Errorf("error %q does not say the text was not sent again", err)
+	}
+	typed, submits := f.counts()
+	if typed != 1 {
+		t.Errorf("sent the text %d times, want 1", typed)
+	}
+	if submits != 0 {
+		t.Errorf("submitted %d times after never observing the text, want 0", submits)
+	}
+	if elapsed >= 2*d.Budget {
+		t.Errorf("failed after %s, want one %s window and no resend window", elapsed, d.Budget)
+	}
+}
+
+// The flag is read before typing. A pager's q ends the pager, and a capture
+// after it shows the shell underneath, which is exactly where a resend lands.
+func TestTheAlternateScreenIsReadBeforeTheTextIsTyped(t *testing.T) {
+	f := &fakeBackend{
+		meta: backend.ScreenMeta{AltScreen: true},
+		onType: func(f *fakeBackend, _ string) {
+			f.mu.Lock()
+			f.meta = backend.ScreenMeta{}
+			f.mu.Unlock()
+			f.setScreen("$ ")
+		},
+	}
+	err := delivery(t, f, nil).Verified(context.Background(), "build", "q", false)
+
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if typed, _ := f.counts(); typed != 1 {
+		t.Errorf("sent the text %d times, want 1: the resend went to the shell the pager left", typed)
+	}
+}
+
 // §7.4 requires this elapsed time to be asserted, so a future change cannot
 // silently return early on the first miss and quietly drop the resend.
 func TestFailingTakesBothBudgets(t *testing.T) {

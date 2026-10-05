@@ -90,7 +90,7 @@ var degradations = map[backend.Name]map[operation][]string{
 			"a line wrapped at the terminal's width cannot be rejoined, so it comes back split",
 		},
 		opCaptureMeta: {
-			"alt-screen is not tracked and is always false",
+			"alt-screen is tracked only where the server reports it, and is false elsewhere",
 		},
 		opSpawnSize: {
 			"the requested size is ignored: a pane takes the server's own geometry until a client attaches",

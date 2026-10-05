@@ -71,6 +71,9 @@ type paneRow struct {
 		OffsetFromBottom int `json:"offset_from_bottom"`
 		ViewportRows     int `json:"viewport_rows"`
 	} `json:"scroll"`
+	// AlternateScreen is sent by a server that reports it, and absent from
+	// one that does not, which reads as false (§5.3).
+	AlternateScreen bool `json:"alternate_screen"`
 }
 
 // A layoutRow is one tab's layout, of which Olympus reads the pane the tab is
