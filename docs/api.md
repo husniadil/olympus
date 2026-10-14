@@ -183,7 +183,7 @@ on `isError`. A failed call's structured content still carries a zero-valued
 | `data` | The per-operation payload. Absent for operations with no payload. An object or an array, never a bare scalar. |
 | `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. |
 | `error` | CLI only. Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
-| `error.typed` | `true` on a failed send whose text was typed and may still be in the input box: an `AGENT_BLOCKED` whose agent started waiting after the text was typed (behavior spec §7.5), or a `TIMEOUT` whose input box showed only part of the text (§7.6). Omitted otherwise. |
+| `error.typed` | `true` on a failed send whose text was typed and may still be in the input box: an `AGENT_BLOCKED` whose agent started waiting, or stopped showing its input box, after the text was typed (behavior spec §7.5), or a `TIMEOUT` whose input box showed only part of the text (§7.6). Omitted otherwise. |
 | `error.reason` | Which of a code's causes a failure is, where the code alone does not tell and a caller acts on them differently. Omitted where there is none. One value so far: `no_input_box`, on an `AGENT_BLOCKED` whose agent draws an input box and showed none, since something is open over it or it is not drawn yet (behavior spec §7.5), typed or not. An `AGENT_BLOCKED` without it is an agent waiting on a person. |
 
 **Empty collections serialize as `[]`, never `null`.** This applies to `data`
@@ -275,6 +275,7 @@ content is `CODE: message`, and an error marked `typed` adds a text content
 reading `typed: true`. An error with a reason adds one after it reading
 `reason: ` and the reason, such as `reason: no_input_box`. Its structured content names the resolved
 `backend` whenever one resolved, as §2 requires of a failure.
+A last text content then names it too, reading `backend: ` and its name.
 
 ### The Go door returns typed errors
 
