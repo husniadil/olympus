@@ -1515,6 +1515,29 @@ it:
 Box borders, a TUI's own key hints and the client's unread-message overlay are
 not the agent's words and are dropped.
 
+#### A captured row says when its input box is not shown
+
+Where a row was captured for `last` and its agent's manifest names an input box
+(`prompt_box_body`), a screen that shows no box MUST mark the row
+`no_input_box`. Something is open over the box (a rewind list, a model picker,
+a transcript viewer), or it is not drawn yet, as §7.5 reads it for a send, and
+off the whole capture as §7.5 does. A blocked row is never marked, since its
+prompt took the box's place, and a row nobody captured is never marked.
+
+##### Why
+
+herdr has no state for an agent with something open over its input, and reads
+the screen as idle: measured on Claude Code 2.1.299, its rewind list open, the
+native status was `idle`. A caller showing that row says the agent is free for a
+prompt that a send would refuse. The capture `last` already makes is what can
+tell, so it costs nothing more.
+
+##### Scope
+
+The mark reports the screen as captured. It asks for no redraw, unlike a send
+(§7.5), since a listing changes nothing, so a box drawn wrong reads as not shown
+until the agent draws again.
+
 #### `usage`
 
 `usage`, where a natively detecting backend reports it, is the agent's own quota
