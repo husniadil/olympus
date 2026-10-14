@@ -377,3 +377,56 @@ func TestPaneRowsCarryTheSessionsProcessID(t *testing.T) {
 		t.Errorf("the row has pid %d, want the session's process id from the listing's pid= field", panes[0].PID)
 	}
 }
+
+// §4.6 A paste reaches a program that asked for bracketed paste as one framed
+// paste.
+//
+// zmx has no framing of its own, so Olympus frames the text where the
+// session's state says the program asked for it. Typed, a paste-aware program
+// read a long text as several pastes split where the terminal's reads fell:
+// Claude Code kept only the last.
+func TestAPasteReachesABracketedPasteProgramFramed(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	const name = "oly-paste-framed"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Cols: 80, Rows: 24,
+		Command: []string{"sh", "-c", `printf '\033[?2004hmode-on\n'; exec cat -v`}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Kill(context.Background(), name) })
+	waitFor(t, b, name, "mode-on")
+
+	if err := b.Paste(ctx, name, "framed-7"); err != nil {
+		t.Fatalf("Paste: %v", err)
+	}
+	if err := b.Submit(ctx, name); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	// cat -v draws ESC as ^[, so a framed paste reads back as its markers.
+	waitFor(t, b, name, "^[[200~framed-7^[[201~")
+}
+
+// §4.6 A program that did not ask for bracketed paste gets the raw write. The
+// markers would otherwise reach it as text.
+func TestAPasteToAProgramThatDidNotAskIsRaw(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	const name = "oly-paste-raw"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Cols: 80, Rows: 24,
+		Command: []string{"sh", "-c", `printf 'mode-off\n'; exec cat -v`}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Kill(context.Background(), name) })
+	waitFor(t, b, name, "mode-off")
+
+	if err := b.Paste(ctx, name, "raw-8"); err != nil {
+		t.Fatalf("Paste: %v", err)
+	}
+	if err := b.Submit(ctx, name); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	screen := waitFor(t, b, name, "raw-8\nraw-8")
+	if strings.Contains(screen, "200~") {
+		t.Errorf("a program that never asked for bracketed paste was sent the markers:\n%s", screen)
+	}
+}

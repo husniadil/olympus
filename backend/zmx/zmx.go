@@ -381,14 +381,43 @@ func (z *Zmx) Type(ctx context.Context, target, text string) error {
 	return z.send(ctx, target, text)
 }
 
-// Paste is a presence check followed by a raw send with no terminator (§4.6).
+// Paste injects text with no terminator, framed as a bracketed paste where
+// the session's program asked for one (§4.6).
 //
-// zmx has no bracketed-paste framing at all, so a line-editing consumer sees
-// plain newlines and executes each intermediate line as it arrives. The
-// cross-backend guarantee is only that the FINAL line is never submitted
-// without an explicit separate Enter.
+// zmx has no framing of its own, so Olympus frames the text itself. Whether
+// the program asked is read off `history --vt`, which serializes the
+// terminal's current modes ahead of the screen's content: measured on zmx
+// 0.6.0, the mode shows while it is set, is gone once the program resets it,
+// and outlasts output that pushed the set out of the history. The mode is read
+// and the text written in two calls, so a program that switches the mode in
+// between gets the other form.
 func (z *Zmx) Paste(ctx context.Context, target, text string) error {
-	return z.Type(ctx, target, text)
+	if text == "" {
+		return z.Type(ctx, target, text)
+	}
+	if err := z.requirePresent(ctx, target); err != nil {
+		return err
+	}
+	state, err := z.run(ctx, "history", target, "--vt")
+	if err != nil {
+		return err
+	}
+	if bracketedPaste(state) {
+		text = pasteStart + text + pasteEnd
+	}
+	return z.send(ctx, target, text)
+}
+
+const (
+	pasteMode  = "\x1b[?2004h"
+	pasteStart = "\x1b[200~"
+	pasteEnd   = "\x1b[201~"
+)
+
+// bracketedPaste reports whether a serialized terminal state has bracketed
+// paste on. A cell never holds an ESC, so the sequence can only be the mode.
+func bracketedPaste(vt string) bool {
+	return strings.Contains(vt, pasteMode)
 }
 
 func (z *Zmx) Press(ctx context.Context, target string, keys ...backend.Key) error {

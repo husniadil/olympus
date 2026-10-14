@@ -1641,18 +1641,31 @@ Whether intermediate lines execute depends on the consumer and the backend:
     paste event, and intermediate lines do not execute.
   - herdr's input request frames the text the same way where the pane's
     program asked for bracketed paste, and adds no Enter.
-  - zmx pastes with no framing. The same shell sees plain newlines and
-    executes each intermediate line as it arrives.
+  - zmx has no framing of its own, so Olympus adds it where the session's
+    program asked for bracketed paste.
 
-Against a spawned zsh session, a two-line tmux paste leaves both lines
-unexecuted while the same zmx paste executes the first.
+A program that has not asked gets the raw text on every backend, and a
+line-editing shell in that state executes each intermediate line as it
+arrives. Against a zsh session on zmx, a two-line paste executed the first line
+when it was sent raw, and with the framing leaves both lines unexecuted, as it
+does on tmux.
+
+#### zmx reads the mode off its serialized state
+
+`zmx history --vt` writes the terminal's current modes ahead of the screen's
+content, and Olympus frames the text where that state has `ESC[?2004h`. A cell
+never holds an ESC, so the sequence can only be the mode. Measured on zmx
+0.6.0: the mode shows while a program has it set, is gone once the program
+resets it, and still shows after 20,000 lines of output pushed the set out of
+the history. The mode is read and the text written in two calls, so a program
+that switches the mode in between gets the other form.
 
 #### Per backend
 
 | Backend | Paste is |
 |---|---|
 | tmux | literal injection with `-p` added to the `paste-buffer` argv. Unique buffer, delete-on-failure and error mapping are as §4.1, so no buffer leaks |
-| zmx | a presence check followed by a raw send with no terminator |
+| zmx | a presence check, a read of the mode, then a send with no terminator, framed as `ESC[200~` … `ESC[201~` where the mode is set |
 | meja | `set-buffer` then `paste-buffer -d` |
 | herdr | the server's input request with text and no keys, over the API socket, since the CLI has no verb for it. The server frames the text as a bracketed paste where the pane's program asked for one, writes it raw where it did not, and adds no Enter |
 
@@ -2620,17 +2633,17 @@ it keeps only the typing. Measured on Claude Code 2.1.299 with one line of
 | Typed, herdr | The first send into a fresh pane held a placeholder for the whole text; the six after it held the last 135 characters |
 | Typed, tmux | The last 135 characters in 3 of 3, one of them after a placeholder |
 | Typed, zmx | The last 135 characters, in 3 of 3 |
-| Pasted, herdr and tmux | `[Pasted text #N]` in every send, and the 5 submitted messages each held all 1,157 characters |
+| Pasted, herdr, tmux and zmx | `[Pasted text #N]` in every send, and the 7 submitted messages each held all 1,157 characters |
 
 A framed paste is read as one paste however the write is split. A shell keeps
 literal injection, since nothing measured asks for a paste there.
 
 #### Scope
 
-zmx has no framing (§4.6), so its paste is the same write and the head is
-still lost there. The send then fails as incomplete (§7.6) rather than
-submitting the tail. A program that has not asked for bracketed paste gets the
-raw write on every backend.
+A program that has not asked for bracketed paste gets the raw write on every
+backend (§4.6). A paste-aware one among those can still lose the head of a
+long text, and the send then fails as incomplete (§7.6) rather than submitting
+the tail.
 
 ---
 
