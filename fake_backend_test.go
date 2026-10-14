@@ -38,11 +38,12 @@ type fakeBackend struct {
 	// focused records the target every FocusView was given, AFTER resolution.
 	focused []string
 	typed   []string
+	pasted  []string
 	submits int
 	atomic  int
 	// submitFailures is how many of the next terminators are dropped.
 	submitFailures int
-	// onType runs after each Type, so a case that needs the screen to react
+	// onType runs after each Type and each Paste, so a case that needs the screen to react
 	// the way a pane's echo would can script it. A run's sentinel id is
 	// generated inside the engine, so this is the only way a test can put that
 	// run's own markers on the screen.
@@ -92,7 +93,17 @@ func (f *fakeBackend) Type(_ context.Context, _, text string) error {
 	return nil
 }
 
-func (f *fakeBackend) Paste(context.Context, string, string) error         { return nil }
+func (f *fakeBackend) Paste(_ context.Context, _, text string) error {
+	f.pasted = append(f.pasted, text)
+	if f.onType != nil {
+		f.onType(f, text)
+	}
+	return nil
+}
+
+// sends counts the times text went to the pane, typed or pasted.
+func (f *fakeBackend) sends() int { return len(f.typed) + len(f.pasted) }
+
 func (f *fakeBackend) Press(context.Context, string, ...backend.Key) error { return nil }
 
 func (f *fakeBackend) Submit(context.Context, string) error {

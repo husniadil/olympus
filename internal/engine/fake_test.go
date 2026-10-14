@@ -41,6 +41,8 @@ type fakeBackend struct {
 	// onType runs after each Type, so a test can make the screen react the way
 	// a pane's echo would.
 	onType func(f *fakeBackend, text string)
+	// onPaste is onType for Paste.
+	onPaste func(f *fakeBackend, text string)
 	// onScreen runs before each capture, for tests that need the screen to
 	// change over time.
 	onScreen func(f *fakeBackend)
@@ -136,8 +138,12 @@ func (f *fakeBackend) Type(_ context.Context, _, text string) error {
 
 func (f *fakeBackend) Paste(_ context.Context, _, text string) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.pasted = append(f.pasted, text)
+	hook := f.onPaste
+	f.mu.Unlock()
+	if hook != nil {
+		hook(f, text)
+	}
 	return nil
 }
 

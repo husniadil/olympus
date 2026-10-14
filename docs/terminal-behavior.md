@@ -1639,9 +1639,10 @@ Whether intermediate lines execute depends on the consumer and the backend:
   - tmux's `paste-buffer -p` emits DECSET-2004 framing (`ESC[200~` /
     `ESC[201~`) around the payload. Such a consumer receives one un-executed
     paste event, and intermediate lines do not execute.
-  - zmx and herdr paste with no framing. The same shell sees plain newlines
-    and executes each intermediate line as it arrives. herdr has a framed
-    injection, but only in the form that appends an Enter.
+  - herdr's input request frames the text the same way where the pane's
+    program asked for bracketed paste, and adds no Enter.
+  - zmx pastes with no framing. The same shell sees plain newlines and
+    executes each intermediate line as it arrives.
 
 Against a spawned zsh session, a two-line tmux paste leaves both lines
 unexecuted while the same zmx paste executes the first.
@@ -1653,7 +1654,7 @@ unexecuted while the same zmx paste executes the first.
 | tmux | literal injection with `-p` added to the `paste-buffer` argv. Unique buffer, delete-on-failure and error mapping are as §4.1, so no buffer leaks |
 | zmx | a presence check followed by a raw send with no terminator |
 | meja | `set-buffer` then `paste-buffer -d` |
-| herdr | the same raw write as literal injection |
+| herdr | the server's input request with text and no keys, over the API socket, since the CLI has no verb for it. The server frames the text as a bracketed paste where the pane's program asked for one, writes it raw where it did not, and adds no Enter |
 
 ### 4.7 Atomic submit trades verification for atomicity
 
@@ -2316,17 +2317,22 @@ in review.
 
 #### The needle is taken from both ends of the text
 
-Either end seen counts. A text of 24 normalized characters or fewer yields one
-needle.
+On the whole screen (§7.2), either end seen counts. Inside an agent's input
+box the whole text is required instead (§7.6). A text of 24 normalized
+characters or fewer yields one needle.
 
 ##### Why
 
-An input box narrower than the text scrolls to the cursor, at the end. A long
-text's first 24 characters are above the box's top edge while its last 24 are
-on screen. Looking for the head alone reads that as a dropped delivery, and the
-§7.4 resend types the text a second time: the input line holds it twice and
+An input line narrower than the text scrolls to the cursor, at the end. A long
+text's first 24 characters are out of view while its last 24 are on screen.
+Looking for the head alone reads that as a dropped delivery, and the §7.4
+resend types the text a second time: the input line holds it twice and
 nothing is submitted. Measured with a prompt of about 1,500 characters into a
 52-column pane of a full-screen agent client.
+
+That measurement typed the text. Typed, a long line into the same client loses
+its head (§7.7), so a box showing only the tail can be a lost head as well as
+a scrolled one, and an input box asks for more than an end (§7.6).
 
 ### 7.2 Match per line, not across the whole screen
 
@@ -2523,7 +2529,9 @@ else on the screen. The box counts only while the capture is not read as
 Everywhere else — a shell, a REPL, an agent whose manifest names no such box,
 a capture where no box is drawn — the §7.2 whole-screen match applies.
 
-§7.1's two needles apply inside the box as they do on the screen.
+Inside the box the whole text MUST be there. The box's rows are read as one
+line, so a soft wrap does not split the text, and §7.1's normalization applies
+to both. Either end alone is not the echo inside a box.
 
 An agent may draw a long paste as a placeholder instead of its text (Claude
 Code's `[Pasted text #N]`, Codex's `[Pasted Content N chars]`). A text drawn
@@ -2533,10 +2541,36 @@ screen where it is not. Placeholders are counted in the capture taken before
 typing (§7.5). Where that capture failed, they are not counted.
 
 A paste can arrive in pieces, each its own placeholder, so a count that rose
-counts only once the next capture shows the same count. On the whole screen
-only a placeholder naming the text's own length counts (Codex's `[Pasted
-Content N chars]`), since an older one can scroll away and a transcript can
-quote one.
+counts only once the next capture shows the same count. In the box it counts
+only while no end of the text shows beside the placeholders: a placeholder
+with part of the text next to it is a paste that arrived in pieces, and
+nothing says the rest is inside. On the whole screen only a placeholder naming
+the text's own length counts (Codex's `[Pasted Content N chars]`), since an
+older one can scroll away and a transcript can quote one.
+
+#### A box that holds part of the text fails the send
+
+Where the box shows part of the text when a window closes, the send MUST fail
+with `TIMEOUT` marked `typed`, with no resend and no terminator. Part is an end
+of the text without the whole, a placeholder count still rising, or a
+placeholder with part of the text beside it. A box that shows nothing of the
+text keeps the §7.4 resend.
+
+##### Why
+
+Measured on Claude Code 2.1.299 with one line of 1,157 characters, typed: the
+box held the last 135 characters, the send reported the text in the box, and
+the Enter submitted the tail alone. A resend would put a second copy beside
+that tail, and `typed` tells a caller the text is still there.
+
+##### Scope
+
+Claude Code caps its box at about half the pane's height and shows the rows
+at the cursor. A text it draws inline (one line of up to 800 characters, as a
+paste) that is taller than the cap shows only its tail, and such a send fails
+as incomplete with the whole text in the box. Measured on 2.1.299: 790
+characters in a 52-column pane showed the last 7 rows at 24 rows, 10 at 30
+and 15 at 40, and all 18 at 60.
 
 #### Why
 
@@ -2557,10 +2591,46 @@ box in every case the whole-screen match already passed:
 | Sixty-two lines | Tail; the box shows its last lines, with no paste placeholder |
 | One line of about 3,000 characters | Neither; the box shows `[Pasted text #N]` placeholders, and before the rule the send timed out and its resend left the text twice |
 
+These sends typed the text (§7.7). A long text typed into Claude Code loses its
+head, so the rows that show only a tail may record a head that never arrived
+rather than one above the box.
+
 A question fills the same region, and the manifest's rule for a live box
 matches the line of its highlighted option. Measured, the box read for a
 two-option question held the question and both options. That is why the box
 counts only while §7.5's reading is not `blocked`, rather than on its own.
+
+### 7.7 Text for an agent is pasted
+
+Where the target's pane holds a known agent (§7.5), a verified send MUST
+deliver the text with paste (§4.6) rather than literal injection, and its
+resend the same way. Every other target keeps literal injection.
+
+#### Why
+
+A paste-aware program tells a paste from typing by its framing, and without
+framing by size: Claude Code takes one read of more than 800 characters as a
+paste. A terminal splits a long write into several reads (about 1,024 bytes
+each on macOS), so a long line typed at it arrives as a paste followed by typing, and
+it keeps only the typing. Measured on Claude Code 2.1.299 with one line of
+1,157 characters:
+
+| Delivered | The input box after the send |
+|---|---|
+| Typed, herdr | The first send into a fresh pane held a placeholder for the whole text; the six after it held the last 135 characters |
+| Typed, tmux | The last 135 characters in 3 of 3, one of them after a placeholder |
+| Typed, zmx | The last 135 characters, in 3 of 3 |
+| Pasted, herdr and tmux | `[Pasted text #N]` in every send, and the 5 submitted messages each held all 1,157 characters |
+
+A framed paste is read as one paste however the write is split. A shell keeps
+literal injection, since nothing measured asks for a paste there.
+
+#### Scope
+
+zmx has no framing (§4.6), so its paste is the same write and the head is
+still lost there. The send then fails as incomplete (§7.6) rather than
+submitting the tail. A program that has not asked for bracketed paste gets the
+raw write on every backend.
 
 ---
 

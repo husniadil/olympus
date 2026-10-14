@@ -2,6 +2,7 @@ package olympus
 
 import (
 	"context"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -13,15 +14,15 @@ import (
 // inspectInput is a verified send's reading of its target before anything is
 // typed (behavior §7.5, §7.6). It names the agents the target holds, refuses
 // one whose screen shows it waiting on a person, and hands back the watch the
-// echo is polled with.
+// echo is polled with. Text for an agent is pasted (§7.7).
 //
-// A target that holds no known agent keeps the whole-screen match, and so
-// does a listing that cannot be read: the guard exists for agents, and a
-// shell must not stop accepting input because a process table could not be.
-func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine.Watch, error) {
+// A target that holds no known agent keeps typing and the whole-screen match,
+// and so does a listing that cannot be read: the guard exists for agents, and
+// a shell must not stop accepting input because a process table could not be.
+func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine.Inspection, error) {
 	agents, title := o.agentsAt(ctx, target)
 	if len(agents) == 0 {
-		return nil, nil
+		return engine.Inspection{}, nil
 	}
 	blocked := func(screen string, typed bool) error {
 		in := agentstate.Input{Screen: o.detectionScreen(screen), OSCTitle: title}
@@ -71,7 +72,7 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 	boxPastes, codexPastes := -1, -1
 	if capture, err := o.backend.Screen(ctx, target, backend.ScreenOpts{}); err == nil {
 		if err := blocked(capture.Text, false); err != nil {
-			return nil, err
+			return engine.Inspection{}, err
 		}
 		screen := capture.Text
 		if _, ok, hasBox := composer(screen); hasBox && !ok {
@@ -81,7 +82,7 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 				// A redraw can show a prompt that was drawn wrong too, and
 				// a question reads as a box.
 				if err := blocked(again, false); err != nil {
-					return nil, err
+					return engine.Inspection{}, err
 				}
 				screen = again
 			}
@@ -94,7 +95,7 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 			// An agent that draws a box and shows none has something else
 			// taking the keys, or has not drawn it yet (§7.5): an Enter
 			// would answer whatever is there.
-			return nil, backend.Errorf(backend.CodeAgentBlocked,
+			return engine.Inspection{}, backend.Errorf(backend.CodeAgentBlocked,
 				"the %s agent in %s is not showing its input box, so nothing was typed: it may still be starting, or something is open over it such as a rewind list or a picker; send again once the box is back, or close what is open with press", agents[0], target)
 		default:
 			codexPastes = agentstate.PastedContent(trimLineEnds(screen), chars)
@@ -105,9 +106,9 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 	// placeholder: a count that rose is taken only once the next capture shows
 	// the same count, so the Enter does not land while pieces still arrive.
 	lastRisen := -1
-	return func(screen, head, tail string) (bool, error) {
+	watch := func(screen string, n engine.Needles) (engine.Echo, error) {
 		if err := blocked(screen, true); err != nil {
-			return false, err
+			return engine.EchoNone, err
 		}
 		if _, ok, hasBox := composer(screen); hasBox && !ok {
 			// Asked each time the box reads as gone: one that stays gone
@@ -115,7 +116,7 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 			// below.
 			if again, ok := o.redrawn(ctx, target, drawn); ok {
 				if err := blocked(again, true); err != nil {
-					return false, err
+					return engine.EchoNone, err
 				}
 				screen = again
 			}
@@ -123,25 +124,51 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 		box, boxDrawn, hasBox := composer(screen)
 		switch {
 		case boxDrawn:
-			if n := agentstate.Pastes(box); boxPastes >= 0 && n > boxPastes {
-				settled := n == lastRisen
-				lastRisen = n
-				return settled, nil
-			}
-			return engine.ScreenContains(box, head) || engine.ScreenContains(box, tail), nil
+			return inBox(box, n, boxPastes, &lastRisen), nil
 		case hasBox:
 			// The box went after the text was typed: something opened over
 			// it, and a resend would type into that.
 			err := backend.Errorf(backend.CodeAgentBlocked,
 				"the %s agent in %s stopped showing its input box after the text was typed, so it was not submitted: something opened over it, and the text may be in its input box, so read the screen before sending again", agents[0], target)
 			err.Typed = true
-			return false, err
+			return engine.EchoNone, err
 		}
 		if codexPastes >= 0 && agentstate.PastedContent(trimLineEnds(screen), chars) > codexPastes {
-			return true, nil
+			return engine.EchoWhole, nil
 		}
-		return engine.ScreenContains(screen, head) || engine.ScreenContains(screen, tail), nil
-	}, nil
+		if engine.ScreenContains(screen, n.Head) || engine.ScreenContains(screen, n.Tail) {
+			return engine.EchoWhole, nil
+		}
+		return engine.EchoNone, nil
+	}
+	return engine.Inspection{Watch: watch, Paste: true}, nil
+}
+
+// inBox reads how much of a text an agent's input box holds (§7.6).
+//
+// The whole text must be there, read across the box's rows so a soft wrap
+// does not split it. A new paste placeholder holds text that cannot be read,
+// so it counts once its count has held for a capture, and only while none of
+// the text shows beside it: a placeholder with part of the text next to it is
+// a paste that arrived in pieces, and nothing says the rest is inside. Either
+// end of the text seen without the whole is part of it.
+func inBox(box string, n engine.Needles, before int, lastRisen *int) engine.Echo {
+	if count := agentstate.Pastes(box); before >= 0 && count > before {
+		settled := count == *lastRisen
+		*lastRisen = count
+		beside := agentstate.WithoutPastes(box)
+		if !settled || engine.ScreenContains(beside, n.Head) || engine.ScreenContains(beside, n.Tail) {
+			return engine.EchoPart
+		}
+		return engine.EchoWhole
+	}
+	if strings.Contains(engine.NormalizeWhole(box), n.Whole) {
+		return engine.EchoWhole
+	}
+	if engine.ScreenContains(box, n.Head) || engine.ScreenContains(box, n.Tail) {
+		return engine.EchoPart
+	}
+	return engine.EchoNone
 }
 
 // agentsAt names the agents a target holds.

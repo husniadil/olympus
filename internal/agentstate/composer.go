@@ -59,6 +59,12 @@ func Pastes(text string) int {
 	return len(pastePlaceholder.FindAllStringIndex(text, -1))
 }
 
+// WithoutPastes is a box with its paste placeholders taken out, which is
+// what of a text it shows in the open (behavior §7.6).
+func WithoutPastes(text string) string {
+	return pastePlaceholder.ReplaceAllString(text, "")
+}
+
 // PastedContent counts Codex's placeholder for a paste of exactly n
 // characters, "[Pasted Content n chars]". Codex is read on its whole screen,
 // where an older paste can scroll away and its transcript can quote the same

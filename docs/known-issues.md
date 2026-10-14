@@ -51,6 +51,28 @@ carries `exit_code: 0` beside the error. A client must read `isError` before
 `structuredContent`. Dropping the zero data means publishing a separate output
 schema for failures, which waits on the failure-envelope decision.
 
+## A long send into an agent on zmx fails as incomplete
+
+zmx has no bracketed-paste framing (behavior §4.6), so a verified send into an
+agent there is the same raw write as typing. A line longer than one terminal
+read loses its head in Claude Code (§7.7), and the send fails with `TIMEOUT`
+marked `typed`, leaving the tail in the box, rather than submitting the tail
+(§7.6). Measured on Claude Code 2.1.299 with one line of 1,157 characters.
+
+`zmx history --vt` prints `ESC[?2004h` for such a pane, which might tell
+Olympus when it can frame the text itself. Whether that output is the pane's
+current mode or a replay of its history is not measured.
+
+## A tall inline text in a short pane fails as incomplete
+
+Claude Code caps its input box at about half the pane's height and shows the
+rows at the cursor (§7.6). A text it draws inline, one line of up to 800
+characters, that needs more rows than the cap shows only its tail, so the send
+fails as incomplete with the whole text in the box. Measured at 52 columns:
+790 characters overflowed the box at 24, 30 and 40 rows and fit at 60. The
+whole text has to be seen because a box showing only its tail is also what a
+lost head looks like.
+
 ## An undiagnosed meja failure on macOS
 
 Every meja case in the root package intermittently fails at once with meja's

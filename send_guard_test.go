@@ -3,6 +3,7 @@ package olympus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,8 +44,8 @@ func TestSendRefusesAnAgentWaitingOnAPerson(t *testing.T) {
 	if TypedOf(err) {
 		t.Errorf("a refusal before typing is marked typed: %v", err)
 	}
-	if len(f.typed) != 0 || f.submits != 0 {
-		t.Errorf("typed %d and submitted %d into a waiting agent, want nothing", len(f.typed), f.submits)
+	if f.sends() != 0 || f.submits != 0 {
+		t.Errorf("typed %d and submitted %d into a waiting agent, want nothing", f.sends(), f.submits)
 	}
 }
 
@@ -74,8 +75,8 @@ func TestSendSubmitsOnceTheBoxHoldsTheText(t *testing.T) {
 	if err := s.Send(context.Background(), "draft words sitting here", VerifyBudget(shortBudget)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if len(f.typed) != 1 || f.submits != 1 {
-		t.Errorf("typed %d and submitted %d, want one of each", len(f.typed), f.submits)
+	if f.sends() != 1 || f.submits != 1 {
+		t.Errorf("typed %d and submitted %d, want one of each", f.sends(), f.submits)
 	}
 }
 
@@ -92,8 +93,8 @@ func TestSendTakesANewPastePlaceholderAsTheEcho(t *testing.T) {
 	if err := s.Send(context.Background(), strings.Repeat("word ", 600), VerifyBudget(shortBudget)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if len(f.typed) != 1 || f.submits != 1 {
-		t.Errorf("typed %d and submitted %d, want one of each", len(f.typed), f.submits)
+	if f.sends() != 1 || f.submits != 1 {
+		t.Errorf("typed %d and submitted %d, want one of each", f.sends(), f.submits)
 	}
 }
 
@@ -109,8 +110,8 @@ func TestSendTakesCodexsPastePlaceholderAsTheEcho(t *testing.T) {
 	if err := s.Send(context.Background(), strings.Repeat("word ", 400), VerifyBudget(shortBudget)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if len(f.typed) != 1 || f.submits != 1 {
-		t.Errorf("typed %d and submitted %d, want one of each", len(f.typed), f.submits)
+	if f.sends() != 1 || f.submits != 1 {
+		t.Errorf("typed %d and submitted %d, want one of each", f.sends(), f.submits)
 	}
 }
 
@@ -142,8 +143,8 @@ func TestSendRefusesAnAgentShowingNoInputBox(t *testing.T) {
 		if !errors.Is(err, ErrBlocked) || TypedOf(err) {
 			t.Fatalf("%s: error is %v, want an untyped AGENT_BLOCKED", screen, err)
 		}
-		if len(f.typed) != 0 || f.submits != 0 {
-			t.Errorf("%s: typed %d and submitted %d, want nothing", screen, len(f.typed), f.submits)
+		if f.sends() != 0 || f.submits != 0 {
+			t.Errorf("%s: typed %d and submitted %d, want nothing", screen, f.sends(), f.submits)
 		}
 	}
 }
@@ -161,8 +162,8 @@ func TestSendAsksForARedrawBeforeRefusingAMissingBox(t *testing.T) {
 	if err := s.Send(context.Background(), "draft words sitting here", VerifyBudget(shortBudget)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if f.redraws != 1 || len(f.typed) != 1 || f.submits != 1 {
-		t.Errorf("redrew %d, typed %d and submitted %d, want one of each", f.redraws, len(f.typed), f.submits)
+	if f.redraws != 1 || f.sends() != 1 || f.submits != 1 {
+		t.Errorf("redrew %d, typed %d and submitted %d, want one of each", f.redraws, f.sends(), f.submits)
 	}
 }
 
@@ -179,8 +180,8 @@ func TestSendAsksForARedrawWhenTheBoxGoesMidDelivery(t *testing.T) {
 	if err := s.Send(context.Background(), "Reply with the single word ok.", VerifyBudget(shortBudget)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if f.redraws != 1 || len(f.typed) != 1 || f.submits != 1 {
-		t.Errorf("redrew %d, typed %d and submitted %d, want one of each", f.redraws, len(f.typed), f.submits)
+	if f.redraws != 1 || f.sends() != 1 || f.submits != 1 {
+		t.Errorf("redrew %d, typed %d and submitted %d, want one of each", f.redraws, f.sends(), f.submits)
 	}
 }
 
@@ -194,8 +195,8 @@ func TestSendRefusesAPromptARedrawShows(t *testing.T) {
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 
 	err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
-	if !errors.Is(err, ErrBlocked) || TypedOf(err) || f.redraws != 1 || len(f.typed) != 0 {
-		t.Fatalf("error %v, redrew %d, typed %d; want an untyped AGENT_BLOCKED after one redraw and nothing typed", err, f.redraws, len(f.typed))
+	if !errors.Is(err, ErrBlocked) || TypedOf(err) || f.redraws != 1 || f.sends() != 0 {
+		t.Fatalf("error %v, redrew %d, typed %d; want an untyped AGENT_BLOCKED after one redraw and nothing typed", err, f.redraws, f.sends())
 	}
 }
 
@@ -226,8 +227,8 @@ func TestSendRedrawsABoxDrawnWrongTwice(t *testing.T) {
 	if err := s.Send(context.Background(), "Reply with the single word ok.", VerifyBudget(time.Second)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if f.redraws != 2 || len(f.typed) != 1 || f.submits != 1 {
-		t.Errorf("redrew %d, typed %d and submitted %d, want two redraws, one send and one terminator", f.redraws, len(f.typed), f.submits)
+	if f.redraws != 2 || f.sends() != 1 || f.submits != 1 {
+		t.Errorf("redrew %d, typed %d and submitted %d, want two redraws, one send and one terminator", f.redraws, f.sends(), f.submits)
 	}
 }
 
@@ -239,8 +240,8 @@ func TestSendRefusesAnOverlayARedrawDoesNotClear(t *testing.T) {
 	paneRunning(f, "claude")
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 	err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
-	if !errors.Is(err, ErrBlocked) || TypedOf(err) || f.redraws != 1 || len(f.typed) != 0 {
-		t.Fatalf("before typing: error %v, redrew %d, typed %d; want an untyped AGENT_BLOCKED after one redraw and nothing typed", err, f.redraws, len(f.typed))
+	if !errors.Is(err, ErrBlocked) || TypedOf(err) || f.redraws != 1 || f.sends() != 0 {
+		t.Fatalf("before typing: error %v, redrew %d, typed %d; want an untyped AGENT_BLOCKED after one redraw and nothing typed", err, f.redraws, f.sends())
 	}
 
 	f = &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
@@ -249,8 +250,8 @@ func TestSendRefusesAnOverlayARedrawDoesNotClear(t *testing.T) {
 	paneRunning(f, "claude")
 	s = &Session{ol: fakeOlympus(f), name: "build"}
 	err = s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
-	if !errors.Is(err, ErrBlocked) || !TypedOf(err) || f.redraws != 1 || len(f.typed) != 1 || f.submits != 0 {
-		t.Fatalf("mid-delivery: error %v, redrew %d, typed %d, submitted %d; want a typed AGENT_BLOCKED after one redraw, one send and no terminator", err, f.redraws, len(f.typed), f.submits)
+	if !errors.Is(err, ErrBlocked) || !TypedOf(err) || f.redraws != 1 || f.sends() != 1 || f.submits != 0 {
+		t.Fatalf("mid-delivery: error %v, redrew %d, typed %d, submitted %d; want a typed AGENT_BLOCKED after one redraw, one send and no terminator", err, f.redraws, f.sends(), f.submits)
 	}
 }
 
@@ -267,8 +268,8 @@ func TestSendStopsWhenAnOverlayOpensMidDelivery(t *testing.T) {
 	if !errors.Is(err, ErrBlocked) || !TypedOf(err) {
 		t.Fatalf("error is %v, want a typed AGENT_BLOCKED", err)
 	}
-	if len(f.typed) != 1 || f.submits != 0 {
-		t.Errorf("typed %d and submitted %d, want one send and no terminator", len(f.typed), f.submits)
+	if f.sends() != 1 || f.submits != 0 {
+		t.Errorf("typed %d and submitted %d, want one send and no terminator", f.sends(), f.submits)
 	}
 }
 
@@ -314,11 +315,14 @@ func TestSendWaitsForAPasteToStopArriving(t *testing.T) {
 	paneRunning(f, "claude")
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 
-	if err := s.Send(context.Background(), strings.Repeat("word ", 600), VerifyBudget(shortBudget)); err != nil {
+	// A window long enough for the count to rise twice and then hold. A
+	// shorter one ends while the pieces still arrive, which is a send that
+	// fails as incomplete.
+	if err := s.Send(context.Background(), strings.Repeat("word ", 600), VerifyBudget(time.Second)); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if f.submits != 1 || captures < 3 {
-		t.Errorf("submitted %d after %d captures, want one after the count held", f.submits, captures)
+	if f.sends() != 1 || f.submits != 1 || captures < 3 {
+		t.Errorf("sent %d and submitted %d after %d captures, want one of each after the count held", f.sends(), f.submits, captures)
 	}
 }
 
@@ -354,8 +358,8 @@ func TestSendStopsWhenAQuestionOpensMidDelivery(t *testing.T) {
 	if !errors.Is(err, ErrBlocked) {
 		t.Fatalf("error is %v, want AGENT_BLOCKED", err)
 	}
-	if len(f.typed) != 1 || f.submits != 0 {
-		t.Errorf("typed %d and submitted %d, want one send and no terminator", len(f.typed), f.submits)
+	if f.sends() != 1 || f.submits != 0 {
+		t.Errorf("typed %d and submitted %d, want one send and no terminator", f.sends(), f.submits)
 	}
 	// The text was typed, so the refusal must not tell the caller it was not.
 	if !TypedOf(err) {
@@ -450,7 +454,120 @@ func TestSendRefusesAnAgentWhoseTitleSaysItIsWaiting(t *testing.T) {
 	if !errors.Is(err, ErrBlocked) {
 		t.Fatalf("error is %v, want AGENT_BLOCKED", err)
 	}
-	if len(f.typed) != 0 {
-		t.Errorf("typed %d times into a waiting agent, want nothing", len(f.typed))
+	if f.sends() != 0 {
+		t.Errorf("typed %d times into a waiting agent, want nothing", f.sends())
+	}
+}
+
+// boxHolding is an idle Claude Code screen whose input box holds rows.
+func boxHolding(t *testing.T, rows ...string) string {
+	t.Helper()
+	return strings.Replace(composerScreen(t, "idle-earlier-text.txt"), "❯\n", "❯ "+strings.Join(rows, "\n  ")+"\n", 1)
+}
+
+// longText is one line of 1,157 characters, the length that lost its head.
+func longText() string {
+	var b strings.Builder
+	b.WriteString("HEADMARK the start of a long message ")
+	for i := 0; b.Len() < 1140; i++ {
+		fmt.Fprintf(&b, "word%d ", i)
+	}
+	b.WriteString("TAILMARK")
+	return b.String()
+}
+
+// §7.7: a verified send into an agent is one paste. Typed, a text longer than
+// the terminal's read reaches Claude Code in pieces, and it keeps only the
+// last: measured on 2.1.299 on herdr, tmux and zmx, the box held the final
+// 135 of 1,157 characters.
+func TestSendPastesIntoAnAgent(t *testing.T) {
+	text := longText()
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = boxHolding(t, "[Pasted text #1]") }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), text, VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if len(f.pasted) != 1 || len(f.typed) != 0 || f.submits != 1 {
+		t.Errorf("pasted %d, typed %d and submitted %d, want one paste, no typing and one terminator", len(f.pasted), len(f.typed), f.submits)
+	}
+}
+
+// §7.7: a shell keeps typing. A paste there is a different input, and nothing
+// measured asks for one.
+func TestSendTypesIntoAShell(t *testing.T) {
+	f := &fakeBackend{text: "$ "}
+	f.onType = func(f *fakeBackend, text string) { f.text = "$ " + text }
+	paneRunning(f, "zsh")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), "make build", VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if len(f.typed) != 1 || len(f.pasted) != 0 {
+		t.Errorf("typed %d and pasted %d, want one typing and no paste", len(f.typed), len(f.pasted))
+	}
+}
+
+// §7.6: a box that holds only the tail of the text is an incomplete delivery.
+// Measured on Claude Code 2.1.299: the box held the last 135 of 1,157
+// characters, the send reported the text in the box, and the Enter submitted
+// the tail alone.
+func TestSendFailsWhenTheBoxHoldsOnlyTheTail(t *testing.T) {
+	text := longText()
+	tail := text[1022:]
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = boxHolding(t, tail[:len(tail)/2], tail[len(tail)/2:]) }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), text, VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if !TypedOf(err) {
+		t.Errorf("error %v is not marked typed, though the tail is in the box", err)
+	}
+	if !strings.Contains(err.Error(), "incomplete") {
+		t.Errorf("error %q does not say the text is incomplete", err)
+	}
+	if inputs := len(f.typed) + len(f.pasted); inputs != 1 || f.submits != 0 {
+		t.Errorf("sent %d times and submitted %d, want one send and no terminator", inputs, f.submits)
+	}
+}
+
+// §7.6: a placeholder that arrives beside part of the text is no proof the
+// rest is in it, so the send fails rather than submit what cannot be checked.
+func TestSendFailsWhenAPlaceholderComesWithPartOfTheText(t *testing.T) {
+	text := longText()
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = boxHolding(t, "[Pasted text #2]"+text[1022:]) }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), text, VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrTimeout) || !TypedOf(err) {
+		t.Fatalf("error is %v, want a timeout marked typed", err)
+	}
+	if f.submits != 0 {
+		t.Errorf("submitted %d, want 0", f.submits)
+	}
+}
+
+// §7.6: the whole text soft-wrapped across the box's rows is the echo.
+func TestSendTakesTheWholeTextWrappedAcrossTheBox(t *testing.T) {
+	text := "the head of a message that wraps across several rows of the input box and ends with its tail"
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = boxHolding(t, text[:30], text[30:61], text[61:]) }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), text, VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if f.submits != 1 {
+		t.Errorf("submitted %d, want 1", f.submits)
 	}
 }

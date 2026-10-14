@@ -262,7 +262,7 @@ func (s *Session) Send(ctx context.Context, text string, opts ...SendOption) err
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	cfg.delivery.Inspect = func(ctx context.Context, text string) (engine.Watch, error) {
+	cfg.delivery.Inspect = func(ctx context.Context, text string) (engine.Inspection, error) {
 		return s.ol.inspectInput(ctx, s.name, text)
 	}
 	return cfg.delivery.Verified(ctx, s.name, text, cfg.submit)
