@@ -183,7 +183,7 @@ on `isError`. A failed call's structured content still carries a zero-valued
 | `data` | The per-operation payload. Absent for operations with no payload. An object or an array, never a bare scalar. |
 | `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. |
 | `error` | CLI only. Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
-| `error.typed` | `true` on an `AGENT_BLOCKED` whose text was typed before the agent started waiting, so it may still be in the input box (behavior spec §7.5). Omitted otherwise. |
+| `error.typed` | `true` on a failed send whose text was typed and may still be in the input box: an `AGENT_BLOCKED` whose agent started waiting after the text was typed (behavior spec §7.5), or a `TIMEOUT` whose input box showed only part of the text (§7.6). Omitted otherwise. |
 
 **Empty collections serialize as `[]`, never `null`.** This applies to `data`
 when it is a list, and to every list-valued field inside it.
@@ -270,8 +270,8 @@ machine-readable.
 ### An MCP operation failure is a tool error carrying the code
 
 It is never a JSON-RPC protocol error (behavior spec §15.6). Its first text
-content is `CODE: message`, and an `AGENT_BLOCKED` marked `typed` adds a text
-content reading `typed: true`. Its structured content names the resolved
+content is `CODE: message`, and an error marked `typed` adds a text content
+reading `typed: true`. Its structured content names the resolved
 `backend` whenever one resolved, as §2 requires of a failure.
 
 ### The Go door returns typed errors

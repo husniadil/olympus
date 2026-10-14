@@ -19,17 +19,44 @@ type Delivery struct {
 	Budget   time.Duration
 	Poll     time.Duration
 	// Inspect, when set, runs inside the lock before anything is typed
-	// (behavior §7.5). An error refuses the delivery with nothing typed. A
-	// Watch it returns replaces the whole-screen match for this delivery; a
-	// nil one keeps it.
-	Inspect func(ctx context.Context, text string) (Watch, error)
+	// (behavior §7.5). An error refuses the delivery with nothing typed.
+	Inspect func(ctx context.Context, text string) (Inspection, error)
 }
 
-// A Watch reads one capture and says whether the delivered text shows where
-// input lands (behavior §7.6). head and tail are the normalized needles
-// (§7.1). An error stops the delivery at once: no resend and no terminator,
-// since both would type into whatever the watch saw.
-type Watch func(screen, head, tail string) (bool, error)
+// An Inspection is what a delivery learned about its target before typing.
+type Inspection struct {
+	// Watch, when set, replaces the whole-screen match for this delivery
+	// (behavior §7.6). A nil one keeps it.
+	Watch Watch
+	// Paste delivers the text as one paste rather than as typing (§7.7). A
+	// paste-aware program reads a long burst of typing as several pastes,
+	// split where the terminal's reads fell.
+	Paste bool
+}
+
+// A Watch reads one capture and says how much of the delivered text shows
+// where input lands (behavior §7.6). An error stops the delivery at once: no
+// resend and no terminator, since both would type into whatever the watch saw.
+type Watch func(screen string, n Needles) (Echo, error)
+
+// Needles are a text normalized for matching (§7.1): the head and tail
+// needles, and the whole text uncapped.
+type Needles struct {
+	Head, Tail, Whole string
+}
+
+// An Echo is how much of a delivered text a capture shows.
+type Echo int
+
+const (
+	// EchoNone shows nothing of the text.
+	EchoNone Echo = iota
+	// EchoPart shows some of it and not all: a delivery that lost a part, or
+	// one still arriving.
+	EchoPart
+	// EchoWhole shows all of it.
+	EchoWhole
+)
 
 // VerifiedSubmit sends text, waits until it is observed on screen, and only
 // then submits it.
@@ -57,15 +84,14 @@ func (d Delivery) VerifiedSubmit(ctx context.Context, target, text string) error
 // there is nothing to gain by releasing early.
 func (d Delivery) Verified(ctx context.Context, target, text string, submit bool) error {
 	return WithLock(ctx, d.Locks, d.Key, d.LockWait, func() error {
-		var watch Watch
+		var in Inspection
 		if d.Inspect != nil {
-			w, err := d.Inspect(ctx, text)
-			if err != nil {
+			var err error
+			if in, err = d.Inspect(ctx, text); err != nil {
 				return err
 			}
-			watch = w
 		}
-		if err := d.deliver(ctx, target, text, watch); err != nil {
+		if err := d.deliver(ctx, target, text, in); err != nil {
 			return err
 		}
 		if !submit {
@@ -124,22 +150,31 @@ func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
 // already have done its work. The flag is read before typing, since the text
 // can end the program (a pager's q) and leave the shell the resend would land
 // in. A flag that cannot be read keeps the resend.
-func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch) error {
-	head, tail := Normalize(text), NormalizeTail(text)
+//
+// A watch that still sees only part of the text when a window closes fails
+// the delivery, marked typed (§7.6). A resend would put a second copy beside
+// that part, and the terminator would submit a text missing the rest.
+func (d Delivery) deliver(ctx context.Context, target, text string, in Inspection) error {
+	n := Needles{Head: Normalize(text), Tail: NormalizeTail(text), Whole: NormalizeWhole(text)}
 	// Text with no letters or digits normalizes to nothing, and an empty needle
 	// matches any screen. Such text is looked for as typed instead, trailing
 	// whitespace aside since some backends drop it (§7.1).
 	raw := ""
-	if head == "" {
+	if n.Head == "" {
 		raw = strings.TrimSpace(text)
 	}
 	meta, err := d.Backend.ScreenMeta(ctx, target)
 	fullScreen := err == nil && meta.AltScreen
+	write := d.Backend.Type
+	if in.Paste {
+		write = d.Backend.Paste
+	}
 
-	if err := d.Backend.Type(ctx, target, text); err != nil {
+	if err := write(ctx, target, text); err != nil {
 		return err
 	}
-	if seen, err := d.observed(ctx, target, head, tail, raw, watch); seen || err != nil {
+	echo, err := d.observed(ctx, target, n, raw, in.Watch)
+	if done, err := settled(target, echo, err); done {
 		return err
 	}
 	if fullScreen {
@@ -147,10 +182,11 @@ func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch)
 			"text sent to %s was never observed on screen, and was not sent again: the pane is on the alternate screen, where a full-screen program can act on keys without showing them, so read the screen to see what they did", target)
 	}
 
-	if err := d.Backend.Type(ctx, target, text); err != nil {
+	if err := write(ctx, target, text); err != nil {
 		return err
 	}
-	if seen, err := d.observed(ctx, target, head, tail, raw, watch); seen || err != nil {
+	echo, err = d.observed(ctx, target, n, raw, in.Watch)
+	if done, err := settled(target, echo, err); done {
 		return err
 	}
 
@@ -158,12 +194,31 @@ func (d Delivery) deliver(ctx context.Context, target, text string, watch Watch)
 		"text sent to %s was never observed on screen, after one resend", target)
 }
 
-// observed polls the screen for either needle within one attempt budget, by
-// the watch where there is one and over the whole screen where there is not.
-// Only a watch's own error stops it early. A non-empty raw needle must also
-// appear verbatim on the screen.
-func (d Delivery) observed(ctx context.Context, target, head, tail, raw string, watch Watch) (bool, error) {
+// settled says whether one window's outcome ends the delivery, and how. Only
+// an echo of nothing leaves it open, for the resend.
+func settled(target string, echo Echo, err error) (bool, error) {
+	switch {
+	case err != nil:
+		return true, err
+	case echo == EchoWhole:
+		return true, nil
+	case echo == EchoPart:
+		incomplete := backend.Errorf(backend.CodeTimeout,
+			"text sent to %s was typed but is incomplete: its input box shows only part of it, so it was not submitted and not sent again; read the screen before sending again, since what did arrive is still in the box", target)
+		incomplete.Typed = true
+		return true, incomplete
+	}
+	return false, nil
+}
+
+// observed polls the screen within one attempt budget, by the watch where
+// there is one and for either needle over the whole screen where there is
+// not, and answers with the last capture's echo. Only a watch's own error
+// stops it early. A non-empty raw needle must also appear verbatim on the
+// screen.
+func (d Delivery) observed(ctx context.Context, target string, n Needles, raw string, watch Watch) (Echo, error) {
 	deadline := time.Now().Add(d.Budget)
+	last := EchoNone
 	for {
 		capture, err := d.Backend.Screen(ctx, target, backend.ScreenOpts{})
 		// A capture failure is not a match, and not a reason to stop: the
@@ -172,21 +227,26 @@ func (d Delivery) observed(ctx context.Context, target, head, tail, raw string, 
 		if err == nil {
 			rawSeen := raw == "" || strings.Contains(capture.Text, raw)
 			if watch == nil {
-				if rawSeen && (ScreenContains(capture.Text, head) || ScreenContains(capture.Text, tail)) {
-					return true, nil
+				if rawSeen && (ScreenContains(capture.Text, n.Head) || ScreenContains(capture.Text, n.Tail)) {
+					return EchoWhole, nil
 				}
-			} else if seen, werr := watch(capture.Text, head, tail); werr != nil {
-				return false, werr
-			} else if seen && rawSeen {
-				return true, nil
+			} else if echo, werr := watch(capture.Text, n); werr != nil {
+				return EchoNone, werr
+			} else if echo == EchoWhole && rawSeen {
+				return EchoWhole, nil
+			} else if echo == EchoWhole {
+				// The needles were empty, so the watch matched nothing.
+				last = EchoNone
+			} else {
+				last = echo
 			}
 		}
 		if time.Now().After(deadline) {
-			return false, nil
+			return last, nil
 		}
 		select {
 		case <-ctx.Done():
-			return false, nil
+			return last, nil
 		case <-time.After(d.Poll):
 		}
 	}

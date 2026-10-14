@@ -22,15 +22,25 @@ func (h *Herdr) Type(ctx context.Context, target, text string) error {
 
 // Paste injects multi-line text without submitting it (§4.6).
 //
-// It is the same raw write as Type. herdr has a bracketed-paste-framing
-// injection — the one `pane run` uses — but it is not reachable without the
-// Enter it appends, so there is no way to lay bracketed text in the input line
-// and leave it there. The cross-backend guarantee still holds, and the same
-// caveat as zmx applies: with no framing, a line-editing consumer executes each
-// intermediate line as it arrives, and only the FINAL line is guaranteed
-// unsubmitted.
+// Through the server's input request with no keys: it frames the text as a
+// bracketed paste where the pane's program asked for one, writes it raw where
+// it did not, and adds no Enter (src/app/api_helpers.rs, encode_api_input).
+// The CLI has no verb for it, so it goes over the API socket. A paste-aware
+// program then receives one paste however the terminal splits the write, and
+// a line-editing shell in that mode holds every line until the Enter.
 func (h *Herdr) Paste(ctx context.Context, target, text string) error {
-	return h.Type(ctx, target, text)
+	row, err := h.resolvePane(ctx, target)
+	if err != nil {
+		return err
+	}
+	if text == "" {
+		return nil
+	}
+	_, err = h.call(ctx, "pane.send_input", struct {
+		PaneID string `json:"pane_id"`
+		Text   string `json:"text"`
+	}{row.PaneID, text})
+	return err
 }
 
 func (h *Herdr) Press(ctx context.Context, target string, keys ...backend.Key) error {

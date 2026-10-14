@@ -1102,3 +1102,33 @@ func TestRenamingAWorkspaceOntoAnotherSessionsNameIsRefused(t *testing.T) {
 		t.Errorf("renaming one onto its own name: %v", err)
 	}
 }
+
+// §4.6 A paste reaches a program that asked for bracketed paste as one framed
+// paste.
+//
+// Through the input request that frames text for a pane in that mode and adds
+// no Enter. The raw write it replaced reached such a program as typing, and a
+// paste-aware one read a long text as several pastes split where the
+// terminal's reads fell: Claude Code kept only the last.
+func TestAPasteReachesABracketedPasteProgramFramed(t *testing.T) {
+	b := liveBackend(t)
+	ctx := context.Background()
+	const name = "oly-paste-framed"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Cols: 80, Rows: 24}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Kill(context.Background(), name) })
+	warmShell(t, b, name)
+	if err := b.SendAtomic(ctx, name, `printf '\033[?2004h'; exec cat -v`); err != nil {
+		t.Fatalf("SendAtomic: %v", err)
+	}
+	// cat -v draws ESC as ^[, so a framed paste reads back as its markers.
+	time.Sleep(500 * time.Millisecond)
+	if err := b.Paste(ctx, name, "framed-7"); err != nil {
+		t.Fatalf("Paste: %v", err)
+	}
+	if err := b.Submit(ctx, name); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForScreen(t, b, name, "^[[200~framed-7^[[201~")
+}

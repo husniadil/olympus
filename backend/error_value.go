@@ -44,8 +44,10 @@ type Error struct {
 	// Cause is the underlying error, if any. It stays unwrappable so a backend
 	// can attach the exec or syscall failure that explains the classification.
 	Cause error
-	// Typed marks an AGENT_BLOCKED whose text was typed before the agent
-	// started waiting (behavior §7.5): a second send would type it again.
+	// Typed marks a send whose text was typed and may still be in the input
+	// box: an AGENT_BLOCKED whose agent started waiting after the typing
+	// (behavior §7.5), or a TIMEOUT whose box held only part of the text
+	// (§7.6). A second send would type it again.
 	Typed bool
 	// Uncertain marks a write the backend accepted and then lost track of, so
 	// whether it reached the pane is unknown. It is never retried: a resend
@@ -101,8 +103,8 @@ func CodeOf(err error) Code {
 	return CodeUnexpected
 }
 
-// TypedOf reports whether err is a refusal whose text was already typed
-// (behavior §7.5). Every other error, and nil, is false.
+// TypedOf reports whether err is a failed send whose text was already typed
+// (behavior §7.5, §7.6). Every other error, and nil, is false.
 func TypedOf(err error) bool {
 	var classified *Error
 	return errors.As(err, &classified) && classified.Typed

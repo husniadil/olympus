@@ -39,6 +39,12 @@ func NormalizeTail(s string) string {
 	return string(all[len(all)-normalizedLimit:])
 }
 
+// NormalizeWhole is Normalize with no cap: the whole text, for a check that
+// all of it arrived rather than that it was seen (behavior §7.6).
+func NormalizeWhole(s string) string {
+	return normalize(s, -1)
+}
+
 // normalizeLine is Normalize with no cap, for the text being SEARCHED.
 //
 // The haystack must not be truncated. What the cap is for — keeping a needle

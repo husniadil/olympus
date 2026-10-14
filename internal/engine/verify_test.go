@@ -362,8 +362,8 @@ func TestAClassifiedSecondTerminatorFailureKeepsItsCode(t *testing.T) {
 func TestAnInspectionThatRefusesTypesNothing(t *testing.T) {
 	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("$ " + text) }}
 	d := delivery(t, f, nil)
-	d.Inspect = func(context.Context, string) (engine.Watch, error) {
-		return nil, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")
+	d.Inspect = func(context.Context, string) (engine.Inspection, error) {
+		return engine.Inspection{}, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")
 	}
 
 	err := d.VerifiedSubmit(context.Background(), "build", "make build")
@@ -384,9 +384,9 @@ func TestTheInspectionRunsInsideTheLock(t *testing.T) {
 
 	var attemptErr error
 	d := delivery(t, f, locks)
-	d.Inspect = func(context.Context, string) (engine.Watch, error) {
+	d.Inspect = func(context.Context, string) (engine.Inspection, error) {
 		_, attemptErr = locks.Acquire(ctx, key("build"), 10*time.Millisecond)
-		return nil, nil
+		return engine.Inspection{}, nil
 	}
 	if err := d.VerifiedSubmit(ctx, "build", "make build"); err != nil {
 		t.Fatalf("VerifiedSubmit: %v", err)
@@ -400,20 +400,20 @@ func TestTheInspectionRunsInsideTheLock(t *testing.T) {
 // screen from an earlier turn is not the echo of this one, and a watch that
 // knows where input lands does not count it.
 func TestAWatchDecidesWhatCountsAsObserved(t *testing.T) {
-	inBox := func(screen, head, tail string) (bool, error) {
+	inBox := func(screen string, n engine.Needles) (engine.Echo, error) {
 		for _, line := range strings.Split(screen, "\n") {
-			if strings.HasPrefix(line, "> ") && engine.ScreenContains(line, head) {
-				return true, nil
+			if strings.HasPrefix(line, "> ") && engine.ScreenContains(line, n.Head) {
+				return engine.EchoWhole, nil
 			}
 		}
-		return false, nil
+		return engine.EchoNone, nil
 	}
 
 	t.Run("the echo in the input counts", func(t *testing.T) {
 		f := &fakeBackend{screen: "earlier: make build"}
 		f.onType = func(f *fakeBackend, text string) { f.setScreen("earlier: make build\n> " + text) }
 		d := delivery(t, f, nil)
-		d.Inspect = func(context.Context, string) (engine.Watch, error) { return inBox, nil }
+		d.Inspect = func(context.Context, string) (engine.Inspection, error) { return engine.Inspection{Watch: inBox}, nil }
 		if err := d.VerifiedSubmit(context.Background(), "build", "make build"); err != nil {
 			t.Fatalf("VerifiedSubmit: %v", err)
 		}
@@ -425,7 +425,7 @@ func TestAWatchDecidesWhatCountsAsObserved(t *testing.T) {
 	t.Run("the same text elsewhere does not", func(t *testing.T) {
 		f := &fakeBackend{screen: "earlier: make build"}
 		d := delivery(t, f, nil)
-		d.Inspect = func(context.Context, string) (engine.Watch, error) { return inBox, nil }
+		d.Inspect = func(context.Context, string) (engine.Inspection, error) { return engine.Inspection{Watch: inBox}, nil }
 		err := d.VerifiedSubmit(context.Background(), "build", "make build")
 		if !errors.Is(err, backend.ErrTimeout) {
 			t.Fatalf("error is %v, want a timeout", err)
@@ -442,13 +442,13 @@ func TestAWatchDecidesWhatCountsAsObserved(t *testing.T) {
 func TestAWatchThatRefusesStopsWithoutResendOrSubmit(t *testing.T) {
 	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("Do you want to proceed?") }}
 	d := delivery(t, f, nil)
-	d.Inspect = func(context.Context, string) (engine.Watch, error) {
-		return func(screen, _, _ string) (bool, error) {
+	d.Inspect = func(context.Context, string) (engine.Inspection, error) {
+		return engine.Inspection{Watch: func(screen string, _ engine.Needles) (engine.Echo, error) {
 			if strings.Contains(screen, "proceed?") {
-				return false, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")
+				return engine.EchoNone, backend.Errorf(backend.CodeAgentBlocked, "the agent in build is waiting on a person")
 			}
-			return false, nil
-		}, nil
+			return engine.EchoNone, nil
+		}}, nil
 	}
 
 	started := time.Now()
@@ -462,5 +462,83 @@ func TestAWatchThatRefusesStopsWithoutResendOrSubmit(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed >= d.Budget {
 		t.Errorf("the refusal took %s, so it waited on the verification budget", elapsed)
+	}
+}
+
+// §7.7: a target the inspection asks to have pasted gets the text as one
+// paste. A paste-aware program reads a long burst of typing as several
+// pastes split where the terminal's reads fell, and keeps only the last.
+func TestAnInspectionThatAsksForAPasteGetsOne(t *testing.T) {
+	f := &fakeBackend{onPaste: func(f *fakeBackend, text string) { f.setScreen("> " + text) }}
+	d := delivery(t, f, nil)
+	d.Inspect = func(context.Context, string) (engine.Inspection, error) {
+		return engine.Inspection{Paste: true}, nil
+	}
+
+	if err := d.VerifiedSubmit(context.Background(), "build", "make build"); err != nil {
+		t.Fatalf("VerifiedSubmit: %v", err)
+	}
+	f.mu.Lock()
+	pasted := len(f.pasted)
+	f.mu.Unlock()
+	typed, submits := f.counts()
+	if pasted != 1 || typed != 0 || submits != 1 {
+		t.Errorf("pasted %d, typed %d and submitted %d, want one paste, no typing and one terminator", pasted, typed, submits)
+	}
+}
+
+// §7.6: a watch that sees only part of the text in the input box fails the
+// send as typed. A resend would put a second copy beside the part that is
+// there, and the terminator would submit a text with its head missing.
+func TestAPartialEchoFailsTypedWithoutResendOrSubmit(t *testing.T) {
+	f := &fakeBackend{onType: func(f *fakeBackend, text string) { f.setScreen("> " + text[len(text)/2:]) }}
+	d := delivery(t, f, nil)
+	d.Inspect = func(context.Context, string) (engine.Inspection, error) {
+		return engine.Inspection{Watch: func(screen string, n engine.Needles) (engine.Echo, error) {
+			switch {
+			case engine.ScreenContains(screen, n.Whole):
+				return engine.EchoWhole, nil
+			case engine.ScreenContains(screen, n.Tail):
+				return engine.EchoPart, nil
+			}
+			return engine.EchoNone, nil
+		}}, nil
+	}
+
+	started := time.Now()
+	err := d.VerifiedSubmit(context.Background(), "build", "make build && make test && make install && make release && make announce")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if !backend.TypedOf(err) {
+		t.Errorf("error %v is not marked typed, so a caller would send the text again beside the part in the box", err)
+	}
+	typed, submits := f.counts()
+	if typed != 1 || submits != 0 {
+		t.Errorf("typed %d and submitted %d, want one send and no terminator", typed, submits)
+	}
+	if elapsed := time.Since(started); elapsed >= 2*d.Budget {
+		t.Errorf("the failure took %s, so it waited on a second window", elapsed)
+	}
+}
+
+// §7.1: text with no letter or digit has to appear as typed, inside a watch
+// as on the whole screen. Its needles are empty and match any box, so a watch
+// that reads the box as whole has not seen it.
+func TestAWatchsWholeEchoStillNeedsTheTextAsTyped(t *testing.T) {
+	f := &fakeBackend{screen: "> "}
+	d := delivery(t, f, nil)
+	d.Inspect = func(context.Context, string) (engine.Inspection, error) {
+		return engine.Inspection{Watch: func(string, engine.Needles) (engine.Echo, error) {
+			return engine.EchoWhole, nil
+		}}, nil
+	}
+
+	err := d.VerifiedSubmit(context.Background(), "build", "!!!")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if _, submits := f.counts(); submits != 0 {
+		t.Errorf("submitted %d times on text that never showed, want 0", submits)
 	}
 }
