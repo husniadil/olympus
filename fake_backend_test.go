@@ -51,6 +51,10 @@ type fakeBackend struct {
 	// onScreen runs before each capture answers, so a case can change the
 	// screen from one poll to the next.
 	onScreen func(f *fakeBackend)
+	// pressed records every key pressed, and onPress runs after each press so
+	// a case can redraw the screen the way the pane would.
+	pressed []backend.Key
+	onPress func(f *fakeBackend, keys []backend.Key)
 	// onRedraw, when set, makes the fake a backend that can ask for a
 	// redraw, and runs on each request; redraws counts them. Unset, Redraw
 	// answers unsupported, the way a server without pane_redraw does.
@@ -104,7 +108,13 @@ func (f *fakeBackend) Paste(_ context.Context, _, text string) error {
 // sends counts the times text went to the pane, typed or pasted.
 func (f *fakeBackend) sends() int { return len(f.typed) + len(f.pasted) }
 
-func (f *fakeBackend) Press(context.Context, string, ...backend.Key) error { return nil }
+func (f *fakeBackend) Press(_ context.Context, _ string, keys ...backend.Key) error {
+	f.pressed = append(f.pressed, keys...)
+	if f.onPress != nil {
+		f.onPress(f, keys)
+	}
+	return nil
+}
 
 func (f *fakeBackend) Submit(context.Context, string) error {
 	if f.submitFailures > 0 {

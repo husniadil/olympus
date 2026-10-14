@@ -34,6 +34,24 @@ func HasComposer(agent string) bool {
 	return ok && m.namesComposer()
 }
 
+// boxScroll names, per agent, the keys that move the input cursor to the start
+// of its text and back to the end, for an agent whose box scrolls with its
+// cursor (behavior §7.6). Measured on Claude Code 2.1.299 in a 52x24 pane:
+// c-a showed the box's first rows and c-e its last again, while home and end
+// moved nothing.
+var boxScroll = map[string][2]string{"claude": {"c-a", "c-e"}}
+
+// BoxScrollKeys names the keys that scroll an agent's input box to the start
+// of its text and back to the end, where they are known.
+func BoxScrollKeys(agent string) (start, end string, ok bool) {
+	m, found := Lookup(agent)
+	if !found {
+		return "", "", false
+	}
+	keys, ok := boxScroll[m.ID]
+	return keys[0], keys[1], ok
+}
+
 // namesComposer reports whether any of the manifest's rules reads the box an
 // agent draws around its input. That is the manifest's own statement that the
 // agent draws one.

@@ -51,16 +51,6 @@ carries `exit_code: 0` beside the error. A client must read `isError` before
 `structuredContent`. Dropping the zero data means publishing a separate output
 schema for failures, which waits on the failure-envelope decision.
 
-## A tall inline text in a short pane fails as incomplete
-
-Claude Code caps its input box at about half the pane's height and shows the
-rows at the cursor (§7.6). A text it draws inline, one line of up to 800
-characters, that needs more rows than the cap shows only its tail, so the send
-fails as incomplete with the whole text in the box. Measured at 52 columns:
-790 characters overflowed the box at 24, 30 and 40 rows and fit at 60. The
-whole text has to be seen because a box showing only its tail is also what a
-lost head looks like.
-
 ## An undiagnosed meja failure on macOS
 
 Every meja case in the root package intermittently fails at once with meja's

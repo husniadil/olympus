@@ -571,3 +571,74 @@ func TestSendTakesTheWholeTextWrappedAcrossTheBox(t *testing.T) {
 		t.Errorf("submitted %d, want 1", f.submits)
 	}
 }
+
+// scrolledBox is a Claude Code box of rows at most cols wide holding text,
+// as it draws one taller than its cap: the last rows, or the first after c-a.
+func scrolledBox(t *testing.T, text string, cols, rows int, start bool) string {
+	t.Helper()
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		if line != "" && len(line)+1+len(word) > cols {
+			lines = append(lines, line)
+			line = ""
+		}
+		if line != "" {
+			line += " "
+		}
+		line += word
+	}
+	lines = append(lines, line)
+	if start {
+		return boxHolding(t, lines[:rows]...)
+	}
+	return boxHolding(t, lines[len(lines)-rows:]...)
+}
+
+// §7.6: a box that shows the text's tail and not its head is scrolled to the
+// cursor, or lost the head. The start key scrolls it up, and a head there is
+// the echo. Measured on Claude Code 2.1.299: 790 characters in a 52x24 pane
+// showed the last 7 rows, and the send failed as incomplete with the whole
+// text in the box.
+func TestSendScrollsATallBoxToItsStartForTheHead(t *testing.T) {
+	text := longText()[:790]
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = scrolledBox(t, text, 48, 7, false) }
+	f.onPress = func(f *fakeBackend, keys []backend.Key) {
+		f.text = scrolledBox(t, text, 48, 7, keys[0] == "c-a")
+	}
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	if err := s.Send(context.Background(), text, VerifyBudget(shortBudget)); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if f.submits != 1 {
+		t.Errorf("submitted %d, want 1", f.submits)
+	}
+	if got := fmt.Sprint(f.pressed); got != "[c-a c-e]" {
+		t.Errorf("pressed %s, want the start key and then the end key", got)
+	}
+}
+
+// §7.6: a box whose start is not the text's head lost it, and the cursor is
+// put back at the end before the send fails.
+func TestSendFailsWhenTheStartOfTheBoxIsNotTheHead(t *testing.T) {
+	text := longText()
+	tail := text[1022:]
+	f := &fakeBackend{text: composerScreen(t, "idle-earlier-text.txt")}
+	f.onType = func(f *fakeBackend, _ string) { f.text = boxHolding(t, tail[:len(tail)/2], tail[len(tail)/2:]) }
+	paneRunning(f, "claude")
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	err := s.Send(context.Background(), text, VerifyBudget(shortBudget))
+	if !errors.Is(err, ErrTimeout) || !TypedOf(err) {
+		t.Fatalf("error is %v, want a timeout marked typed", err)
+	}
+	if f.submits != 0 {
+		t.Errorf("submitted %d, want 0", f.submits)
+	}
+	if got := fmt.Sprint(f.pressed); got != "[c-a c-e]" {
+		t.Errorf("pressed %s, want the start key and then the end key", got)
+	}
+}

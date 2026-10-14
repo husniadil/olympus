@@ -106,6 +106,8 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 	// placeholder: a count that rose is taken only once the next capture shows
 	// the same count, so the Enter does not land while pieces still arrive.
 	lastRisen := -1
+	// The box is scrolled to its start for the head at most once a delivery.
+	scrolled, headAtStart := false, false
 	watch := func(screen string, n engine.Needles) (engine.Echo, error) {
 		if err := blocked(screen, true); err != nil {
 			return engine.EchoNone, err
@@ -124,7 +126,18 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 		box, boxDrawn, hasBox := composer(screen)
 		switch {
 		case boxDrawn:
-			return inBox(box, n, boxPastes, &lastRisen), nil
+			echo := inBox(box, n, boxPastes, &lastRisen)
+			if echo != engine.EchoPart || !tailOnly(box, n, boxPastes) {
+				return echo, nil
+			}
+			if !scrolled {
+				scrolled = true
+				headAtStart = o.headAtStart(ctx, target, agents, n.Head, composer)
+			}
+			if headAtStart {
+				return engine.EchoWhole, nil
+			}
+			return echo, nil
 		case hasBox:
 			// The box went after the text was typed: something opened over
 			// it, and a resend would type into that.
@@ -169,6 +182,54 @@ func inBox(box string, n engine.Needles, before int, lastRisen *int) engine.Echo
 		return engine.EchoPart
 	}
 	return engine.EchoNone
+}
+
+// tailOnly reports whether a box shows the text's tail and not its head, with
+// no new paste placeholder: a box scrolled to the cursor, or one whose text
+// lost its head.
+func tailOnly(box string, n engine.Needles, before int) bool {
+	if before >= 0 && agentstate.Pastes(box) > before {
+		return false
+	}
+	return engine.ScreenContains(box, n.Tail) && !engine.ScreenContains(box, n.Head)
+}
+
+// headAtStart scrolls an agent's input box to the start of its text and
+// reports whether the head is there (§7.6). The cursor is put back at the end
+// whatever the answer, so the box is left as the send found it. An agent with
+// no known keys, a press that fails and a head still missing when the wait is
+// over are all false.
+func (o *Olympus) headAtStart(ctx context.Context, target string, agents []string, head string, composer func(string) (string, bool, bool)) bool {
+	var start, end string
+	for _, agent := range agents {
+		var ok bool
+		if start, end, ok = agentstate.BoxScrollKeys(agent); ok {
+			break
+		}
+	}
+	if start == "" {
+		return false
+	}
+	if o.backend.Press(ctx, target, backend.Key(start)) != nil {
+		return false
+	}
+	defer func() { _ = o.backend.Press(context.WithoutCancel(ctx), target, backend.Key(end)) }()
+	deadline := time.Now().Add(redrawWait)
+	for {
+		if capture, err := o.backend.Screen(ctx, target, backend.ScreenOpts{}); err == nil {
+			if box, drawn, _ := composer(trimLineEnds(capture.Text)); drawn && engine.ScreenContains(box, head) {
+				return true
+			}
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(redrawPoll):
+		}
+	}
 }
 
 // agentsAt names the agents a target holds.

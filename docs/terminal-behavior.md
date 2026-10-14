@@ -2576,14 +2576,45 @@ box held the last 135 characters, the send reported the text in the box, and
 the Enter submitted the tail alone. A resend would put a second copy beside
 that tail, and `typed` tells a caller the text is still there.
 
-##### Scope
+#### A box that shows the tail is scrolled to its start once
+
+A box can show the text's tail and not its head for two reasons: the head was
+lost, or the box is shorter than the text and shows the rows at the cursor.
+Where it shows the tail, no head and no new placeholder, and the agent's keys
+for moving its input cursor to the start of the text and back are known,
+Olympus MUST press the start key once, read the box for up to one second, and
+press the end key whatever it read. A head seen there makes the echo whole. A
+head not seen leaves it part. The box is scrolled at most once a delivery.
+
+| Agent | Start | End |
+|---|---|---|
+| Claude Code | `c-a` | `c-e` |
+
+##### Why
 
 Claude Code caps its box at about half the pane's height and shows the rows
 at the cursor. A text it draws inline (one line of up to 800 characters, as a
-paste) that is taller than the cap shows only its tail, and such a send fails
-as incomplete with the whole text in the box. Measured on 2.1.299: 790
-characters in a 52-column pane showed the last 7 rows at 24 rows, 10 at 30
-and 15 at 40, and all 18 at 60.
+paste) that is taller than the cap shows only its tail, so the send failed as
+incomplete with the whole text in the box. Measured on 2.1.299: 790 characters
+in a 52-column pane showed the last 7 rows at 24 rows, 10 at 30 and 15 at 40,
+and all 18 at 60. Nothing on the screen tells the cap, the screen shows no
+scroll marker even with colors, and the cap is the agent's to change, so the
+start of the box is read rather than its height computed.
+
+`c-a` showed the box's first rows and `c-e` its last again, while `home` and
+`end` moved nothing. In a box whose head was lost (1,157 characters typed),
+`c-a` showed the same first row as before, so it does not find a head that is
+not there. Two sends of the 790 characters into the 52x24 pane were then
+submitted whole.
+
+##### Scope
+
+The rows between the box's first and last views are not read, so a text that
+lost part of its middle and kept both ends counts as whole. A text Olympus
+pastes arrives as one paste on every backend where the program asked for one
+(§7.7), and no middle was measured lost that way. An agent whose user rebound
+the start key gets whatever that key does, and a box that is gone after it
+stops the send as §7.5 says.
 
 #### Why
 
