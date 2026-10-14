@@ -56,6 +56,19 @@ func TestTypedSurvivesWrappingAndIsFalseElsewhere(t *testing.T) {
 	}
 }
 
+func TestReasonSurvivesWrappingAndIsEmptyElsewhere(t *testing.T) {
+	hidden := backend.Errorf(backend.CodeAgentBlocked, "no input box")
+	hidden.Reason = backend.ReasonNoInputBox
+	if got := backend.ReasonOf(fmt.Errorf("send: %w", hidden)); got != backend.ReasonNoInputBox {
+		t.Errorf("ReasonOf through a wrap = %q, want %q", got, backend.ReasonNoInputBox)
+	}
+	for _, err := range []error{backend.Errorf(backend.CodeAgentBlocked, "blocked"), errors.New("x"), nil} {
+		if got := backend.ReasonOf(err); got != "" {
+			t.Errorf("ReasonOf(%v) = %q, want none", err, got)
+		}
+	}
+}
+
 func TestUncertainSurvivesWrappingAndIsFalseElsewhere(t *testing.T) {
 	lost := backend.Errorf(backend.CodeUnexpected, "client went away")
 	lost.Uncertain = true

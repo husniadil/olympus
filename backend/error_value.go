@@ -49,6 +49,10 @@ type Error struct {
 	// (behavior §7.5), or a TIMEOUT whose box held only part of the text
 	// (§7.6). A second send would type it again.
 	Typed bool
+	// Reason says which of a code's causes this is, where a caller acts on
+	// them differently and the code alone does not tell (api §2's
+	// `error.reason`). Empty for every failure that has none.
+	Reason Reason
 	// Uncertain marks a write the backend accepted and then lost track of, so
 	// whether it reached the pane is unknown. It is never retried: a resend
 	// could deliver it twice (behavior §4.4).
@@ -108,6 +112,25 @@ func CodeOf(err error) Code {
 func TypedOf(err error) bool {
 	var classified *Error
 	return errors.As(err, &classified) && classified.Typed
+}
+
+// A Reason is one of api §2's `error.reason` values. Like a code it is
+// semver-bound: a shipped reason is never repurposed or removed.
+type Reason string
+
+// ReasonNoInputBox is an AGENT_BLOCKED whose agent draws an input box and
+// showed none: something is open over it, or it is not drawn yet (behavior
+// §7.5). Without it, an AGENT_BLOCKED is an agent waiting on a person.
+const ReasonNoInputBox Reason = "no_input_box"
+
+// ReasonOf reports err's reason, looking through wrapping. Every error that
+// has none, and nil, has the empty reason.
+func ReasonOf(err error) Reason {
+	var classified *Error
+	if errors.As(err, &classified) {
+		return classified.Reason
+	}
+	return ""
 }
 
 // UncertainOf reports whether err is a write of unknown delivery (behavior

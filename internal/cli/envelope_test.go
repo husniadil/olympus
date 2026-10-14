@@ -68,6 +68,14 @@ func TestATypedRefusalCarriesTyped(t *testing.T) {
 		`{"ok":false,"backend":"herdr","error":{"code":"AGENT_BLOCKED","message":"blocked"}}`)
 }
 
+// §2: `error.reason` is present only on a refusal that has one.
+func TestARefusalWithAReasonCarriesIt(t *testing.T) {
+	hidden := backend.Errorf(backend.CodeAgentBlocked, "no input box")
+	hidden.Reason = backend.ReasonNoInputBox
+	assertEnvelopeJSON(t, failureEnvelope(backend.Herdr, hidden),
+		`{"ok":false,"backend":"herdr","error":{"code":"AGENT_BLOCKED","message":"no input box","reason":"no_input_box"}}`)
+}
+
 func TestOKSurvivesBeingFalse(t *testing.T) {
 	assertEnvelopeJSON(t, Envelope{}, `{"ok":false}`)
 }
