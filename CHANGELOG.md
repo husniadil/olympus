@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0]
+
+### Changed
+
+- **A send into an agent is pasted.** Claude Code takes one unbracketed read
+  of more than 800 characters as a paste, and a terminal splits a long write
+  into reads of about 1,024 bytes, so a typed line of 1,157 characters reached
+  it as a paste followed by typing and it kept only the last 135 characters.
+  A verified send into a pane holding a known agent now goes through paste,
+  framed where the program asked for bracketed paste. Shells keep typing.
+- **herdr frames a paste.** `paste` goes through the server's input request,
+  which frames the text where the pane's program asked for bracketed paste and
+  adds no Enter, instead of the raw write it shared with `type`.
+- **zmx frames a paste.** zmx has no framing, so Olympus reads the pane's
+  bracketed-paste mode off `zmx history --vt` and frames the text itself where
+  it is set. A two-line paste into zsh on zmx now holds both lines until the
+  Enter, as on tmux. A program that never asked still gets the raw text.
+- **An agent's input box must hold the whole text.** A send used to count
+  either end of the text in the box as its echo, so a box holding only the
+  tail was confirmed and the Enter submitted the tail alone. Now the whole
+  text must be there, or a new paste placeholder with none of the text beside
+  it. A box that shows part of it fails the send with `TIMEOUT` marked
+  `typed`, with no resend and no Enter.
+- **A tall input box is scrolled to its start before it is called
+  incomplete.** Claude Code caps its box at about half the pane and shows the
+  rows at the cursor, so a text taller than the cap shows only its tail. Where
+  the box shows the tail and not the head, the send presses `c-a` once, looks
+  for the head, and presses `c-e` back.
+- **`error.typed` is also set on a `TIMEOUT`** whose input box showed only
+  part of the text. It was set only on `AGENT_BLOCKED` before.
+
 ## [0.35.0]
 
 ### Changed
