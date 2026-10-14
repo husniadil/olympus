@@ -68,6 +68,6 @@ func (a *App) agentsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&last, "last", false,
-		"Also read the one line each agent last said, or the question a blocked one is waiting on, and mark one whose input box is not shown (no_input_box); costs one capture per row")
+		"Also read the one line each agent last said, or the question a blocked one is waiting on, and with --json mark one whose input box is not shown (no_input_box); costs one capture per row")
 	return cmd
 }
