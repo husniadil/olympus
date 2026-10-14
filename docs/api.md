@@ -88,7 +88,7 @@ ignored (behavior spec §8.7, §8.9).
 | Flag | Go option | Meaning | Backends |
 |---|---|---|---|
 | `--viewer` | `AsViewer` | Read-only: no input, no resize. | tmux, zmx; refused on meja and herdr |
-| `--keep-others` | `KeepOtherClients` | Co-attach instead of displacing prior clients. | all; meja and herdr's session client carry a notice where it cannot be honoured (§8.4); nothing to do under `--bare` on tmux |
+| `--keep-others` | `KeepOtherClients` | Co-attach instead of displacing prior clients. | all; herdr's session client carries a notice where it cannot be honoured, and meja, which displaces nobody, one where it is not given (§8.4); nothing to do under `--bare` on tmux |
 | `--client` | `WithSessionClient` | The multiplexer's own session client (sidebar, tabs, selection, scroll, copy), steered onto the target first: a workspace is focused, a tab is focused within it, a pane is zoomed within its tab (§8.10). With `--server` it attaches that named session, otherwise the server on the resolved socket. | herdr only |
 | `--bare` | `AsBare` | A plain pane, no chrome. On herdr, the session client with its chrome hidden (implies `--client`). On tmux, a throwaway view onto the session, killed when the attach ends; the target may be `<session>:<window>`. On a herdr server that advertises `client_view_focus`, the client is launched onto the target's workspace and moved by a tag of its own, and the server's focus is not steered (§8.10). | herdr, tmux |
 | `--view` | `BareViewName` | With `--bare` on tmux, the view's name, which must begin with `olympus-view-` (§17.1). A caller can then `view scroll` and `view focus` it while attached, since an attach has no channel to report a generated name back. | tmux; usage elsewhere |
