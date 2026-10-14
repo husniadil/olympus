@@ -95,8 +95,10 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 			// An agent that draws a box and shows none has something else
 			// taking the keys, or has not drawn it yet (§7.5): an Enter
 			// would answer whatever is there.
-			return engine.Inspection{}, backend.Errorf(backend.CodeAgentBlocked,
+			err := backend.Errorf(backend.CodeAgentBlocked,
 				"the %s agent in %s is not showing its input box, so nothing was typed: it may still be starting, or something is open over it such as a rewind list or a picker; send again once the box is back, or close what is open with press", agents[0], target)
+			err.Reason = backend.ReasonNoInputBox
+			return engine.Inspection{}, err
 		default:
 			codexPastes = agentstate.PastedContent(trimLineEnds(screen), chars)
 		}
@@ -144,6 +146,7 @@ func (o *Olympus) inspectInput(ctx context.Context, target, text string) (engine
 			err := backend.Errorf(backend.CodeAgentBlocked,
 				"the %s agent in %s stopped showing its input box after the text was typed, so it was not submitted: something opened over it, and the text may be in its input box, so read the screen before sending again", agents[0], target)
 			err.Typed = true
+			err.Reason = backend.ReasonNoInputBox
 			return engine.EchoNone, err
 		}
 		if codexPastes >= 0 && agentstate.PastedContent(trimLineEnds(screen), chars) > codexPastes {

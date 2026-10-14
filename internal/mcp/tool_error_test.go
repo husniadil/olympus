@@ -26,4 +26,11 @@ func TestATypedRefusalSaysSoInTheToolError(t *testing.T) {
 	if got := lines(toolError(backend.Errorf(backend.CodeAgentBlocked, "blocked"))); len(got) != 1 {
 		t.Errorf("untyped refusal content = %q, want only the code line", got)
 	}
+	// api §2's `error.reason` the same way, after `typed` where both are set.
+	hidden := backend.Errorf(backend.CodeAgentBlocked, "box gone after typing")
+	hidden.Typed = true
+	hidden.Reason = backend.ReasonNoInputBox
+	if got := lines(toolError(hidden)); len(got) != 3 || got[1] != "typed: true" || got[2] != "reason: no_input_box" {
+		t.Errorf("refusal with a reason content = %q, want the code line, \"typed: true\" and \"reason: no_input_box\"", got)
+	}
 }

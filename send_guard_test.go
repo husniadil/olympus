@@ -44,6 +44,9 @@ func TestSendRefusesAnAgentWaitingOnAPerson(t *testing.T) {
 	if TypedOf(err) {
 		t.Errorf("a refusal before typing is marked typed: %v", err)
 	}
+	if got := ReasonOf(err); got != "" {
+		t.Errorf("a refusal for a person has reason %q, want none", got)
+	}
 	if f.sends() != 0 || f.submits != 0 {
 		t.Errorf("typed %d and submitted %d into a waiting agent, want nothing", f.sends(), f.submits)
 	}
@@ -140,8 +143,8 @@ func TestSendRefusesAnAgentShowingNoInputBox(t *testing.T) {
 		s := &Session{ol: fakeOlympus(f), name: "build"}
 
 		err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
-		if !errors.Is(err, ErrBlocked) || TypedOf(err) {
-			t.Fatalf("%s: error is %v, want an untyped AGENT_BLOCKED", screen, err)
+		if !errors.Is(err, ErrBlocked) || TypedOf(err) || ReasonOf(err) != ReasonNoInputBox {
+			t.Fatalf("%s: error is %v, want an untyped AGENT_BLOCKED for no input box", screen, err)
 		}
 		if f.sends() != 0 || f.submits != 0 {
 			t.Errorf("%s: typed %d and submitted %d, want nothing", screen, f.sends(), f.submits)
@@ -265,8 +268,8 @@ func TestSendStopsWhenAnOverlayOpensMidDelivery(t *testing.T) {
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 
 	err := s.Send(context.Background(), "word word word", VerifyBudget(shortBudget))
-	if !errors.Is(err, ErrBlocked) || !TypedOf(err) {
-		t.Fatalf("error is %v, want a typed AGENT_BLOCKED", err)
+	if !errors.Is(err, ErrBlocked) || !TypedOf(err) || ReasonOf(err) != ReasonNoInputBox {
+		t.Fatalf("error is %v, want a typed AGENT_BLOCKED for no input box", err)
 	}
 	if f.sends() != 1 || f.submits != 0 {
 		t.Errorf("typed %d and submitted %d, want one send and no terminator", f.sends(), f.submits)

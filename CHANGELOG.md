@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`error.reason` says which of a code's causes a failure is.** Its one value
+  so far, `no_input_box`, marks an `AGENT_BLOCKED` whose agent showed no input
+  box (something open over it, or not drawn yet), typed or not. Without it, an
+  `AGENT_BLOCKED` is an agent waiting on a person. The two were told apart
+  only by the message, which is not part of the contract. The MCP door adds a
+  `reason: no_input_box` line, and the Go door reads it with `ReasonOf`.
+
 ## [0.36.0]
 
 ### Changed

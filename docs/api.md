@@ -184,6 +184,7 @@ on `isError`. A failed call's structured content still carries a zero-valued
 | `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. |
 | `error` | CLI only. Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
 | `error.typed` | `true` on a failed send whose text was typed and may still be in the input box: an `AGENT_BLOCKED` whose agent started waiting after the text was typed (behavior spec §7.5), or a `TIMEOUT` whose input box showed only part of the text (§7.6). Omitted otherwise. |
+| `error.reason` | Which of a code's causes a failure is, where the code alone does not tell and a caller acts on them differently. Omitted where there is none. One value so far: `no_input_box`, on an `AGENT_BLOCKED` whose agent draws an input box and showed none, since something is open over it or it is not drawn yet (behavior spec §7.5), typed or not. An `AGENT_BLOCKED` without it is an agent waiting on a person. |
 
 **Empty collections serialize as `[]`, never `null`.** This applies to `data`
 when it is a list, and to every list-valued field inside it.
@@ -271,7 +272,8 @@ machine-readable.
 
 It is never a JSON-RPC protocol error (behavior spec §15.6). Its first text
 content is `CODE: message`, and an error marked `typed` adds a text content
-reading `typed: true`. Its structured content names the resolved
+reading `typed: true`. An error with a reason adds one after it reading
+`reason: ` and the reason, such as `reason: no_input_box`. Its structured content names the resolved
 `backend` whenever one resolved, as §2 requires of a failure.
 
 ### The Go door returns typed errors
@@ -279,7 +281,8 @@ reading `typed: true`. Its structured content names the resolved
 `errors.Is` works against the exported sentinels `ErrUsage`, `ErrNotFound`,
 `ErrUnavailable`, `ErrTimeout`, `ErrConflict`, `ErrUnsupported` and `ErrBlocked`. The code is
 also readable from the error value with `CodeOf`, and `ExitCode` maps it to its
-exit status. `TypedOf` reads the envelope's `error.typed`.
+exit status. `TypedOf` reads the envelope's `error.typed`, and `ReasonOf` its
+`error.reason`, with `ReasonNoInputBox` the value to compare against.
 
 ### 3.1 The two exit-code deviations
 
@@ -1183,7 +1186,7 @@ Semver, with these commitments:
 
 | Class | Covers |
 |---|---|
-| **Semver-bound** | The envelope shape, `data` field names and types, error codes and their exit codes, MCP tool names and parameter names, CLI verb names and flag names. |
+| **Semver-bound** | The envelope shape, `data` field names and types, error codes and their exit codes, error reasons, MCP tool names and parameter names, CLI verb names and flag names. |
 | **Additive only** | New fields, new codes, new verbs, new flags. A shipped field is never repurposed or removed within a major version. |
 | **Not stable** | Human-readable output (§2.2), stderr wording, and anything in `docs/terminal-behavior.md` marked *(backend-local)*. |
 

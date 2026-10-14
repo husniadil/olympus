@@ -36,6 +36,14 @@ func CodeOf(err error) backend.Code { return backend.CodeOf(err) }
 // typing (behavior §7.5), or a TIMEOUT whose box held only part of it (§7.6).
 func TypedOf(err error) bool { return backend.TypedOf(err) }
 
+// ReasonNoInputBox is the reason of an AGENT_BLOCKED whose agent showed no
+// input box, as opposed to one waiting on a person (behavior §7.5).
+const ReasonNoInputBox = backend.ReasonNoInputBox
+
+// ReasonOf reports which of a code's causes a failure is (api §2's
+// `error.reason`), or the empty reason where it has none.
+func ReasonOf(err error) backend.Reason { return backend.ReasonOf(err) }
+
 // ExitCode maps a code to its process exit status.
 func ExitCode(code backend.Code) int { return backend.ExitCode(code) }
 

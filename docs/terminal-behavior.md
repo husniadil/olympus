@@ -2467,7 +2467,8 @@ model picker, a transcript viewer), or has not drawn the box yet. A verified or
 atomic send into it MUST fail with `AGENT_BLOCKED` and type nothing, since an
 Enter there answers what is open. A box that goes while the echo is polled for
 stops the delivery the way a prompt does: no resend, no terminator, and
-`AGENT_BLOCKED` marked `typed`. The box is read off the whole capture, not the
+`AGENT_BLOCKED` marked `typed`. Both failures carry the reason `no_input_box`
+(api §2), the only thing that tells them from an agent waiting on a person. The box is read off the whole capture, not the
 detection tail, since a tall draft can push its top rule out of the tail. Measured on Claude Code 2.1.274, the box is drawn while the agent is idle,
 working, holding a paste placeholder and listing slash commands, and is absent
 under its rewind list, its model picker and its transcript viewer.

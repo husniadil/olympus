@@ -205,6 +205,9 @@ func toolError(err error) *sdk.CallToolResult {
 	if backend.TypedOf(err) {
 		result.Content = append(result.Content, &sdk.TextContent{Text: "typed: true"})
 	}
+	if reason := backend.ReasonOf(err); reason != "" {
+		result.Content = append(result.Content, &sdk.TextContent{Text: "reason: " + string(reason)})
+	}
 	return result
 }
 
