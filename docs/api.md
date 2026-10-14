@@ -860,6 +860,7 @@ it is `[]`, never null (behavior §3.7).
 | `cwd` | The pane's working directory. |
 | `pid` | The agent's own process where one is known. |
 | `last` | One line of the agent's own output, only when asked for. |
+| `no_input_box` | `true` on a row captured for `last` whose agent draws an input box the screen did not show: something is open over it, such as a rewind list or a picker, or it is not drawn yet (behavior spec §3.7, §7.5). Never on a `blocked` row. A natively-detecting backend may still report such a row `idle`. Omitted otherwise. |
 | `usage` | Omitted where absent. `usage[].percent` is an integer 0 to 100, and `usage[].label` the short label the agent shows (`5h`, `7d`, a model name). |
 | `agent_session` | The agent's own conversation, where the backend holds a reference to it. |
 

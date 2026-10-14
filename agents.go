@@ -290,6 +290,10 @@ func WithLast() AgentOption { return func(o *agentOpts) { o.last = true } }
 // and the honest one. The rows are still the listing. Each row is captured on
 // its own, so one pane that went away leaves only its own row empty, and a row
 // in a session whose screen may be another pane's (shared) is not captured.
+//
+// The same capture says whether the agent's input box is shown (NoInputBox),
+// read off the whole screen as the send guard reads it (§7.5), since a tall
+// draft can push the box's top rule out of the detection tail.
 func (o *Olympus) fillLast(ctx context.Context, agents []backend.Agent, shared map[string]bool) {
 	for i := range agents {
 		if shared[agents[i].PaneID] {
@@ -301,6 +305,10 @@ func (o *Olympus) fillLast(ctx context.Context, agents []backend.Agent, shared m
 		}
 		screen := screens.Screens[agents[i].PaneID]
 		screen = trimLineEnds(screen)
+		if agents[i].Status != backend.AgentBlocked && agentstate.HasComposer(agents[i].Agent) {
+			_, drawn := agentstate.Composer(agents[i].Agent, agentstate.Input{Screen: screen})
+			agents[i].NoInputBox = !drawn
+		}
 		if o.backend.Capabilities().NativeScrollback {
 			screen = tailLines(screen, detectionRows)
 		}

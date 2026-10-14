@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A captured agent row says when its input box is not shown.** `agents
+  --last` marks `no_input_box` on a row whose agent draws an input box and
+  whose screen showed none, such as Claude Code with its rewind list open,
+  which herdr reads as idle. Never on a blocked row. It is read off the
+  capture `--last` already makes, so it costs nothing more.
+
 ## [0.37.0]
 
 ### Added

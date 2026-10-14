@@ -661,6 +661,52 @@ func TestAgentsCarryTheAgentsOwnLineOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+// §7.5 A row the caller had captured (WithLast) says when its agent draws an
+// input box and the screen shows none: something is open over it, such as
+// Claude Code's rewind list. herdr has no state for that and reads the screen
+// as idle (measured on Claude Code 2.1.299), so only the capture can tell. A
+// row whose box is drawn, a blocked row, whose prompt took the box's place,
+// and a row nobody captured carry nothing.
+func TestAgentsSayWhenTheInputBoxIsNotShown(t *testing.T) {
+	t.Parallel()
+	row := func(status, screen string, opts ...AgentOption) backend.Agent {
+		t.Helper()
+		l := &listingBackend{
+			fakeBackend: &fakeBackend{
+				caps:    backend.Capabilities{Backend: backend.Herdr, AgentStatus: true},
+				panes:   []backend.Pane{{ID: "w1:p1", SessionName: "build", SessionID: "w1"}},
+				screens: map[string]string{"w1:p1": screen},
+			},
+			agents: []backend.Agent{{
+				PaneID: "w1:p1", SessionName: "build", SessionID: "w1", Agent: "claude",
+				Status: status, CWD: "/repo", DetectedBy: "herdr",
+			}},
+		}
+		o := &Olympus{backend: l, resolution: Resolution{Backend: backend.Herdr, Reason: ReasonFlag}}
+		agents, err := o.Agents(context.Background(), opts...)
+		if err != nil || len(agents) != 1 {
+			t.Fatalf("Agents: %v, %d rows", err, len(agents))
+		}
+		return agents[0]
+	}
+	rewind := composerScreen(t, "rewind.txt")
+	if !row("idle", rewind, WithLast()).NoInputBox {
+		t.Error("a captured rewind list is not marked no_input_box")
+	}
+	if !row("idle", composerScreen(t, "model-picker.txt"), WithLast()).NoInputBox {
+		t.Error("a captured model picker is not marked no_input_box")
+	}
+	if row("idle", rewind).NoInputBox {
+		t.Error("a row nobody captured is marked no_input_box")
+	}
+	if row("idle", composerScreen(t, "idle-earlier-text.txt"), WithLast()).NoInputBox {
+		t.Error("a row whose box is drawn is marked no_input_box")
+	}
+	if row("blocked", composerScreen(t, "permission.txt"), WithLast()).NoInputBox {
+		t.Error("a blocked row is marked no_input_box")
+	}
+}
+
 // §3.7 A row's line is read off its own pane or not at all. Where a session
 // holds several panes, a capture of it is the active pane's screen, which may
 // be another's, so those rows carry no line, as they carry no status.

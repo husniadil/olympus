@@ -77,7 +77,7 @@ Otherwise run the command directly.
 - `detected_by` says how a row was found:
   - `herdr`: herdr's own detection, with native `status`, `title` and `usage`.
   - `command`: a known agent's name in the pane's process tree, or its foreground command where the pane has no `pid`. Status is read off a capture.
-- `status_source` is `native` or `screen`. `--last` also reads the line each agent last said.
+- `status_source` is `native` or `screen`. `--last` also reads the line each agent last said, and marks `no_input_box` on an agent with something open over its input box, which herdr may still call idle.
 - `olympus kinds` lists the agent names and the executables and package directories that identify each. It needs no backend. Ask it rather than hardcoding the set.
 
 ### Exit codes

@@ -32,6 +32,14 @@ type Agent struct {
 	// Omitted where it was not asked for, and where the screen had nothing
 	// to say.
 	Last string `json:"last,omitempty"`
+	// NoInputBox marks a row whose agent draws an input box its manifest
+	// names and whose captured screen showed none: something is open over
+	// it, such as a rewind list or a picker, or it is not drawn yet
+	// (behavior §7.5). A natively-detecting backend has no state for that
+	// and may read the screen as idle. Read only where the row was captured
+	// for Last, and never on a blocked row, whose prompt took the box's
+	// place. Omitted otherwise.
+	NoInputBox bool `json:"no_input_box,omitempty"`
 	// CWD is the directory the agent is working in.
 	CWD string `json:"cwd"`
 	// DetectedBy is how the row was found: the backend's own detection

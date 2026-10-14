@@ -263,7 +263,7 @@ type clientsParams struct {
 }
 
 type agentsParams struct {
-	Last bool `json:"last,omitempty" jsonschema:"also read the one line each agent last said (or the question a blocked one waits on); costs one capture per row"`
+	Last bool `json:"last,omitempty" jsonschema:"also read the one line each agent last said (or the question a blocked one waits on), and mark one whose input box is not shown (no_input_box); costs one capture per row"`
 }
 
 type acknowledged struct {
