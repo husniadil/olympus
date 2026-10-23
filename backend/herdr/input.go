@@ -66,7 +66,8 @@ func (h *Herdr) Submit(ctx context.Context, target string) error {
 // SendAtomic delivers text and its terminator as one caller-visible unit (§4.7).
 //
 // herdr has a single-operation form for exactly this: one request carries the
-// text and the Enter, and the server concatenates them into ONE write to the
+// text and the Enter (the CLI's `pane run`, sent over the API socket so the
+// text stays off an argv, as in send), and the server concatenates them into ONE write to the
 // pane (src/app/api_helpers.rs:48-67). So atomicity is the backend's here
 // rather than something the write lock has to provide, and there is no settle
 // gap to pace because the terminator is not part of the text: the server
@@ -77,7 +78,11 @@ func (h *Herdr) SendAtomic(ctx context.Context, target, text string) error {
 	if err != nil {
 		return err
 	}
-	_, err = h.run(ctx, "pane", "run", row.PaneID, text)
+	_, err = h.call(ctx, "pane.send_input", struct {
+		PaneID string   `json:"pane_id"`
+		Text   string   `json:"text"`
+		Keys   []string `json:"keys"`
+	}{row.PaneID, text, []string{"Enter"}})
 	return err
 }
 
@@ -94,10 +99,17 @@ func (h *Herdr) Interrupt(ctx context.Context, target string) error {
 	return h.Press(ctx, target, backend.KeyCtrlC)
 }
 
+// send writes text into a pane over the API socket, the request the CLI's
+// `pane send-text` makes. The CLI would carry the text on its argv, where any
+// local user reads it in the process list and Linux refuses one string past
+// 128 KiB, and a typed password or a pasted token is exactly such text.
 func (h *Herdr) send(ctx context.Context, paneID, text string) error {
 	if text == "" {
 		return nil
 	}
-	_, err := h.run(ctx, "pane", "send-text", paneID, text)
+	_, err := h.call(ctx, "pane.send_text", struct {
+		PaneID string `json:"pane_id"`
+		Text   string `json:"text"`
+	}{paneID, text})
 	return err
 }

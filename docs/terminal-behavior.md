@@ -1599,6 +1599,17 @@ call made by the consumer.
 It keeps injection symmetric across backends and composable, and it means
 §4.4's retry discipline belongs to whoever issues the Enter.
 
+#### Injected text stays off an argv where the backend allows it
+
+Text a caller injects can be a password typed at a prompt or a token pasted
+into an agent. On an argv, every local user reads it in the process list while
+the call runs, and Linux refuses one argument past 128 KiB. So tmux's Type and
+Paste load a buffer from stdin, and herdr's Type, Paste and atomic submit go
+over the API socket rather than through the CLI. zmx, meja and tmux's atomic
+submit have no such path, and still carry the text on an argv
+(`docs/known-issues.md`). An error that names a failed herdr invocation cuts
+the invocation at 120 bytes, since an argument can be the caller's text.
+
 ### 4.4 A failed Enter after injection MUST be retried once
 
 Any composed operation that injects then submits MUST retry the Enter exactly
@@ -1642,7 +1653,7 @@ only `\r`, after a 150ms settle gap.
 | tmux | two `send-keys` subcommands chained by a literal `";"` argv element into one client invocation |
 | zmx | text write, 150ms settle, then a lone `\r` write. zmx has no subcommand chaining, so backend-level single-operation atomicity is unachievable |
 | meja | `send-keys -l` for the text, then a separate `send-keys Enter`, both on one held client |
-| herdr | one `pane run` request. The server frames the text as a paste and encodes the Enter after it as a keypress, in one write |
+| herdr | one input request with the text and an Enter key, over the API socket (what the CLI's `pane run` sends). The server frames the text as a paste and encodes the Enter after it as a keypress, in one write |
 
 ### 4.6 Paste is normalized, multi-line, and never auto-submitted
 

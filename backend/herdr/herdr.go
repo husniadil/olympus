@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/internal/privatedir"
@@ -925,8 +926,23 @@ func classify(err error, stdout, stderr string, args []string) error {
 		"invalid_metadata_token", "invalid_metadata_ttl":
 		return backend.Errorf(backend.CodeUsage, "%s", message)
 	default:
-		return backend.Wrapf(backend.CodeUnexpected, errors.New(message), "herdr %s", strings.Join(args, " "))
+		return backend.Wrapf(backend.CodeUnexpected, errors.New(message), "herdr %s", argsForMessage(args))
 	}
+}
+
+// argsForMessage is an invocation as an error names it, cut short: an
+// argument can be a caller's text, which belongs in no error message whole.
+func argsForMessage(args []string) string {
+	const limit = 120
+	joined := strings.Join(args, " ")
+	if len(joined) <= limit {
+		return joined
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(joined[cut]) {
+		cut--
+	}
+	return joined[:cut] + "…"
 }
 
 // envelopeError reads the code and message out of herdr's error envelope,
