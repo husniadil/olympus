@@ -3982,8 +3982,11 @@ The key is the (backend, socket-or-directory, session) triple:
   owned by the current user; one with group or world access is tightened to
   0700 first. Anything else is refused. The temp root can be shared, and a
   directory another user created first would put the locks in their hands. The
-  attach guard's directory, and herdr's walk lock (§8.10), which shares the
-  lock directory, follow the same rule.
+  attach guard's directory, herdr's walk lock (§8.10), which shares the
+  lock directory, and the directory of herdr's default socket (§17.2) follow
+  the same rule. That directory's owner would choose the configuration a server
+  Olympus starts reads, whose `default_shell` runs in every pane, and could put
+  their own listener at the socket.
 
 Two different sockets, directories or backends MUST never contend on the same
 lock file, even when a session name collides.
@@ -4966,7 +4969,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | Name | Shape | Used for |
 |---|---|---|
 | tmux socket | `olympus` (default, overridable by name or path) | §17.2 |
-| herdr socket | `<temp>/olympus-herdr/herdr.sock` (overridable by path) | §17.2 |
+| herdr socket | `<temp>/olympus-herdr/herdr.sock` (overridable by path), its directory mode 0700 | §17.2 |
 | herdr state directory | `<socket dir>/<socket stem>-state` | §2.9 |
 | herdr metadata source | `olympus` | §13.1 |
 | herdr metadata token | `status` | §13.1 |
