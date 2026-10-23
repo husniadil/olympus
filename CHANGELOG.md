@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A second Ctrl-C ends a hung Olympus.** The signal handler stayed in place
+  until the verb returned, so a cleanup that hung caught every later
+  interrupt too. It is now unregistered at the first one, as `main`'s comment
+  always said.
+- **`server_env` keeps an empty value.** A key set to the empty string
+  answered `"value": ""` at the CLI and no `value` at all over MCP, which
+  reads as absent. MCP now answers as the CLI does.
+
 ## [0.38.2]
 
 ### Fixed

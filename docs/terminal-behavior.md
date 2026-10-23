@@ -1681,7 +1681,8 @@ Whether intermediate lines execute depends on the consumer and the backend:
   TUIs) diverges:
   - tmux's `paste-buffer -p` emits DECSET-2004 framing (`ESC[200~` /
     `ESC[201~`) around the payload. Such a consumer receives one un-executed
-    paste event, and intermediate lines do not execute.
+    paste event, and intermediate lines do not execute. meja's
+    `paste-buffer -p` does the same.
   - herdr's input request frames the text the same way where the pane's
     program asked for bracketed paste, and adds no Enter.
   - zmx has no framing of its own, so Olympus adds it where the session's
@@ -1709,7 +1710,7 @@ that switches the mode in between gets the other form.
 |---|---|
 | tmux | literal injection with `-p` added to the `paste-buffer` argv. Unique buffer, delete-on-failure and error mapping are as §4.1, so no buffer leaks |
 | zmx | a presence check, a read of the mode, then a send with no terminator, framed as `ESC[200~` … `ESC[201~` where the mode is set |
-| meja | `set-buffer` then `paste-buffer -d` |
+| meja | `set-buffer` then `paste-buffer -d -p`, the `-p` framing the paste as tmux's does |
 | herdr | the server's input request with text and no keys, over the API socket, since the CLI has no verb for it. The server frames the text as a bracketed paste where the pane's program asked for one, writes it raw where it did not, and adds no Enter |
 
 ### 4.7 Atomic submit trades verification for atomicity
