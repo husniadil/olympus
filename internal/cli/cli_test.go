@@ -332,6 +332,51 @@ func TestWarningsNeverReachStdout(t *testing.T) {
 	}
 }
 
+// A size asked of a backend that cannot size a session at spawn is ignored,
+// and both create verbs say so (behavior §0.8). One that can says nothing.
+func TestCreateDisclosesAnIgnoredSize(t *testing.T) {
+	if _, err := exec.LookPath("zmx"); err != nil {
+		t.Skip("zmx is not installed")
+	}
+	dir, err := os.MkdirTemp(os.TempDir(), "olyc")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	flags := []string{"--backend", "zmx", "--zmx-dir", dir}
+
+	for _, verb := range []string{"start", "new"} {
+		target := name()
+		got := run(t, append(flags, verb, target, "--cols", "120", "--rows", "40", "--json")...)
+		if got.code != 0 {
+			t.Fatalf("%s: exit %d, stderr %q", verb, got.code, got.stderr)
+		}
+		t.Cleanup(func() { run(t, append(flags, "stop", target, "--force")...) })
+		if e := got.envelope(t); len(e.Warnings) == 0 {
+			t.Errorf("%s --cols on zmx disclosed nothing: %s", verb, got.stdout)
+		}
+	}
+	unsized := name()
+	got := run(t, append(flags, "start", unsized, "--json")...)
+	t.Cleanup(func() { run(t, append(flags, "stop", unsized, "--force")...) })
+	if e := got.envelope(t); len(e.Warnings) != 0 {
+		t.Errorf("start with no size warned anyway: %v", e.Warnings)
+	}
+}
+
+func TestCreateOnASizingBackendWarnsNothing(t *testing.T) {
+	flags := isolation(t)
+	target := name()
+	got := run(t, append(flags, "start", target, "--cols", "120", "--rows", "40", "--json")...)
+	if got.code != 0 {
+		t.Fatalf("start: exit %d, stderr %q", got.code, got.stderr)
+	}
+	t.Cleanup(func() { run(t, append(flags, "stop", target, "--force")...) })
+	if e := got.envelope(t); len(e.Warnings) != 0 {
+		t.Errorf("tmux sizes at spawn but warned: %v", e.Warnings)
+	}
+}
+
 // Quiet suppresses narration only. It must never change the data channel.
 func TestQuietDoesNotChangeTheDataChannel(t *testing.T) {
 	flags := isolation(t)

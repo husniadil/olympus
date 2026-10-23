@@ -88,6 +88,15 @@ type startParams struct {
 	KeepCorpse bool `json:"keep_corpse,omitempty" jsonschema:"leave a dead session to inspect after its command exits"`
 }
 
+// sizeWarnings are the disclosures a create owes a caller that asked for a
+// size (behavior §0.8): a backend with no spawn-time sizing ignored it.
+func sizeWarnings(ol *olympus.Olympus, in startParams) []olympus.Warning {
+	if in.Cols <= 0 && in.Rows <= 0 {
+		return nil
+	}
+	return ol.SizeWarnings()
+}
+
 // sessionOptions turns the shared create parameters into options, so
 // start_session and new_session cannot drift apart.
 func sessionOptions(in startParams) []olympus.SessionOption {
@@ -297,7 +306,7 @@ func register(s *sdk.Server) {
 			}
 			row := session.Row()
 			row.Outcome = session.Outcome()
-			return row, nil, nil
+			return row, sizeWarnings(ol, in), nil
 		})
 
 	addTool(s, "list_sessions", "List sessions on the resolved backend. Sessions are backend-scoped and never migrate.",
@@ -409,7 +418,7 @@ func register(s *sdk.Server) {
 			if err != nil {
 				return backend.Session{}, nil, err
 			}
-			return session.Row(), nil, nil
+			return session.Row(), sizeWarnings(ol, in), nil
 		})
 
 	addTool(s, "list_panes", "List panes: every pane on the backend, or one session's. A pane id is not unique across rows once views exist, since a base and its views share the underlying pane.",
