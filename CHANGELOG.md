@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1]
+
+### Fixed
+
+- **herdr's default socket directory must be this user's own.**
+  `<temp>/olympus-herdr` is a fixed name in the shared temp root, and a
+  directory another user made first, or a symlink in its place, was used as
+  found. Its owner chose the configuration a server Olympus started read, whose
+  `default_shell` ran in every pane, and could put a listener at the socket. It
+  now gets the check the lock directories get: refused unless it is a real
+  directory this user owns, and tightened to 0700. A socket the caller chose is
+  left where it is.
+
 ## [0.38.0]
 
 ### Added

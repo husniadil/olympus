@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/privatedir"
 )
 
 // sunPathMax is the platform's limit on a unix socket path, NUL included.
@@ -330,11 +331,18 @@ func (h *Herdr) Version(ctx context.Context) (string, error) {
 }
 
 // validateSocketPath rejects a socket whose derived client socket would not
-// fit, before any invocation.
+// fit, or whose default directory is not this user's own, before any
+// invocation.
 //
-// Without it the failure names neither Olympus nor the path: the server exits
-// with `local socket name length exceeds capacity of sun_path of sockaddr_un`
-// and every subsequent call reports no server running. Measured.
+// Without the length check the failure names neither Olympus nor the path: the
+// server exits with `local socket name length exceeds capacity of sun_path of
+// sockaddr_un` and every subsequent call reports no server running. Measured.
+//
+// The default socket's directory is a fixed name in the shared temp root, where
+// another user can create it first. Its owner chooses the configuration a
+// server Olympus starts reads, whose default_shell runs in every pane, and can
+// put their own listener at the socket. So it gets the rule the lock
+// directories get (§11.1). A socket the caller chose is the caller's to place.
 func (h *Herdr) validateSocketPath() error {
 	if h.socketPath == "" {
 		return backend.Errorf(backend.CodeUsage, "a herdr backend needs a socket path")
@@ -344,6 +352,9 @@ func (h *Herdr) validateSocketPath() error {
 		return backend.Errorf(backend.CodeUsage,
 			"socket path %s makes herdr's derived client socket %d bytes long, over the %d-byte budget",
 			h.socketPath, length, budget)
+	}
+	if h.socketPath == DefaultSocketPath() {
+		return privatedir.Ensure(filepath.Dir(h.socketPath), "herdr socket directory")
 	}
 	return nil
 }
