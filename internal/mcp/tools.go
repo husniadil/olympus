@@ -287,10 +287,12 @@ type markerResult struct {
 	ExitCode *int `json:"exit_code,omitempty"`
 }
 
+// Value is omitted only when the key is absent (api §5): a key set to the
+// empty string answers "value": "" here as at the CLI door.
 type envResult struct {
-	Key     string `json:"key"`
-	Present bool   `json:"present"`
-	Value   string `json:"value,omitempty"`
+	Key     string  `json:"key"`
+	Present bool    `json:"present"`
+	Value   *string `json:"value,omitempty"`
 }
 
 type versionResult struct {
@@ -639,7 +641,11 @@ func register(s *sdk.Server) {
 			if err != nil {
 				return envResult{}, nil, err
 			}
-			return envResult{Key: in.Key, Present: present, Value: value}, nil, nil
+			out := envResult{Key: in.Key, Present: present}
+			if present {
+				out.Value = &value
+			}
+			return out, nil, nil
 		})
 
 	addTool(s, "list_servers", "List the resolved backend's servers: the level above sessions, each behind its own socket. Not every backend can enumerate them.",

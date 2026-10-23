@@ -29,10 +29,16 @@ func main() {
 	// here; a signal that does arrive is somebody deliberately stopping the
 	// client, and cancelling is what should happen then.
 	//
-	// stop() is called before exiting so the handler is unregistered and a
-	// SECOND interrupt kills the way it always did — a cleanup that hangs must
-	// never leave a caller unable to quit.
+	// stop() is called as soon as the first signal cancels the context, so
+	// the handler is unregistered and a SECOND interrupt kills the way it
+	// always did — a cleanup that hangs must never leave a caller unable to
+	// quit. Called only once Execute returned, the second interrupt was
+	// caught too, and a hung cleanup held the process.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	code := cli.Execute(ctx, os.Args[1:], os.Stdout, os.Stderr, os.Stdin)
 	stop()
 	os.Exit(code)
