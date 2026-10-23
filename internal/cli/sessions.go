@@ -58,7 +58,7 @@ func (a *App) startCmd() *cobra.Command {
 			}
 			row := s.Row()
 			row.Outcome = s.Outcome()
-			return a.emit(row, nil, func(w io.Writer) {
+			return a.emit(row, sizeWarnings(ol, cols, rows), func(w io.Writer) {
 				fmt.Fprintf(w, "%s %s\n", row.Outcome, s.Name())
 			})
 		},
@@ -234,4 +234,13 @@ func yesNo(v bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+// sizeWarnings are the disclosures a create owes a caller that asked for a
+// size (behavior §0.8): a backend with no spawn-time sizing ignored it.
+func sizeWarnings(ol *olympus.Olympus, cols, rows int) []olympus.Warning {
+	if cols <= 0 && rows <= 0 {
+		return nil
+	}
+	return ol.SizeWarnings()
 }

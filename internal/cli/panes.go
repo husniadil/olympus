@@ -90,7 +90,7 @@ func (a *App) newCmd() *cobra.Command {
 				return err
 			}
 			row := s.Row()
-			return a.emit(row, nil, func(w io.Writer) {
+			return a.emit(row, sizeWarnings(ol, cols, rows), func(w io.Writer) {
 				fmt.Fprintf(w, "created %s\n", s.Name())
 			})
 		},

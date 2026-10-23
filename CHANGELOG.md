@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.2]
+
+### Fixed
+
+- **Each user has a lock directory of their own.** The lock directory is now
+  `<temp>/olympus-locks-<uid>`. On a shared temp root a single name belonged to
+  whichever user ran Olympus first, and every other user's Open failed on the
+  ownership check, reads included. A lock directory that cannot be used now
+  fails only the write that needs it.
+- **A paste's text cannot close its own bracket.** `ESC[200~` and `ESC[201~`
+  are taken out of a paste's text before a backend sees it. An end marker in
+  the text closed the bracketed paste early, and a consumer honouring it ran
+  every line after it.
+- **Text typed on herdr stays off an argv.** Type and atomic submit on herdr
+  go over the API socket, as Paste did, so the text is not in the process list
+  and is not refused past 128 KiB. An unclassified herdr error names at most
+  120 bytes of its invocation. zmx, meja and tmux's atomic submit still carry
+  the text on an argv (`docs/known-issues.md`).
+- **`info` finds a herdr workspace by id.** Two workspaces with one label
+  paired one's session row with the other's panes. The panes' session id is
+  matched first, and the name is the fallback.
+- **A size a backend ignores is disclosed.** `start` and `new`, on the CLI and
+  over MCP, carry the degraded-operation warning when a size was asked of
+  zmx, meja or herdr, which cannot size a session at spawn.
+
 ## [0.38.1]
 
 ### Fixed
