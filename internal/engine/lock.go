@@ -15,10 +15,17 @@ import (
 	"github.com/husniadil/olympus/internal/privatedir"
 )
 
-// LockDirName is the reserved directory for lock files (behavior §17.1). It is
-// created 0700: the file names encode session names, which are not the
-// operator's to share with every user on the machine.
+// LockDirName is the stem of the reserved directory for lock files (behavior
+// §17.1). It is created 0700: the file names encode session names, which are
+// not the operator's to share with every user on the machine.
 const LockDirName = "olympus-locks"
+
+// LockDir is this user's lock directory. The uid is in its name because a
+// shared temp directory holds one name for everybody: the first user to run
+// Olympus would own it, and the ownership check refuses it to everyone else.
+func LockDir() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%d", LockDirName, os.Getuid()))
+}
 
 // lockPoll is the retry interval while waiting.
 const lockPoll = 25 * time.Millisecond
@@ -85,11 +92,19 @@ type Lock struct {
 // limit, not a defect to engineer around.
 type Locks struct {
 	dir string
+	// refused is why the directory cannot be used. It is held rather than
+	// returned at construction: reads never take the lock (behavior §11.1),
+	// so only a write that needs the lock fails on it.
+	refused error
 }
 
-// NewLocks builds a lock manager rooted at the reserved directory.
-func NewLocks() (*Locks, error) {
-	return NewLocksIn(filepath.Join(os.TempDir(), LockDirName))
+// NewLocks builds a lock manager rooted at this user's lock directory.
+func NewLocks() *Locks {
+	locks, err := NewLocksIn(LockDir())
+	if err != nil {
+		return &Locks{refused: err}
+	}
+	return locks
 }
 
 // NewLocksIn builds a lock manager rooted at a given directory, so tests can
@@ -107,6 +122,9 @@ func NewLocksIn(dir string) (*Locks, error) {
 // not run out of time doing its own work, it was refused because somebody else
 // holds the session.
 func (l *Locks) Acquire(ctx context.Context, key LockKey, wait time.Duration) (*Lock, error) {
+	if l.refused != nil {
+		return nil, l.refused
+	}
 	path := filepath.Join(l.dir, key.filename())
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

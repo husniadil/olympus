@@ -6,7 +6,6 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -191,7 +190,7 @@ func (s *Session) Attach(ctx context.Context, in, out *os.File, errOut *os.File,
 	// own. A backend whose own client detaches the previous one needs no
 	// pidfile.
 	if s.ol.Backend() == backend.Zmx {
-		guard, err := engine.NewAttachGuard(filepath.Join(os.TempDir(), engine.LockDirName))
+		guard, err := engine.NewAttachGuard(engine.LockDir())
 		if err != nil {
 			return 0, err
 		}

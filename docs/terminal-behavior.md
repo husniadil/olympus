@@ -3980,8 +3980,12 @@ The key is the (backend, socket-or-directory, session) triple:
 - **Place the lock file** under a private temporary directory with mode 0700.
   An existing directory is used only if it is a real directory (not a symlink)
   owned by the current user; one with group or world access is tightened to
-  0700 first. Anything else is refused. The temp root can be shared, and a
-  directory another user created first would put the locks in their hands. The
+  0700 first. Anything else is refused, and the refusal fails the write that
+  needs the lock, never a read. The directory's name carries the uid
+  (`olympus-locks-<uid>`). The temp root can be shared, and a single name
+  would belong to whichever user ran Olympus first, refusing it to everyone
+  else. A directory another user created first would put the locks in their
+  hands. The
   attach guard's directory, herdr's walk lock (§8.10), which shares the
   lock directory, and the directory of herdr's default socket (§17.2) follow
   the same rule. That directory's owner would choose the configuration a server
@@ -4981,7 +4985,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | run sentinels | `OLY_S_<id>` / `OLY_D_<id>_<code>_` | §6.1 |
 | run/command id | `<pid><counter><8 hex>` | §6.1, §6.7 |
 | lock file | `<backend>-<session>-<hash>.lock`, inside the lock directory | §11.1 |
-| lock directory | `<temp>/olympus-locks`, mode 0700 | §11.1 |
+| lock directory | `<temp>/olympus-locks-<uid>`, mode 0700 | §11.1 |
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
 | attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
@@ -4997,7 +5001,7 @@ view created by an older binary.
 
 #### Two names carry no `olympus-` prefix
 
-- **The lock file** already lives inside `olympus-locks/`.
+- **The lock file** already lives inside `olympus-locks-<uid>/`.
 - **The run id** is embedded in a sentinel marker that carries its own prefix.
 
 Repeating the prefix would add length to a name whose length is budgeted (§2.5)

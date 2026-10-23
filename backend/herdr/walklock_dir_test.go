@@ -3,9 +3,16 @@ package herdr
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/husniadil/olympus/internal/engine"
 )
+
+func TestTheWalkLockSharesTheEnginesLockDirectory(t *testing.T) {
+	if got, want := walkLockDir(), engine.LockDir(); got != want {
+		t.Fatalf("walk lock directory %q, engine lock directory %q", got, want)
+	}
+}
 
 // The walk lock shares the engine's lock directory under a shared temp dir, so
 // it holds that directory to the same rule: ours and private (behavior §11.1).
@@ -13,7 +20,7 @@ func TestTheWalkLockRefusesALockDirectoryItDoesNotOwn(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
 	elsewhere := t.TempDir()
-	if err := os.Symlink(elsewhere, filepath.Join(tmp, walkLockDir)); err != nil {
+	if err := os.Symlink(elsewhere, walkLockDir()); err != nil {
 		t.Fatal(err)
 	}
 	if lock, err := acquireWalkLock(context.Background(), "/tmp/any.sock"); err == nil {
@@ -25,7 +32,7 @@ func TestTheWalkLockRefusesALockDirectoryItDoesNotOwn(t *testing.T) {
 func TestTheWalkLockTightensALooseLockDirectory(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
-	dir := filepath.Join(tmp, walkLockDir)
+	dir := walkLockDir()
 	if err := os.Mkdir(dir, 0o777); err != nil {
 		t.Fatal(err)
 	}
