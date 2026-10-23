@@ -452,14 +452,33 @@ func (o *Olympus) Info(ctx context.Context, target string) (Info, error) {
 	// is for a backend whose targets pass through resolution unchanged
 	// (herdr, §10.1): there the resolved target may be a window or a pane,
 	// and only its pane rows know which session it belongs to.
+	//
+	// The panes' session id comes first: a name need not be unique (herdr's
+	// labels repeat), and the id is how one session is named exactly (api
+	// §5). Found by name alone, two workspaces labelled alike paired one's
+	// session row with the other's panes.
 	owner := resolved
-	if len(panes) > 0 && panes[0].SessionName != "" {
-		owner = panes[0].SessionName
+	ownerID := ""
+	if len(panes) > 0 {
+		if panes[0].SessionName != "" {
+			owner = panes[0].SessionName
+		}
+		ownerID = panes[0].SessionID
+	}
+	if ownerID != "" {
+		for i := range sessions {
+			if sessions[i].ID == ownerID {
+				info.Session = &sessions[i]
+				break
+			}
+		}
 	}
 	for i := range sessions {
+		if info.Session != nil {
+			break
+		}
 		if sessions[i].Name == resolved || sessions[i].Name == owner {
 			info.Session = &sessions[i]
-			break
 		}
 	}
 	if info.Session == nil {
