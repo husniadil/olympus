@@ -1650,6 +1650,15 @@ Paste lands multi-line text in the input line without submitting it. The final
 line is never submitted without an explicit separate Enter. That is the
 cross-backend guarantee.
 
+#### The text carries no bracket markers of its own
+
+Before any backend sees it, a paste's text has every `ESC[200~` and `ESC[201~`
+taken out, repeatedly, until none is left. An end marker inside the text closes
+the bracket early, and a consumer that honours the bracket then runs every line
+after it: a paste of `echo first ESC[201~ \n echo second \n` into bash 5.2 on
+zmx ran both lines and reported `submitted: false`. Text Olympus pastes is often
+text it did not write, such as fetched content an agent forwards.
+
 #### Intermediate lines differ by backend
 
 Whether intermediate lines execute depends on the consumer and the backend:
