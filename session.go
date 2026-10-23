@@ -168,7 +168,7 @@ func (s *Session) Press(ctx context.Context, keys ...backend.Key) error {
 // about the last line.
 func (s *Session) Paste(ctx context.Context, text string) error {
 	return engine.WithLock(ctx, s.ol.locks, s.key(), s.ol.lockWait, func() error {
-		return s.ol.backend.Paste(ctx, s.name, text)
+		return s.ol.backend.Paste(ctx, s.name, engine.PastePayload(text))
 	})
 }
 
@@ -180,7 +180,7 @@ func (s *Session) Paste(ctx context.Context, text string) error {
 // concatenates onto it and corrupts both (behavior §4.4).
 func (s *Session) PasteAndSubmit(ctx context.Context, text string) error {
 	return engine.WithLock(ctx, s.ol.locks, s.key(), s.ol.lockWait, func() error {
-		if err := s.ol.backend.Paste(ctx, s.name, text); err != nil {
+		if err := s.ol.backend.Paste(ctx, s.name, engine.PastePayload(text)); err != nil {
 			return err
 		}
 		return engine.SubmitOnce(ctx, s.ol.backend, s.name)

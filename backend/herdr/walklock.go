@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -31,7 +32,6 @@ type walkLock struct {
 }
 
 const (
-	walkLockDir  = "olympus-locks"
 	walkLockPoll = 25 * time.Millisecond
 	// walkLockWait bounds the wait: the engine settles every client within
 	// a few seconds (§8.10), so a holder past this has hung, and an attach
@@ -39,8 +39,14 @@ const (
 	walkLockWait = 15 * time.Second
 )
 
+// walkLockDir is the engine's lock directory (engine.LockDir), spelled out
+// here so the mechanical layer does not import the engine above it.
+func walkLockDir() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("olympus-locks-%d", os.Getuid()))
+}
+
 func acquireWalkLock(ctx context.Context, socketPath string) (*walkLock, error) {
-	dir := filepath.Join(os.TempDir(), walkLockDir)
+	dir := walkLockDir()
 	if err := privatedir.Ensure(dir, "lock directory"); err != nil {
 		return nil, err
 	}

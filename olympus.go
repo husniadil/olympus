@@ -265,11 +265,7 @@ func openResolved(resolution Resolution, cfg config) (*Olympus, error) {
 	}
 
 	if !cfg.noLock {
-		locks, err := engine.NewLocks()
-		if err != nil {
-			return nil, err
-		}
-		o.locks = locks
+		o.locks = engine.NewLocks()
 	}
 	return o, nil
 }

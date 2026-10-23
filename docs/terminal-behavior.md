@@ -1599,6 +1599,17 @@ call made by the consumer.
 It keeps injection symmetric across backends and composable, and it means
 §4.4's retry discipline belongs to whoever issues the Enter.
 
+#### Injected text stays off an argv where the backend allows it
+
+Text a caller injects can be a password typed at a prompt or a token pasted
+into an agent. On an argv, every local user reads it in the process list while
+the call runs, and Linux refuses one argument past 128 KiB. So tmux's Type and
+Paste load a buffer from stdin, and herdr's Type, Paste and atomic submit go
+over the API socket rather than through the CLI. zmx, meja and tmux's atomic
+submit have no such path, and still carry the text on an argv
+(`docs/known-issues.md`). An error that names a failed herdr invocation cuts
+the invocation at 120 bytes, since an argument can be the caller's text.
+
 ### 4.4 A failed Enter after injection MUST be retried once
 
 Any composed operation that injects then submits MUST retry the Enter exactly
@@ -1642,13 +1653,22 @@ only `\r`, after a 150ms settle gap.
 | tmux | two `send-keys` subcommands chained by a literal `";"` argv element into one client invocation |
 | zmx | text write, 150ms settle, then a lone `\r` write. zmx has no subcommand chaining, so backend-level single-operation atomicity is unachievable |
 | meja | `send-keys -l` for the text, then a separate `send-keys Enter`, both on one held client |
-| herdr | one `pane run` request. The server frames the text as a paste and encodes the Enter after it as a keypress, in one write |
+| herdr | one input request with the text and an Enter key, over the API socket (what the CLI's `pane run` sends). The server frames the text as a paste and encodes the Enter after it as a keypress, in one write |
 
 ### 4.6 Paste is normalized, multi-line, and never auto-submitted
 
 Paste lands multi-line text in the input line without submitting it. The final
 line is never submitted without an explicit separate Enter. That is the
 cross-backend guarantee.
+
+#### The text carries no bracket markers of its own
+
+Before any backend sees it, a paste's text has every `ESC[200~` and `ESC[201~`
+taken out, repeatedly, until none is left. An end marker inside the text closes
+the bracket early, and a consumer that honours the bracket then runs every line
+after it: a paste of `echo first ESC[201~ \n echo second \n` into bash 5.2 on
+zmx ran both lines and reported `submitted: false`. Text Olympus pastes is often
+text it did not write, such as fetched content an agent forwards.
 
 #### Intermediate lines differ by backend
 
@@ -3980,8 +4000,12 @@ The key is the (backend, socket-or-directory, session) triple:
 - **Place the lock file** under a private temporary directory with mode 0700.
   An existing directory is used only if it is a real directory (not a symlink)
   owned by the current user; one with group or world access is tightened to
-  0700 first. Anything else is refused. The temp root can be shared, and a
-  directory another user created first would put the locks in their hands. The
+  0700 first. Anything else is refused, and the refusal fails the write that
+  needs the lock, never a read. The directory's name carries the uid
+  (`olympus-locks-<uid>`). The temp root can be shared, and a single name
+  would belong to whichever user ran Olympus first, refusing it to everyone
+  else. A directory another user created first would put the locks in their
+  hands. The
   attach guard's directory, herdr's walk lock (§8.10), which shares the
   lock directory, and the directory of herdr's default socket (§17.2) follow
   the same rule. That directory's owner would choose the configuration a server
@@ -4981,7 +5005,7 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | run sentinels | `OLY_S_<id>` / `OLY_D_<id>_<code>_` | §6.1 |
 | run/command id | `<pid><counter><8 hex>` | §6.1, §6.7 |
 | lock file | `<backend>-<session>-<hash>.lock`, inside the lock directory | §11.1 |
-| lock directory | `<temp>/olympus-locks`, mode 0700 | §11.1 |
+| lock directory | `<temp>/olympus-locks-<uid>`, mode 0700 | §11.1 |
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
 | attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
@@ -4997,7 +5021,7 @@ view created by an older binary.
 
 #### Two names carry no `olympus-` prefix
 
-- **The lock file** already lives inside `olympus-locks/`.
+- **The lock file** already lives inside `olympus-locks-<uid>/`.
 - **The run id** is embedded in a sentinel marker that carries its own prefix.
 
 Repeating the prefix would add length to a name whose length is budgeted (§2.5)

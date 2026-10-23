@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -302,5 +303,32 @@ func TestTheLockDirectoryMustBePrivateAndOurs(t *testing.T) {
 				t.Error("a regular file in place of the directory was accepted")
 			}
 		})
+	}
+}
+
+// A shared temp root holds one name for everybody, so the directory carries
+// the uid: another user's lock directory is never this user's.
+func TestTheLockDirectoryIsPerUser(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	if got, want := filepath.Base(engine.LockDir()), fmt.Sprintf("olympus-locks-%d", os.Getuid()); got != want {
+		t.Fatalf("lock directory %q, want %q", got, want)
+	}
+}
+
+// A lock directory that cannot be used refuses the write that needs it, and
+// nothing before: reads never take the lock (behavior §11.1).
+func TestAnUnusableLockDirectoryRefusesOnlyTheWrite(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	if err := os.Symlink(t.TempDir(), engine.LockDir()); err != nil {
+		t.Fatal(err)
+	}
+	locks := engine.NewLocks()
+	ran := false
+	err := engine.WithLock(context.Background(), locks, key("s"), time.Second, func() error {
+		ran = true
+		return nil
+	})
+	if err == nil || ran {
+		t.Fatalf("a write ran through a symlinked lock directory (err %v)", err)
 	}
 }
