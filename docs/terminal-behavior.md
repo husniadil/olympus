@@ -5059,16 +5059,20 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | tmux buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1) |
 | tmux key table | `olympus-passthrough` | view wheel and click bindings (§9.3) |
 | tmux server marker | `@olympus_managed` | records a server Olympus started (§17.5) |
+| tmux session status | session option `@olympus_status` | the session status store (§13.1) |
 | view session | `olympus-view-<base>-<nonce>` | grouped views (§9) |
 | throwaway run session | `olympus-run-<pid>-<nonce>` | §6.10 |
 | run sentinels | `OLY_S_<id>` / `OLY_D_<id>_<code>_` | §6.1 |
 | run/command id | `<pid><counter><8 hex>` | §6.1, §6.7 |
 | lock file | `<backend>-<session>-<hash>.lock`, inside the lock directory | §11.1 |
 | lock directory | `<temp>/olympus-locks-<uid>`, mode 0700 | §11.1 |
+| herdr walk lock | `herdr-walk-<16 hex>.lock`, inside the lock directory | serialises the walks on one herdr server (§8.10) |
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
 | attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
 | attach focus control | `\x1b]olympus;focus;<pane>\x07` | §8.3, §8.10 |
+| herdr bare config | `<temp>/olympus-herdr-bare-*.toml`, removed when its attach ends | the stripped configuration a bare session client reads (§8.9) |
+| herdr server log | `<temp>/olympus-herdr-server-*.log`, unlinked once the start settles | the stderr of a herdr server Olympus starts (§13.4) |
 | herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view, where the caller names no tag of its own (§8.10, §13.5) |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 | tmux follow tag | pane option `@olympus-follow`, `<pid> <follow sink>` | recognises a tap left by a dead follower (§5.6) |
@@ -5078,9 +5082,10 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 Enumerating views (§9.5) selects on the prefix, so changing it orphans every
 view created by an older binary.
 
-#### Two names carry no `olympus-` prefix
+#### Three names carry no `olympus-` prefix
 
-- **The lock file** already lives inside `olympus-locks-<uid>/`.
+- **The lock file** and **the herdr walk lock** already live inside
+  `olympus-locks-<uid>/`.
 - **The run id** is embedded in a sentinel marker that carries its own prefix.
 
 Repeating the prefix would add length to a name whose length is budgeted (§2.5)
