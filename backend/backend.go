@@ -335,8 +335,10 @@ type Backend interface {
 	// Type injects literal text. It never submits, on any backend
 	// (behavior §4.3).
 	Type(ctx context.Context, target, text string) error
-	// Paste injects multi-line text. It never submits either (behavior §4.6);
-	// normalization happens above this interface.
+	// Paste injects multi-line text. It never submits either (behavior §4.6).
+	// The text arrives with its bracket markers already taken out above this
+	// interface; framing it as a paste where the program asked for one is
+	// the backend's own.
 	Paste(ctx context.Context, target, text string) error
 	// Press sends named keys.
 	Press(ctx context.Context, target string, keys ...Key) error

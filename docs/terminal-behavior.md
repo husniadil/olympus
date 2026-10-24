@@ -1639,7 +1639,7 @@ The exception exists because the retry's premise, that the first Enter did not
 land, is unknown there. Text left unsubmitted is a visible fault; a command
 submitted twice is not recoverable.
 
-### 4.5 The submit terminator MUST be a separate, delayed, lone write
+### 4.5 The submit terminator MUST arrive as a keypress, never inside a paste
 
 The submitting terminator MUST register as a keypress on paste-detecting
 consumers, never as part of a paste.
@@ -1648,8 +1648,15 @@ consumers, never as part of a paste.
 
 A single write containing both text and a trailing `\r` is treated as a paste
 by an Ink-based REPL. The terminator becomes a literal newline inside the input
-box and nothing is submitted. Submitting requires a separate write containing
-only `\r`, after a 150ms settle gap.
+box and nothing is submitted.
+
+A terminator sent on its own, after the text, is a keypress. A verified send
+gets that by construction, since its terminator is a separate call made once
+the text is seen. Where text and terminator go in one call, each backend keeps
+the terminator a keypress its own way (below). Only where nothing else
+separates them is the gap a delay: zmx's atomic submit and the run protocol's
+injection wait 150 ms (`SubmitSettle`, §17.3) between the text and a lone
+`\r`.
 
 #### Per backend
 
@@ -3006,9 +3013,11 @@ the bounded wait (§17.3) keeps it from blocking forever.
 
 The handler runs on its own goroutine, installed before the PTY is spawned. It
 can fire before the PTY exists, mid-stream, or after the attach tore it down on
-child exit. A mutex-guarded PTY handle, populated when the PTY starts and closed
-by the handler only when non-nil, makes each of those a safe no-op rather than a
-nil-pointer panic or a double-close.
+child exit. The handler touches no PTY: it closes a channel, and the attach
+reads that channel only once its client is running. A steal before the PTY
+exists then ends the client as soon as it starts, one mid-stream ends it at
+once, and one after the client exited is never read. None of the three can
+reach a half-built or closed terminal.
 
 #### Accepted risk: pid recycling
 
@@ -4466,6 +4475,7 @@ session and the reader is outside, and they never run at the same moment.
 |---|---|
 | tmux | a session-scoped user option, which tmux keeps and never acts on |
 | zmx | none: no per-session metadata of any kind, so the capability is false |
+| meja | none: no option store to keep one in, so the capability is false and both the read and the write are refused |
 | herdr | display-only server metadata, handed back on the row. A session's status is the workspace's metadata; a pane target's is the pane's own (§3.6) |
 
 herdr's store has the same shape as tmux's user option: written by one process,
