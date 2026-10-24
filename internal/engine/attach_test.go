@@ -388,6 +388,42 @@ func TestATerminalThatGoesAwayDoesNotWaitOnAClientThatIgnoresSIGTERM(t *testing.
 	}
 }
 
+// An attach reads its caller's input only while it runs. Its reader went on
+// waiting on the caller's stdin after Attach returned, and took whatever the
+// caller read next: a Go caller that attached and then read a line lost it,
+// written into a PTY that was already closed.
+func TestAnEndedAttachLeavesTheCallersInputAlone(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close(); _ = r.Close() })
+	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "sleep 0.3")}
+
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{In: r, Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	if _, err := w.WriteString("next\n"); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 16)
+		n, _ := r.Read(buf)
+		got <- string(buf[:n])
+	}()
+	select {
+	case line := <-got:
+		if line != "next\n" {
+			t.Errorf("the caller read %q after the attach, want its own %q", line, "next\n")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the caller's next input never reached it: the ended attach's reader took it")
+	}
+}
+
 // §8.3 The client is started with the size the caller gave, not handed it a
 // moment later. A client that reads its size as it starts saw 0x0 when the
 // PTY was sized after the start, and herdr's exits on that ("terminal reported

@@ -44,6 +44,9 @@ const (
 	settleMark   = 400 * time.Millisecond
 	// settleDrain bounds the wait for a settle step once the attach is over.
 	settleDrain = 5 * time.Second
+	// forwardDrain bounds the wait for the input reader once the client has
+	// ended. It is idle then unless a move it was running is still steering.
+	forwardDrain = 5 * time.Second
 )
 
 // resetSequence turns off everything an inner application may have switched on
@@ -383,8 +386,17 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 		}
 	}()
 
-	// Inward: the operator's keystrokes, minus any in-band control lines.
+	// Inward: the operator's keystrokes, minus any in-band control lines. The
+	// reader stops when the client does: wake's writer is closed then, and
+	// the attach waits for the reader before returning, so nothing the
+	// caller reads afterwards is taken by it.
+	wakeR, wakeW, wakeErr := os.Pipe()
+	if wakeErr != nil {
+		wakeR, wakeW = nil, nil
+	}
+	forwarded := make(chan struct{})
 	go func() {
+		defer close(forwarded)
 		if spec.Role == backend.RoleViewer {
 			// A viewer drops input entirely. On a backend with one shared PTY
 			// per session, a viewer's keystrokes would land in everyone's
@@ -428,7 +440,7 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 				}
 			}
 		}
-		forwardInput(io.In, tty, settled, exited, move, focus)
+		forwardInput(io.In, tty, settled, exited, wakeR, move, focus)
 	}()
 
 	err = child.Wait()
@@ -436,6 +448,17 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 	stopWatching()
 	<-done
 	<-signalled
+	if wakeW != nil {
+		_ = wakeW.Close()
+		// Bounded, since a move the reader is running steers a server and
+		// must not hold the attach open. A reader still running keeps its
+		// end of the pipe, which is closed only once it is done with it.
+		select {
+		case <-forwarded:
+			_ = wakeR.Close()
+		case <-time.After(forwardDrain):
+		}
+	}
 
 	if settleErr != nil {
 		return 0, settleErr
@@ -478,7 +501,12 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 // the client has settled on its target, and a move runs HERE, in the stream's
 // own order: bytes before it went before, bytes after it wait until the
 // client is on the new target, so nothing typed lands mid-walk (§8.10).
-func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, move, focus func(target string)) {
+//
+// Each read waits first until there is something to read or wake's writer
+// is closed, which is how the attach stops it when the client ends. A read
+// left blocked on the caller's stdin took the next thing the caller read. A
+// nil wake, or an input select cannot watch, reads as before.
+func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, wake *os.File, move, focus func(target string)) {
 	if in == nil {
 		return
 	}
@@ -488,11 +516,20 @@ func forwardInput(in *os.File, tty *os.File, settled, stop <-chan struct{}, move
 	case <-stop:
 		return
 	}
+	inFd, wakeFd := int(in.Fd()), -1
+	if wake != nil {
+		wakeFd = int(wake.Fd())
+	}
 	buffer := make([]byte, 4096)
 	// What has been read but not yet forwarded: a control that has begun
 	// and not ended within one read, kept until its end arrives.
 	var held string
 	for {
+		if wakeFd >= 0 {
+			if readable, watched := waitReadable(inFd, wakeFd); watched && !readable {
+				return
+			}
+		}
 		n, err := in.Read(buffer)
 		if n > 0 {
 			input := held + string(buffer[:n])

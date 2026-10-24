@@ -2810,6 +2810,18 @@ A non-TTY stdin gets no raw mode and no reset bytes injected into a stream a
 programmatic consumer parses. That consumer owns its own client-side terminal
 state.
 
+#### Input is read only while the client runs
+
+An attach MUST stop reading its caller's input when the client ends, and MUST
+NOT return while its reader may still take a byte. Each read waits until there
+is input or the client has ended, and the attach waits for the reader, bounded,
+before it returns.
+
+A read blocked on a terminal cannot be woken. One left waiting after the attach
+returned took the next thing its caller read, a Go caller's next line, and
+wrote it into a PTY that was already closed. A descriptor `select` cannot watch
+(one at or above `FD_SETSIZE`) is read as before.
+
 ### 8.3 Resize protocol
 
 - **The first size** MUST be on the PTY before the client starts: the caller's

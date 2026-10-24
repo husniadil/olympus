@@ -45,6 +45,10 @@ All notable changes to this project are documented here. The format follows
   `list_sessions` on a herdr below 0.9.0 carry the warning §0.8 lists for a
   `focused` flag that marks what every client shows. It was listed and never
   sent.
+- **An ended attach leaves its caller's input alone.** Its reader stayed
+  blocked on stdin after `Attach` returned and took the caller's next input.
+  It now waits for input or for the client's end, and `Attach` returns only
+  once it is done.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.
