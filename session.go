@@ -340,7 +340,7 @@ func (s *Session) Screen(ctx context.Context, opts ...ScreenOption) (Screen, err
 	screen.Warnings = append(screen.Warnings, warn(s.ol.resolution.Backend, opCaptureMeta)...)
 	if options.HistoryLines > 0 {
 		screen.Warnings = append(screen.Warnings, warn(s.ol.resolution.Backend, opCaptureHistory)...)
-		screen.Warnings = append(screen.Warnings, warnDepth(s.ol.resolution.Backend, options.HistoryLines)...)
+		screen.Warnings = append(screen.Warnings, warnDepth(options.HistoryLines, capture.HistoryCut, capture.HistoryCap)...)
 		if altScreen {
 			screen.Warnings = append(screen.Warnings, altScreenHistoryDropped)
 		}
@@ -610,7 +610,7 @@ func (s *Session) Poll(ctx context.Context, id string, opts ...RunOption) (PollR
 		// its default, so reading it raw silenced the disclosure on the one
 		// path nobody passes a window on.
 		Warnings: append(warn(s.ol.resolution.Backend, opPollWindow),
-			warnDepth(s.ol.resolution.Backend, runner.PollWindow())...),
+			warnDepth(runner.PollWindow(), got.HistoryCut, got.HistoryCap)...),
 	}
 	if got.Truncated {
 		out.Warnings = append(out.Warnings, truncatedRunOutput)

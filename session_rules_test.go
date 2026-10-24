@@ -151,7 +151,7 @@ func TestFocusViewResolvesItsTargetAndRefusesANegativeCell(t *testing.T) {
 // on — the default one, which is every caller who does not use --lines — it
 // therefore never fired.
 func TestPollDisclosesTheDepthCapOnItsDefaultWindow(t *testing.T) {
-	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "nothing to match here"}
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "nothing to match here", historyCap: 976}
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 
 	got, err := s.Poll(context.Background(), "abc123")
@@ -166,7 +166,7 @@ func TestPollDisclosesTheDepthCapOnItsDefaultWindow(t *testing.T) {
 // An explicit window below the cap is honoured in full, so saying anything
 // about it would be noise — and untrue.
 func TestPollSaysNothingWhenTheWindowFitsUnderTheCap(t *testing.T) {
-	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "nothing to match here"}
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "nothing to match here", historyCap: 976}
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 
 	got, err := s.Poll(context.Background(), "abc123", PollWindow(500))
@@ -175,6 +175,46 @@ func TestPollSaysNothingWhenTheWindowFitsUnderTheCap(t *testing.T) {
 	}
 	if disclosesDepth(got.Warnings) {
 		t.Errorf("warnings are %v, want none: 500 lines is under the cap and comes back whole", got.Warnings)
+	}
+}
+
+// §0.8 and §6.4: the disclosure follows what the backend actually cut. A
+// depth under 1,000 lines is cut when the screen takes it past the cap, and the
+// depth the answer can hold is the history left beside the screen, not the
+// cap itself. Both used to be wrong: the first said nothing, and a request
+// over 1,000 was told it got 1,000 lines of history.
+func TestAScreenDisclosesTheDepthTheBackendActuallyCut(t *testing.T) {
+	f := &fakeBackend{caps: backend.Capabilities{Backend: backend.Herdr}, text: "x", historyCap: 960}
+	s := &Session{ol: fakeOlympus(f), name: "build"}
+
+	got, err := s.Screen(context.Background(), WithHistory(990))
+	if err != nil {
+		t.Fatalf("Screen: %v", err)
+	}
+	var said string
+	for _, w := range got.Warnings {
+		if strings.Contains(w.Message, "is the deepest this backend returns") {
+			said = w.Message
+		}
+	}
+	if !strings.Contains(said, "990 lines of history were asked for and 960") {
+		t.Errorf("warnings are %v, want one saying 990 was cut to 960", got.Warnings)
+	}
+
+	many, err := fakeOlympus(f).Screens(context.Background(), []string{"build"}, WithHistory(5000))
+	if err != nil {
+		t.Fatalf("Screens: %v", err)
+	}
+	if !disclosesDepth(many.Warnings) {
+		t.Errorf("Screens warnings are %v, want the cut disclosed", many.Warnings)
+	}
+
+	under, err := s.Screen(context.Background(), WithHistory(960))
+	if err != nil {
+		t.Fatalf("Screen: %v", err)
+	}
+	if disclosesDepth(under.Warnings) {
+		t.Errorf("warnings are %v, want none: 960 lines fit beside the screen", under.Warnings)
 	}
 }
 

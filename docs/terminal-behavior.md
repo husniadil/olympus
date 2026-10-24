@@ -211,8 +211,8 @@ cases:
 | capture metadata | herdr | the alt-screen flag is tracked only where the server reports it; the scroll position is real (§5.3) |
 | session creation with a size | zmx, meja, herdr | the requested size is ignored: the session takes its size from the client that attaches it (§2.1, §2.10) |
 | capture | herdr | wrapped lines cannot be rejoined, so they come back split (§5.2) |
-| capture with history | herdr | a depth over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.4) |
-| detached run poll | herdr | a window over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.7) |
+| capture with history | herdr | a depth that with the screen passes 1,000 lines is cut to the history left beside the screen, disclosed with that depth only when it was cut (§6.4) |
+| detached run poll | herdr | a window that with the screen passes 1,000 lines is cut the same way, disclosed the same way (§6.7) |
 | pane listing | herdr | `current_command` is reported for a targeted listing only (§3.4) |
 | pane listing | herdr | `attached` is always false: no per-terminal client count exists (§3.4) |
 | session listing | herdr below 0.9.0 | `focused` marks the workspace EVERY client on the server is showing; absent from 0.9.0, where clients keep their own view, and absent on every other backend, whose clients each show their own session (§3.4) |
@@ -2206,7 +2206,10 @@ the viewport height before asking, and the history available at the cap is
 
 A larger request is not refused by the server but silently clamped. Olympus
 clamps it too and discloses the clamp (§0.8), rather than asking for a number
-it will not get. The growing window works below the cap. Above it, the remedy
+it will not get. The cut is judged on the depth plus the viewport, so a depth
+under 1,000 is disclosed when the screen takes it past. The disclosure names
+the history the answer holds, 1,000 less the viewport, not the 1,000 lines the
+server counts. The growing window works below the cap. Above it, the remedy
 tmux offers does not exist.
 
 Above the cap, §6.2's relaxation recovers the run whenever the completion is

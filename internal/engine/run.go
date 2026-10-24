@@ -46,6 +46,10 @@ type PollResult struct {
 	// Truncated says the completion was read without its start marker, so
 	// Output begins mid-run. The exit code is exact.
 	Truncated bool
+	// HistoryCut says the backend cut the poll's window to a ceiling of its
+	// own, and HistoryCap is the depth it searched instead (behavior §6.4).
+	HistoryCut bool
+	HistoryCap int
 }
 
 // A Runner executes commands through the sentinel protocol.
@@ -79,7 +83,7 @@ func (r Runner) Exec(ctx context.Context, target, command string) (Result, error
 	window := initialWindow
 	deadline := time.Now().Add(r.Timeout)
 	for {
-		capture, err := r.capture(ctx, target, window)
+		capture, _, err := r.capture(ctx, target, window)
 		if err != nil {
 			return Result{}, err
 		}
@@ -176,14 +180,23 @@ func (r Runner) inject(ctx context.Context, target, command string) (Markers, er
 // PollRun answers whether a detached run has finished. It is lock-free: a read
 // that blocks on a writer's lock turns observation into contention, and
 // observing a busy session is the case that matters most (behavior §11.1).
+//
+// Whatever it answers, it says whether the backend cut its window, since the
+// answer was searched for in what came back.
 func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, error) {
+	got, raw, err := r.pollRun(ctx, target, id)
+	got.HistoryCut, got.HistoryCap = raw.HistoryCut, raw.HistoryCap
+	return got, err
+}
+
+func (r Runner) pollRun(ctx context.Context, target, id string) (PollResult, backend.Capture, error) {
 	markers := NewMarkers(id)
 
-	capture, err := r.capture(ctx, target, r.PollWindow())
+	capture, raw, err := r.capture(ctx, target, r.PollWindow())
 	if err == nil {
 		if result, ok := markers.Parse(capture); ok {
 			code := result.ExitCode
-			return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output}, nil
+			return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output}, raw, nil
 		}
 		// A poll never grows its window, so at the deepest one a start marker
 		// missing here is missing for good, and reporting pending forever would
@@ -193,7 +206,7 @@ func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, err
 		if deepest && !markers.Started(capture) {
 			if result, ok := markers.ParseTruncated(capture); ok {
 				code := result.ExitCode
-				return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output, Truncated: true}, nil
+				return PollResult{Status: PollCompleted, ExitCode: &code, Output: result.Output, Truncated: true}, raw, nil
 			}
 		}
 	}
@@ -212,29 +225,29 @@ func (r Runner) PollRun(ctx context.Context, target, id string) (PollResult, err
 		// A target the listing does not name is not thereby gone: on herdr
 		// "w1" or "w1:p1" addresses a workspace the listing names by its
 		// label (§10.1). The backend's own probe reads the target's shape.
-		return PollResult{Status: PollPending}, nil
+		return PollResult{Status: PollPending}, raw, nil
 	}
 	if listErr != nil {
 		// A listing that failed is doubt, not death, and died is final: a
 		// caller that reaps on it would finalize a run that may still be going
 		// (§3.2).
-		return PollResult{Status: PollPending, Reason: "the session's liveness could not be confirmed: " + listErr.Error()}, nil
+		return PollResult{Status: PollPending, Reason: "the session's liveness could not be confirmed: " + listErr.Error()}, raw, nil
 	}
 	if !found {
-		return PollResult{Status: PollDied, Reason: "the session is no longer present"}, nil
+		return PollResult{Status: PollDied, Reason: "the session is no longer present"}, raw, nil
 	}
 	if row.Dead {
 		// A corpse pane keeps the session listed, so session-level death
 		// detection alone would report pending forever even though the command
 		// has died (behavior §6.9).
-		return PollResult{Status: PollDied, Reason: "the session's command exited"}, nil
+		return PollResult{Status: PollDied, Reason: "the session's command exited"}, raw, nil
 	}
 	if row.Liveness == backend.LivenessGone {
 		// Positive evidence of death while the row is still listed, as zmx
 		// reports a session whose socket refuses connections (§2.6).
-		return PollResult{Status: PollDied, Reason: "the session is gone"}, nil
+		return PollResult{Status: PollDied, Reason: "the session is gone"}, raw, nil
 	}
-	return PollResult{Status: PollPending}, nil
+	return PollResult{Status: PollPending}, raw, nil
 }
 
 // PollWindow is the depth a detached poll actually searches.
@@ -256,14 +269,14 @@ func (r Runner) PollWindow() int {
 // scrollback natively governs the depth itself: the request is ignored, and a
 // command producing enough output to scroll its sentinel past whatever depth
 // that backend retains can still be missed, with no workaround (behavior §6.4).
-func (r Runner) capture(ctx context.Context, target string, window int) (string, error) {
+func (r Runner) capture(ctx context.Context, target string, window int) (string, backend.Capture, error) {
 	opts := backend.ScreenOpts{}
 	if !r.Backend.Capabilities().NativeScrollback {
 		opts.HistoryLines = window
 	}
 	capture, err := r.Backend.Screen(ctx, target, opts)
 	if err != nil {
-		return "", err
+		return "", backend.Capture{}, err
 	}
-	return capture.Text, nil
+	return capture.Text, capture, nil
 }

@@ -107,6 +107,12 @@ type ScreenOpts struct {
 type Capture struct {
 	Text string
 	Meta ScreenMeta
+	// HistoryCut says the backend cut a history request to a ceiling of its
+	// own, and HistoryCap is then the most lines of history above the screen
+	// the capture could hold. A backend that honours every depth leaves both
+	// zero. The ergonomic layer discloses the cut (behavior §0.8, §6.4).
+	HistoryCut bool
+	HistoryCap int
 }
 
 // A Role is what an attached client may do (behavior §8.7).

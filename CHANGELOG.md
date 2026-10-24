@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
 - **A status can be cleared.** `status --set ""` and `session_status` with
   `"set": ""` clear the status. An empty value was read as no value at all,
   so each door read it as a read, and none could take a status back.
+- **herdr's history cap is disclosed by what it cut.** A depth under 1,000
+  lines that the screen took past the cap was cut without a word, and a cut
+  that was disclosed named 1,000 lines of history where the answer held 1,000
+  less the screen. The disclosure now follows what the backend reports it cut,
+  with the depth the answer really holds.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

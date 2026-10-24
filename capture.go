@@ -61,6 +61,9 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 		Meta:    make(map[string]backend.ScreenMeta, len(targets)),
 	}
 	altScreen := false
+	// The shallowest cut of any target is the one disclosed, once for the
+	// call (behavior §0.8).
+	cut, held := false, 0
 	for _, target := range targets {
 		resolved, err := o.resolveTarget(ctx, target)
 		if err != nil {
@@ -74,6 +77,9 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 		out.Meta[target] = capture.Meta
 		out.Screens[target] = capture.Text
 		altScreen = altScreen || alt
+		if capture.HistoryCut && (!cut || capture.HistoryCap < held) {
+			cut, held = true, capture.HistoryCap
+		}
 	}
 
 	// Announced once for the whole call, never once per target: a warning per
@@ -82,7 +88,7 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 	out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureMeta)...)
 	if options.HistoryLines > 0 {
 		out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureHistory)...)
-		out.Warnings = append(out.Warnings, warnDepth(o.resolution.Backend, options.HistoryLines)...)
+		out.Warnings = append(out.Warnings, warnDepth(options.HistoryLines, cut, held)...)
 		if altScreen {
 			out.Warnings = append(out.Warnings, altScreenHistoryDropped)
 		}

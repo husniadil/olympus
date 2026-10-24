@@ -29,6 +29,9 @@ type fakeBackend struct {
 	// of text; screenErr, when set, is what every capture fails with.
 	screens   map[string]string
 	screenErr error
+	// historyCap, when set, is the most history a capture holds: a deeper
+	// request is cut to it and says so, as herdr's is.
+	historyCap int
 
 	// screenOpts records what each capture ASKED for, which is the only way to
 	// observe that a history request was dropped rather than merely unanswered.
@@ -138,10 +141,14 @@ func (f *fakeBackend) Screen(_ context.Context, target string, opts backend.Scre
 	if f.screenErr != nil {
 		return backend.Capture{}, f.screenErr
 	}
+	capture := backend.Capture{Text: f.text}
 	if text, ok := f.screens[target]; ok {
-		return backend.Capture{Text: text}, nil
+		capture.Text = text
 	}
-	return backend.Capture{Text: f.text}, nil
+	if f.historyCap > 0 && opts.HistoryLines > f.historyCap {
+		capture.HistoryCut, capture.HistoryCap = true, f.historyCap
+	}
+	return capture, nil
 }
 
 func (f *fakeBackend) Redraw(context.Context, string) error {

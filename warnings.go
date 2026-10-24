@@ -98,21 +98,6 @@ var degradations = map[backend.Name]map[operation][]string{
 	},
 }
 
-// depthCaps is the deepest history a backend will return, for the backends that
-// have a ceiling at all.
-//
-// It is separate from degradations because the disclosure is CONDITIONAL: a
-// backend with a cap still honours every request below it, and warning on all
-// of them would be exactly the noise §0.8 rules out — as well as untrue, since
-// nothing about that answer is narrower than what was asked for. A request
-// above the cap really does come back short, and only that one is disclosed.
-var depthCaps = map[backend.Name]int{
-	// The server clamps silently at 1,000 lines, so Olympus clamps there too
-	// and says when a request was reduced (§6.4). The 1,000 includes the
-	// visible screen, so a request at the cap is already over it.
-	backend.Herdr: 1000,
-}
-
 // truncatedRunOutput discloses a completion recovered without its start marker.
 //
 // The exit code is exact and the payload gives no hint that anything is
@@ -124,18 +109,25 @@ var truncatedRunOutput = Warning{
 	Message: "the start of this run scrolled past what this backend returns, so the output begins partway through; the exit code is exact",
 }
 
-// warnDepth discloses a history or poll-window request that will come back
-// shorter than it was written.
-func warnDepth(name backend.Name, lines int) []Warning {
-	limit, has := depthCaps[name]
-	if !has || lines <= limit {
+// warnDepth discloses a history or poll-window request the backend cut to a
+// ceiling of its own, by the depth it really holds.
+//
+// It is separate from degradations because the disclosure is CONDITIONAL: a
+// backend with a cap still honours every request below it, and warning on all
+// of them would be exactly the noise §0.8 rules out — as well as untrue, since
+// nothing about that answer is narrower than what was asked for. Only a
+// request the backend reports it cut is disclosed, and by the history it
+// left: herdr's cap counts the screen, so neither the cut nor the depth can be
+// told from the request alone (§6.4).
+func warnDepth(lines int, cut bool, held int) []Warning {
+	if !cut {
 		return nil
 	}
 	return []Warning{{
 		Code: WarningDegraded,
 		Message: fmt.Sprintf(
-			"%d lines were asked for and %d is the deepest this backend returns, so the answer is %d lines",
-			lines, limit, limit),
+			"%d lines of history were asked for and %d is the deepest this backend returns here, so the answer holds %d",
+			lines, held, held),
 	}}
 }
 
