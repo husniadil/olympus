@@ -169,11 +169,19 @@ func (d Delivery) deliver(ctx context.Context, target, text string, in Inspectio
 	if in.Paste {
 		write = d.Backend.Paste
 	}
+	// Where the whole screen is matched, what was on it before typing is
+	// counted first, so a copy of the text already there, the last time the
+	// same command ran, confirms nothing (§7.2). A watch reads its own input
+	// box and needs no count.
+	var before copies
+	if in.Watch == nil {
+		before = d.copiesOnScreen(ctx, target, n, raw)
+	}
 
 	if err := write(ctx, target, text); err != nil {
 		return err
 	}
-	echo, err := d.observed(ctx, target, n, raw, in.Watch)
+	echo, err := d.observed(ctx, target, n, raw, in.Watch, before)
 	if done, err := settled(target, echo, err); done {
 		return err
 	}
@@ -185,13 +193,48 @@ func (d Delivery) deliver(ctx context.Context, target, text string, in Inspectio
 	if err := write(ctx, target, text); err != nil {
 		return err
 	}
-	echo, err = d.observed(ctx, target, n, raw, in.Watch)
+	// Against the count from before the first send: one copy of either send
+	// on screen is the delivery.
+	echo, err = d.observed(ctx, target, n, raw, in.Watch, before)
 	if done, err := settled(target, echo, err); done {
 		return err
 	}
 
 	return backend.Errorf(backend.CodeTimeout,
 		"text sent to %s was never observed on screen, after one resend", target)
+}
+
+// copies counts where a screen shows a text: each needle by ScreenCount, and
+// the text as typed where it has no letter or digit (§7.1).
+type copies struct{ head, tail, raw int }
+
+func countCopies(screen string, n Needles, raw string) copies {
+	c := copies{head: ScreenCount(screen, n.Head), tail: ScreenCount(screen, n.Tail)}
+	if raw != "" {
+		c.raw = strings.Count(screen, raw)
+	}
+	return c
+}
+
+// more says whether c shows the text in more places than before did: the
+// text as typed where it is looked for that way, since its needles are then
+// empty, and either needle otherwise.
+func (c copies) more(before copies, raw string) bool {
+	if raw != "" {
+		return c.raw > before.raw
+	}
+	return c.head > before.head || c.tail > before.tail
+}
+
+// copiesOnScreen counts the copies on screen before anything is typed. A
+// capture that fails counts none, which is the rule without the count: any
+// copy then confirms.
+func (d Delivery) copiesOnScreen(ctx context.Context, target string, n Needles, raw string) copies {
+	capture, err := d.Backend.Screen(ctx, target, backend.ScreenOpts{})
+	if err != nil {
+		return copies{}
+	}
+	return countCopies(capture.Text, n, raw)
 }
 
 // settled says whether one window's outcome ends the delivery, and how. Only
@@ -215,8 +258,9 @@ func settled(target string, echo Echo, err error) (bool, error) {
 // there is one and for either needle over the whole screen where there is
 // not, and answers with the last capture's echo. Only a watch's own error
 // stops it early. A non-empty raw needle must also appear verbatim on the
-// screen.
-func (d Delivery) observed(ctx context.Context, target string, n Needles, raw string, watch Watch) (Echo, error) {
+// screen. Over the whole screen a needle counts only where it shows in more
+// places than before did, the screen before anything was typed.
+func (d Delivery) observed(ctx context.Context, target string, n Needles, raw string, watch Watch, before copies) (Echo, error) {
 	deadline := time.Now().Add(d.Budget)
 	last := EchoNone
 	for {
@@ -227,7 +271,7 @@ func (d Delivery) observed(ctx context.Context, target string, n Needles, raw st
 		if err == nil {
 			rawSeen := raw == "" || strings.Contains(capture.Text, raw)
 			if watch == nil {
-				if rawSeen && (ScreenContains(capture.Text, n.Head) || ScreenContains(capture.Text, n.Tail)) {
+				if countCopies(capture.Text, n, raw).more(before, raw) {
 					return EchoWhole, nil
 				}
 			} else if echo, werr := watch(capture.Text, n); werr != nil {

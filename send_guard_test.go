@@ -373,10 +373,12 @@ func TestSendStopsWhenAQuestionOpensMidDelivery(t *testing.T) {
 	}
 }
 
-// §7.6 scope: a pane with no known agent keeps the whole-screen match, and a
-// text already on its screen verifies as it always has.
+// §7.6 scope: a pane with no known agent keeps the whole-screen match: the
+// text it echoes beside an old copy of the same command verifies. The old copy
+// alone no longer does (§7.2).
 func TestSendToAShellKeepsTheWholeScreenMatch(t *testing.T) {
 	f := &fakeBackend{text: "$ make build\nok\n$ "}
+	f.onType = func(f *fakeBackend, line string) { f.text += line }
 	paneRunning(f, "zsh")
 	s := &Session{ol: fakeOlympus(f), name: "build"}
 

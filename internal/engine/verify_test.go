@@ -116,6 +116,38 @@ func TestTextNeverObservedIsNeverSubmitted(t *testing.T) {
 	}
 }
 
+// §7.2: what confirms a delivery is the text the typing put on screen, not text
+// that was there before anything was typed. A shell that already shows the same
+// command, from the last time it ran, confirmed a delivery that never landed,
+// and the terminator then submitted whatever the input line held.
+func TestTextAlreadyOnScreenDoesNotConfirmADroppedDelivery(t *testing.T) {
+	for _, c := range []struct{ name, text, screen string }{
+		{"words", "make build", "$ make build\nbuilt ok\n$ "},
+		{"punctuation", ";;", "$ ;;\n$ "},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// Every send vanishes, and the screen keeps its old copy.
+			f := &fakeBackend{screen: c.screen}
+			err := delivery(t, f, nil).VerifiedSubmit(context.Background(), "build", c.text)
+			if !errors.Is(err, backend.ErrTimeout) {
+				t.Fatalf("error is %v, want a timeout: the text already on screen is not this delivery's", err)
+			}
+			if _, submits := f.counts(); submits != 0 {
+				t.Errorf("submitted %d times on an old copy of the text, want 0", submits)
+			}
+
+			// The same screen, and this time the typing lands beside it.
+			f = &fakeBackend{screen: c.screen, onType: func(f *fakeBackend, text string) { f.setScreen(c.screen + text) }}
+			if err := delivery(t, f, nil).VerifiedSubmit(context.Background(), "build", c.text); err != nil {
+				t.Fatalf("a delivery beside an old copy was not observed: %v", err)
+			}
+			if typed, _ := f.counts(); typed != 1 {
+				t.Errorf("sent the text %d times, want 1", typed)
+			}
+		})
+	}
+}
+
 // §7.1: text with no letters or digits normalizes to nothing, and an empty
 // needle matches any screen. Verification then checked nothing, so such text
 // is looked for as typed instead.

@@ -2415,6 +2415,26 @@ A terminal's status or prompt banner routinely fills a line before the line
 holding the echoed text. Normalizing the whole screen as one string risks
 matching a needle assembled from two unrelated lines.
 
+#### A copy already on screen confirms nothing
+
+Where the whole screen is matched, the screen is captured once before the text
+is typed, and the places it shows the text are counted: each line holding a
+needle, and each adjacent pair (§7.3) holding it where neither line does alone.
+The delivery is observed only when a capture shows it in more places than that.
+Text with no letter or digit (§7.1) is counted as typed. A capture before typing
+that fails counts nothing, which is the rule without the count.
+
+A shell routinely still shows the same command from the last time it ran. Found
+anywhere on the screen, that copy confirmed a delivery that never landed, and
+the terminator submitted whatever the input line held.
+
+The cost is one more capture per send. The accepted risk is a screen that
+scrolls as the text is typed, with an old copy on its top line: the count holds
+still and the delivery reads as dropped, so the §7.4 resend types it again. That
+needs an old copy on the one line a wrap pushes off, and reads as a failure
+rather than a success. An input box an agent's watch reads (§7.6) is not
+counted, since it holds only what is being typed.
+
 ### 7.3 Also match adjacent line pairs, for wrap tolerance
 
 The matcher MUST check each line individually and each adjacent pair of lines

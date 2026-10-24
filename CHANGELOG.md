@@ -34,6 +34,10 @@ All notable changes to this project are documented here. The format follows
   On SIGTERM or SIGHUP the attach handed the terminal back and sent its
   client SIGTERM alone, so a client that ignored it held the attach open. It
   is now killed after the same grace every other ending gives it.
+- **A verified send into a shell is not confirmed by an old copy.** Text
+  already on screen, from the last time the same command ran, confirmed a
+  delivery that never landed. The screen is now counted before typing, and the
+  text must show in more places than it did.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.
