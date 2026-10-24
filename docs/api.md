@@ -473,7 +473,8 @@ address delivers that reply to somebody else's terminal, silently.
 the server's focus says where the next client will land rather than what the
 running ones show. It is also absent on backends whose clients each show their
 own session (§3.4). A listing where no row carries the flag means the backend
-cannot say, never that the focus is elsewhere.
+cannot say, never that the focus is elsewhere. A listing where a row carries it
+says what it means there in a `DEGRADED` warning, once (behavior spec §0.8).
 
 ### Pane row (`panes`, `info`)
 

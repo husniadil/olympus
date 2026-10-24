@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`SessionWarnings`** on the Go handle: the disclosures a session listing
+  owes, as `PaneWarnings` is for a pane listing.
+
 - **`session_status` with no target addresses the calling session.** Over MCP,
   as `status` does on the CLI, the session the server's own process runs in is
   addressed on that session's backend and server. `target` is now optional.
@@ -38,6 +41,10 @@ All notable changes to this project are documented here. The format follows
   already on screen, from the last time the same command ran, confirmed a
   delivery that never landed. The screen is now counted before typing, and the
   text must show in more places than it did.
+- **A shared herdr focus is disclosed on the session listing.** `ls` and
+  `list_sessions` on a herdr below 0.9.0 carry the warning §0.8 lists for a
+  `focused` flag that marks what every client shows. It was listed and never
+  sent.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

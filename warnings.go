@@ -26,6 +26,9 @@ type operation int
 
 const (
 	opPaneListing operation = iota
+	// opSharedFocus is a session listing whose focused flag marks what every
+	// client shows.
+	opSharedFocus
 	opCaptureHistory
 	opCapture
 	opCaptureMeta
@@ -94,6 +97,9 @@ var degradations = map[backend.Name]map[operation][]string{
 		},
 		opSpawnSize: {
 			"the requested size is ignored: a pane takes the server's own geometry until a client attaches",
+		},
+		opSharedFocus: {
+			"focused marks the workspace every client on this server is showing: this herdr keeps one view for all of them",
 		},
 	},
 }

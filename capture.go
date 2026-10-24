@@ -157,6 +157,19 @@ func (o *Olympus) Panes(ctx context.Context, target string) ([]backend.Pane, err
 	return panes, nil
 }
 
+// SessionWarnings are the disclosures a session listing owes (behavior §0.8).
+// A row is marked focused only where every client on the server shows one
+// view (herdr below 0.9.0, §3.4), and the listing then says what the flag
+// means there. A listing with no row focused owes nothing.
+func (o *Olympus) SessionWarnings(sessions []backend.Session) []Warning {
+	for _, s := range sessions {
+		if s.Focused {
+			return warn(o.resolution.Backend, opSharedFocus)
+		}
+	}
+	return nil
+}
+
 // PaneWarnings are the disclosures that apply to any pane listing.
 func (o *Olympus) PaneWarnings() []Warning { return warn(o.resolution.Backend, opPaneListing) }
 

@@ -316,11 +316,14 @@ func register(s *sdk.Server) {
 	addTool(s, "list_sessions", "List sessions on the resolved backend. Sessions are backend-scoped and never migrate.",
 		func(ctx context.Context, ol *olympus.Olympus, _ emptyParams) ([]backend.Session, []olympus.Warning, error) {
 			sessions, err := ol.Sessions(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
 			if sessions == nil {
 				// Never null: an empty collection is an empty list.
 				sessions = []backend.Session{}
 			}
-			return sessions, nil, err
+			return sessions, ol.SessionWarnings(sessions), nil
 		})
 
 	addTool(s, "stop_session", "End a session, interrupting it before forcing. Reports gone, graceful, or killed; all three are successes.",
