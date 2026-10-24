@@ -27,6 +27,9 @@ All notable changes to this project are documented here. The format follows
   its default directory and by that directory named, or a socket reached
   through a symlinked directory serialized against nothing. The key is now the
   path the address leads to.
+- **`clients --tag` with no server running answers `[]`.** It answered
+  `SESSION_NOT_FOUND`, where api §5 and the untagged listing answer the empty
+  list. A running server with no client carrying the tag is still not found.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

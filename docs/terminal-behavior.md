@@ -4688,7 +4688,8 @@ differently. The listing itself is the probe.
 
 A tag filter answers the one client carrying it, as a listing of one. A tag no
 client carries is SESSION_NOT_FOUND: a caller asking where its own client is must
-tell "not there" from "there".
+tell "not there" from "there". With no server running there is no client to look
+through, and a tag filter answers the empty listing, as the listing does (§3.3).
 
 A tag is what the server holds it to: one to 128 bytes of UTF-8 with no control
 character. One outside that is USAGE before the server is asked (§12).

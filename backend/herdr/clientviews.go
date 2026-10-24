@@ -241,7 +241,9 @@ func (h *Herdr) Clients(ctx context.Context) ([]backend.Client, error) {
 	caps, err := h.capabilities(ctx)
 	if err != nil {
 		if noServerAt(err) {
-			return []backend.Client{}, nil
+			// No list, rather than an empty one: the layer above tells "no
+			// server" from "no client" by it (backend.ClientLister).
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -252,7 +254,9 @@ func (h *Herdr) Clients(ctx context.Context) ([]backend.Client, error) {
 	result, err := h.call(ctx, "client.list", struct{}{})
 	if err != nil {
 		if noServerAt(err) {
-			return []backend.Client{}, nil
+			// No list, rather than an empty one: the layer above tells "no
+			// server" from "no client" by it (backend.ClientLister).
+			return nil, nil
 		}
 		return nil, err
 	}

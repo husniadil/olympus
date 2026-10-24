@@ -76,6 +76,18 @@ func TestAClientTagFilterAnswersThatClientOrNotFound(t *testing.T) {
 		t.Error("the server was asked for its clients under a tag it could never hold")
 	}
 
+	// api §5: with no server running a tag finds nothing to look through, and
+	// the answer is the empty listing, as it is without a tag. The backend
+	// says so by answering no list at all.
+	none := clientsOlympus(&clientsBackend{fakeBackend: &fakeBackend{}})
+	if got, err := none.Clients(ctx, WithClientTag("mine")); err != nil || got == nil || len(got) != 0 {
+		t.Errorf("a tag with no server running = %#v, %v; want an empty, non-nil list", got, err)
+	}
+	empty := clientsOlympus(&clientsBackend{fakeBackend: &fakeBackend{}, clients: []backend.Client{}})
+	if _, err := empty.Clients(ctx, WithClientTag("mine")); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("a tag on a server with no clients is %q (%v), want %q", backend.CodeOf(err), err, backend.CodeSessionNotFound)
+	}
+
 	unsupported := clientsOlympus(&clientsBackend{fakeBackend: &fakeBackend{}, err: backend.Errorf(backend.CodeUnsupported, "no")})
 	if _, err := unsupported.Clients(ctx, WithClientTag("mine")); backend.CodeOf(err) != backend.CodeUnsupported {
 		t.Errorf("a filter on a server that cannot list clients is %q (%v), want %q", backend.CodeOf(err), err, backend.CodeUnsupported)
