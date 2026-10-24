@@ -4160,10 +4160,10 @@ added.
 | `USAGE` | 2 | Input the caller could have validated. |
 | `SESSION_NOT_FOUND` | 3 | The target session or pane does not exist. |
 | `BACKEND_UNAVAILABLE` | 4 | The selected backend cannot be reached. |
-| `TIMEOUT` | 5 | An operation did not complete or match before its budget elapsed. |
+| `TIMEOUT` | 5 | An operation did not complete or match before its budget elapsed. A verified send whose agent's input box shows only part of the text fails with it marked `typed`, since the rest of the text is not there and what arrived is (§7.6). |
 | `CONFLICT` | 6 | A lock or attach slot is held by someone else. |
 | `UNSUPPORTED` | 7 | The backend has no concept for this operation at all. |
-| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person or shows something open over its input box, and the input was refused before anything was typed, or stopped before its terminator when the prompt opened after typing (§7.5). |
+| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person or shows something open over its input box, and the input was refused before anything was typed, or stopped before its terminator, marked `typed`, when the prompt opened or the input box went away after typing (§7.5). The input box's absence carries the reason `no_input_box`. |
 | `UNEXPECTED` | 1 | Anything not carrying one of the above. |
 
 ### Two distinctions that MUST be preserved
