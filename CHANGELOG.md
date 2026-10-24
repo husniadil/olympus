@@ -17,7 +17,9 @@ All notable changes to this project are documented here. The format follows
 - **A status can be cleared.** `status --set ""` and `session_status` with
   `"set": ""` clear the status. An empty value was read as no value at all,
   so each door read it as a read, and none could take a status back.
-
+- **`agents` lists a pane a view shares once.** On tmux, while a view existed,
+  an agent appeared twice, the second row under the view's name. The row is
+  now the base session's.
 - **A failed throwaway run keeps its cleanup failure.** A `run` without a
   target that failed and then could not kill its session returned the run's
   error alone at both doors, so the leaked session went unreported. The

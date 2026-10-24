@@ -739,3 +739,31 @@ func TestAgentsReadNoLineOffASharedSessionsScreen(t *testing.T) {
 		}
 	}
 }
+
+// §3.4 "Pane id is not unique across rows": a tmux view shares its base's
+// pane, so a full pane listing names it under both. The agent is listed once,
+// under the base. A pane only a view still reaches, its base gone, is listed
+// under the view, since that is the one name left to address it by.
+func TestAgentsListAPaneAViewSharesOnce(t *testing.T) {
+	t.Parallel()
+	f := &fakeBackend{
+		caps: backend.Capabilities{Backend: backend.Tmux},
+		panes: []backend.Pane{
+			{ID: "%2", SessionName: viewPrefix + "agent-0a0b0c0d", SessionID: "$9", CurrentCommand: "claude", CurrentPath: "/a"},
+			{ID: "%2", SessionName: "agent", SessionID: "$2", CurrentCommand: "claude", CurrentPath: "/a"},
+			{ID: "%5", SessionName: viewPrefix + "gone-01020304", SessionID: "$8", CurrentCommand: "codex", CurrentPath: "/g"},
+		},
+	}
+	agents, err := fakeOlympus(f).Agents(context.Background())
+	if err != nil {
+		t.Fatalf("Agents: %v", err)
+	}
+	var got []string
+	for _, ag := range agents {
+		got = append(got, ag.PaneID+" "+ag.SessionName)
+	}
+	want := []string{"%2 agent", "%5 " + viewPrefix + "gone-01020304"}
+	if !slices.Equal(got, want) {
+		t.Errorf("agents = %q, want %q", got, want)
+	}
+}

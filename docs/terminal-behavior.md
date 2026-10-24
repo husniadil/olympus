@@ -1342,6 +1342,11 @@ A pane is listed once, whatever else below it carries the name. The heuristic
 knows the agent's name and nothing else: the status is read off the pane's
 screen (below), and the row carries no title and no usage.
 
+A pane is also listed once whatever session rows name it. A tmux view shares its
+base's pane, so the whole-server listing names the pane under both (§3.4). The
+row is the base's. A view's row is kept only where no base row names the pane,
+since the base is gone and the view is the one name left to address it by.
+
 The process table is read once per listing. Where it cannot be read the listing
 does not fail: it falls back to the foreground command for every pane.
 
