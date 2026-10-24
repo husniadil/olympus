@@ -20,6 +20,21 @@ CI runs on Linux only. The darwin build is checked by the cross-compile
 runs only on a developer machine. The meja failure below has only been seen
 there.
 
+## The per-client view leg is not in CI
+
+The tests of a herdr server that moves one client's view (behavior §8.10:
+`client_view_focus` and what rides on it) need the `husniadil/herdr` fork, and
+run only where `OLYMPUS_TEST_HERDR_CLIENT_VIEW` names its binary. CI does not
+set it. Redraw and a pane focused for one client have unit tests against a fake
+API as well.
+
+The leg is not added because one of its tests is intermittent.
+`TestAPerClientViewGoPressesNoKey` failed 1 run in 16 against herdr
+0.9.3+agm.6 on Linux (measured 2026-10-24): the server answered a waited
+`client.view.focus` with the client still on its first workspace, its view
+applied. Whether the server answers on an acknowledgement of the view before
+the move, or the test moves a client still being placed, is not settled.
+
 ## MCP is stdio only
 
 The MCP door speaks stdio and nothing else (behavior §15). There is no remote or

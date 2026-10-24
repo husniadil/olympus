@@ -338,6 +338,7 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, map[string]b
 	if err != nil {
 		return nil, nil, err
 	}
+	panes = onePerPane(panes)
 
 	tree := o.processTreeFor(ctx, panes)
 
@@ -376,6 +377,29 @@ func (o *Olympus) listAgents(ctx context.Context) ([]backend.Agent, map[string]b
 		})
 	}
 	return agents, shared, nil
+}
+
+// onePerPane keeps one row per pane id. A tmux view shares its base's pane, so
+// a full listing names the pane under both (§3.4), and an agent listed per row
+// would appear twice, once under a name `ls` does not offer. The base's row is
+// kept; a view's only where no base row names the pane, since the base is gone
+// and the view is the one name left to address it by. Pane ids are unique per
+// server on every backend, so nothing else collapses.
+func onePerPane(panes []backend.Pane) []backend.Pane {
+	at := map[string]int{}
+	kept := make([]backend.Pane, 0, len(panes))
+	for _, pane := range panes {
+		i, seen := at[pane.ID]
+		if !seen {
+			at[pane.ID] = len(kept)
+			kept = append(kept, pane)
+			continue
+		}
+		if strings.HasPrefix(kept[i].SessionName, viewPrefix) && !strings.HasPrefix(pane.SessionName, viewPrefix) {
+			kept[i] = pane
+		}
+	}
+	return kept
 }
 
 // processTreeFor reads the process table once, and only when a pane has a

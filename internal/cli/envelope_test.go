@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/husniadil/olympus"
@@ -111,4 +112,33 @@ func TestAnUncodedErrorStillCarriesAVocabularyCode(t *testing.T) {
 func TestOnlyAnUnresolvedFailureOmitsTheBackend(t *testing.T) {
 	assertEnvelopeJSON(t, failureEnvelope("", backend.Errorf(backend.CodeBackendUnavailable, "no backend is installed")),
 		`{"ok":false,"error":{"code":"BACKEND_UNAVAILABLE","message":"no backend is installed"}}`)
+}
+
+// behavior §6.10: a throwaway run that fails and then fails to clean up reports
+// both. The run's error is the failure, and the cleanup failure rides beside it,
+// as a warning in the envelope and as narration on stderr.
+func TestAFailureKeepsTheWarningsThatCameWithIt(t *testing.T) {
+	cleanup := []olympus.Warning{{Code: olympus.WarningDegraded, Message: "the throwaway session x could not be cleaned up: gone"}}
+	failed := withWarnings(backend.Errorf(backend.CodeTimeout, "timed out"), cleanup)
+
+	var out, errOut strings.Builder
+	(&App{Out: &out, Err: &errOut, json: true, resolved: backend.Tmux}).report(failed)
+	if got, want := out.String(), `{"ok":false,"backend":"tmux","warnings":[{"code":"DEGRADED","message":"the throwaway session x could not be cleaned up: gone"}],"error":{"code":"TIMEOUT","message":"timed out"}}`+"\n"; got != want {
+		t.Errorf("--json failure =\n\t%s\nwant\n\t%s", got, want)
+	}
+
+	out.Reset()
+	(&App{Out: &out, Err: &errOut}).report(failed)
+	if got, want := errOut.String(), "warning: the throwaway session x could not be cleaned up: gone\nolympus: timed out\n"; got != want {
+		t.Errorf("human failure on stderr = %q, want %q", got, want)
+	}
+	if out.Len() != 0 {
+		t.Errorf("human failure wrote %q to stdout", out.String())
+	}
+	if backend.CodeOf(failed) != backend.CodeTimeout {
+		t.Errorf("code = %s, want the run's own TIMEOUT", backend.CodeOf(failed))
+	}
+	if withWarnings(errors.New("x"), nil).Error() != "x" {
+		t.Error("an error with no warnings must read as itself")
+	}
 }

@@ -61,6 +61,9 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 		Meta:    make(map[string]backend.ScreenMeta, len(targets)),
 	}
 	altScreen := false
+	// The shallowest cut of any target is the one disclosed, once for the
+	// call (behavior §0.8).
+	cut, held := false, 0
 	for _, target := range targets {
 		resolved, err := o.resolveTarget(ctx, target)
 		if err != nil {
@@ -74,6 +77,9 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 		out.Meta[target] = capture.Meta
 		out.Screens[target] = capture.Text
 		altScreen = altScreen || alt
+		if capture.HistoryCut && (!cut || capture.HistoryCap < held) {
+			cut, held = true, capture.HistoryCap
+		}
 	}
 
 	// Announced once for the whole call, never once per target: a warning per
@@ -82,7 +88,7 @@ func (o *Olympus) Screens(ctx context.Context, targets []string, opts ...ScreenO
 	out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureMeta)...)
 	if options.HistoryLines > 0 {
 		out.Warnings = append(out.Warnings, warn(o.resolution.Backend, opCaptureHistory)...)
-		out.Warnings = append(out.Warnings, warnDepth(o.resolution.Backend, options.HistoryLines)...)
+		out.Warnings = append(out.Warnings, warnDepth(options.HistoryLines, cut, held)...)
 		if altScreen {
 			out.Warnings = append(out.Warnings, altScreenHistoryDropped)
 		}
@@ -149,6 +155,19 @@ func (o *Olympus) Panes(ctx context.Context, target string) ([]backend.Pane, err
 		panes = []backend.Pane{}
 	}
 	return panes, nil
+}
+
+// SessionWarnings are the disclosures a session listing owes (behavior §0.8).
+// A row is marked focused only where every client on the server shows one
+// view (herdr below 0.9.0, §3.4), and the listing then says what the flag
+// means there. A listing with no row focused owes nothing.
+func (o *Olympus) SessionWarnings(sessions []backend.Session) []Warning {
+	for _, s := range sessions {
+		if s.Focused {
+			return warn(o.resolution.Backend, opSharedFocus)
+		}
+	}
+	return nil
 }
 
 // PaneWarnings are the disclosures that apply to any pane listing.

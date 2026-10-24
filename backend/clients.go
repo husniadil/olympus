@@ -42,6 +42,11 @@ type Client struct {
 // what does not implement it, and the layer above reports CodeUnsupported. A
 // backend that implements it answers CodeUnsupported itself for a server that
 // cannot (§13.5).
+//
+// With no server running it answers nil and no error, and with a server that
+// has no clients an empty, non-nil list. Both are the empty listing to a
+// caller, but a tag filter tells them apart: no server is an empty answer, and
+// no client carrying the tag is not-found (api §5).
 type ClientLister interface {
 	Clients(ctx context.Context) ([]Client, error)
 }

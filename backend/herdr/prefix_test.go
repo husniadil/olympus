@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,7 +79,9 @@ func TestThePrefixFallbackIsTheOperatorsConfigWhateverTheSocketOverride(t *testi
 		t.Errorf("the fallback prefix is %q, want the operator's C-Space", got)
 	}
 
+	// Unset, not empty: herdr reads an empty value as a directory.
 	t.Setenv("XDG_CONFIG_HOME", "")
+	os.Unsetenv("XDG_CONFIG_HOME")
 	t.Setenv("HOME", dir)
 	home := filepath.Join(dir, ".config", "herdr")
 	if err := os.MkdirAll(home, 0o700); err != nil {
@@ -89,5 +92,66 @@ func TestThePrefixFallbackIsTheOperatorsConfigWhateverTheSocketOverride(t *testi
 	}
 	if got := configuredPrefix(filepath.Join(dir, "session")); got != "M-q" {
 		t.Errorf("with no configuration home the fallback prefix is %q, want M-q from $HOME/.config/herdr", got)
+	}
+}
+
+// §13.3 The prefix reported is the one a session client of this handle reads.
+// On a server this handle started, that client is pointed at this backend's
+// own configuration (clientEnv), so the operator's prefix is not the answer:
+// it is what that configuration names, else herdr's default.
+func TestAStartedServersPrefixIsTheOneItsClientReads(t *testing.T) {
+	dir := t.TempDir()
+	operator := filepath.Join(dir, "operator")
+	if err := os.MkdirAll(filepath.Join(operator, "herdr"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(operator, "herdr", "config.toml"), []byte("[keys]\nprefix = \"ctrl+space\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", operator)
+
+	h := New(WithSocketPath(filepath.Join(dir, "h.sock")))
+	if got, _ := h.Prefix(context.Background()); got != "C-Space" {
+		t.Fatalf("a server this handle did not start reports %q, want the operator's C-Space", got)
+	}
+
+	h.mu.Lock()
+	h.started = true
+	h.mu.Unlock()
+	if err := h.writeManagedConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.Prefix(context.Background()); got != "C-b" {
+		t.Errorf("a started server whose configuration names no prefix reports %q, want herdr's default C-b", got)
+	}
+	if err := os.WriteFile(h.managedConfigPath(), []byte(managedConfig+"\n[keys]\nprefix = \"alt+a\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.Prefix(context.Background()); got != "M-a" {
+		t.Errorf("a started server reports %q, want M-a from its own configuration", got)
+	}
+}
+
+// herdr reads XDG_CONFIG_HOME when it is set at all, an empty value included,
+// and HOME the same way (src/config/io.rs config_dir). The ambient socket and
+// the operator's prefix follow it, since they claim to resolve as herdr does.
+func TestAnEmptyConfigHomeIsReadAsHerdrReadsIt(t *testing.T) {
+	t.Setenv(socketPathEnv, "")
+	os.Unsetenv(socketPathEnv)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if got, want := AmbientSocketPath(), filepath.Join("herdr", "herdr.sock"); got != want {
+		t.Errorf("with XDG_CONFIG_HOME empty the ambient socket is %q, want herdr's %q", got, want)
+	}
+	if got, want := operatorConfigDir(), "herdr"; got != want {
+		t.Errorf("with XDG_CONFIG_HOME empty the configuration directory is %q, want herdr's %q", got, want)
+	}
+	os.Unsetenv("XDG_CONFIG_HOME")
+	t.Setenv("HOME", "/home/someone")
+	if got, want := operatorConfigDir(), "/home/someone/.config/herdr"; got != want {
+		t.Errorf("with XDG_CONFIG_HOME unset the configuration directory is %q, want %q", got, want)
+	}
+	os.Unsetenv("HOME")
+	if got, want := operatorConfigDir(), filepath.Join(os.TempDir(), "herdr"); got != want {
+		t.Errorf("with neither set the configuration directory is %q, want herdr's %q", got, want)
 	}
 }

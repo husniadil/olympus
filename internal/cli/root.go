@@ -13,6 +13,7 @@ import (
 
 	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/address"
 )
 
 // An App holds the streams and options one invocation runs with.
@@ -119,13 +120,45 @@ func classify(err error) error {
 	return backend.Wrapf(backend.CodeUsage, err, "invalid arguments")
 }
 
-// report emits a failure on whichever channel the caller asked for.
+// report emits a failure on whichever channel the caller asked for, with any
+// disclosure that came with it.
 func (a *App) report(err error) {
+	var warned *warnedError
+	var warnings []olympus.Warning
+	if errors.As(err, &warned) {
+		warnings = warned.warnings
+	}
 	if a.json {
-		_ = writeJSON(a.Out, failureEnvelope(a.resolved, err))
+		envelope := failureEnvelope(a.resolved, err)
+		envelope.Warnings = warnings
+		_ = writeJSON(a.Out, envelope)
 		return
 	}
+	if !a.quiet {
+		writeWarnings(a.Err, warnings)
+	}
 	fmt.Fprintf(a.Err, "olympus: %s\n", err.Error())
+}
+
+// A warnedError is a failure that came with a disclosure of its own: a
+// throwaway run that failed and then could not clean up its session (behavior
+// §6.10). The error is still the answer, so it keeps its code; the warnings
+// ride beside it instead of being dropped with the result.
+type warnedError struct {
+	err      error
+	warnings []olympus.Warning
+}
+
+func (e *warnedError) Error() string { return e.err.Error() }
+func (e *warnedError) Unwrap() error { return e.err }
+
+// withWarnings attaches warnings to a failure, leaving it as it was when there
+// are none.
+func withWarnings(err error, warnings []olympus.Warning) error {
+	if len(warnings) == 0 {
+		return err
+	}
+	return &warnedError{err: err, warnings: warnings}
 }
 
 // An exitCode carries a deliberate deviation from the shared mapping.
@@ -163,6 +196,15 @@ Human-readable output is for reading and is NOT stable: it may change in any
 release. Scripts should use --json, whose shape is semver-bound.`),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// With no verb a person gets the help. Under --json stdout carries
+		// the envelope and nothing else (api §2.3), so there it is a usage
+		// error: help prose with exit 0 reads to a parser as a broken success.
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if a.json {
+				return backend.Errorf(backend.CodeUsage, "a verb is required; run olympus --help for the list")
+			}
+			return cmd.Help()
+		},
 	}
 
 	// Every error reaches the envelope, including this framework's own flag
@@ -234,29 +276,8 @@ func (a *App) open() (*olympus.Olympus, error) {
 // default pointing somewhere else entirely.
 func (a *App) openAt(here olympus.Identity) (*olympus.Olympus, error) {
 	opts := []olympus.Option{}
-	if a.backendName == "" && here.Backend != "" {
-		opts = append(opts, olympus.WithBackend(string(here.Backend)))
-		if here.Scope != "" {
-			switch here.Backend {
-			case backend.Tmux:
-				// Self reports tmux's scope as the socket PATH, which is what
-				// tmux itself puts in the environment.
-				opts = append(opts, olympus.WithSocketPath(here.Scope))
-			case backend.Zmx:
-				opts = append(opts, olympus.WithZmxDir(here.Scope))
-			case backend.Meja:
-				// Self reports meja's scope as the socket path meja itself
-				// publishes into the session.
-				opts = append(opts, olympus.WithSocketPath(here.Scope))
-			case backend.Herdr:
-				// Passed explicitly rather than left to the environment. The
-				// herdr binary does read HERDR_SOCKET_PATH itself, but the
-				// backend strips it from every invocation and substitutes its
-				// own — so a reporter inside a session would otherwise be sent
-				// to Olympus's default server instead of the one it is in.
-				opts = append(opts, olympus.WithSocketPath(here.Scope))
-			}
-		}
+	if a.backendName == "" {
+		opts = append(opts, address.Here(here)...)
 	}
 	if a.backendName != "" {
 		opts = append(opts, olympus.WithBackend(a.backendName))

@@ -13,8 +13,9 @@ type clientsOpts struct{ tag string }
 
 // WithClientTag narrows the listing to the client carrying a tag: the one a
 // caller gave its own bare attach with BareClientTag. No client carrying it
-// is not-found, so a caller can tell "my client is not there" from "it is
-// there, showing nothing".
+// on a running server is not-found, so a caller can tell "my client is not
+// there" from "it is there, showing nothing". No server running is still the
+// empty listing (api §5).
 func WithClientTag(tag string) ClientsOption { return func(o *clientsOpts) { o.tag = tag } }
 
 // Clients lists the clients attached to the server this handle addresses, and
@@ -43,10 +44,12 @@ func (o *Olympus) Clients(ctx context.Context, opts ...ClientsOption) ([]backend
 	if err != nil {
 		return nil, err
 	}
+	// nil is no server running, the empty listing with a tag or without one:
+	// there is no client to look through (backend.ClientLister, api §5).
+	if clients == nil {
+		return []backend.Client{}, nil
+	}
 	if options.tag == "" {
-		if clients == nil {
-			clients = []backend.Client{}
-		}
 		return clients, nil
 	}
 	for _, c := range clients {

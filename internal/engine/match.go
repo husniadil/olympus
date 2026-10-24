@@ -92,19 +92,30 @@ func normalize(s string, limit int) string {
 // need a pane narrower than the normalized needle itself, and sub-24-column
 // panes are not a supported target.
 func ScreenContains(screen, needle string) bool {
+	return ScreenCount(screen, needle) > 0
+}
+
+// ScreenCount is how many places a screen shows needle by ScreenContains's
+// rule: each line holding it, and each adjacent pair holding it where neither
+// line does alone. A verified send compares it before and after typing, so a
+// copy that was already on screen confirms nothing (behavior §7.2).
+func ScreenCount(screen, needle string) int {
 	if needle == "" {
-		return true
+		return 1
 	}
 	lines := strings.Split(screen, "\n")
-	for _, line := range lines {
+	held := make([]bool, len(lines))
+	count := 0
+	for i, line := range lines {
 		if strings.Contains(normalizeLine(line), needle) {
-			return true
+			held[i] = true
+			count++
 		}
 	}
 	for i := 0; i+1 < len(lines); i++ {
-		if strings.Contains(normalizeLine(lines[i]+lines[i+1]), needle) {
-			return true
+		if !held[i] && !held[i+1] && strings.Contains(normalizeLine(lines[i]+lines[i+1]), needle) {
+			count++
 		}
 	}
-	return false
+	return count
 }

@@ -29,11 +29,23 @@ import (
 // client as its stdin and stdout, and reads the line discipline from its own
 // descriptor before, during and after — so it observes what a human's terminal
 // would actually be left in rather than what the code believes it did.
+//
+// Every way of ending Olympus with a signal is a path of its own (§8.2): an
+// interrupt cancels the verb, and SIGTERM and SIGHUP, the terminal going away,
+// end the client from the attach's own handler. A process killed by one it does
+// not handle runs no defers, so each is driven here rather than trusted to the
+// one that is.
 func TestAttachHandsTheTerminalBack(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux is not installed")
 	}
 	binary := buildOlympus(t)
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
+		t.Run(sig.String(), func(t *testing.T) { attachAndEndBy(t, binary, sig) })
+	}
+}
+
+func attachAndEndBy(t *testing.T, binary string, sig syscall.Signal) {
 
 	dir, err := os.MkdirTemp(os.TempDir(), "olyt")
 	if err != nil {
@@ -111,8 +123,8 @@ func TestAttachHandsTheTerminalBack(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if err := client.Process.Signal(os.Interrupt); err != nil {
-		t.Fatalf("interrupting the client: %v", err)
+	if err := client.Process.Signal(sig); err != nil {
+		t.Fatalf("signalling the client: %v", err)
 	}
 	done := make(chan struct{})
 	go func() { _, _ = client.Process.Wait(); close(done) }()
@@ -120,7 +132,7 @@ func TestAttachHandsTheTerminalBack(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		_ = client.Process.Kill()
-		t.Fatal("the attach client did not exit when interrupted")
+		t.Fatalf("the attach client did not exit on %s", sig)
 	}
 
 	after, err := termiosOf(tty.Fd())

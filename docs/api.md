@@ -181,7 +181,7 @@ on `isError`. A failed call's structured content still carries a zero-valued
 | `ok` | CLI only. Always present, and the only field a consumer needs to branch on. |
 | `backend` | The **resolved** backend, never the requested one (behavior spec §0.4). Present on failure as well as success, because a failure is when knowing which backend answered matters most. Omitted when no backend was resolved: a failure that came before resolution, such as a `USAGE` error from argument checking, and `version`, `kinds` and `self`, which answer without resolving one. A failure after resolution, such as an addressing option the resolved backend cannot use, names it. |
 | `data` | The per-operation payload. Absent for operations with no payload. An object or an array, never a bare scalar. |
-| `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. |
+| `warnings` | Omitted when empty, never `null`. Carries degraded-operation disclosure (behavior spec §0.8) for the structured doors, where stderr is not available. A failure carries it only for a disclosure that came with the failure: a throwaway run that failed and then could not clean up its session (behavior spec §6.10). |
 | `error` | CLI only. Present exactly when `ok` is false. Carries a code from the behavior spec's §12 vocabulary. |
 | `error.typed` | `true` on a failed send whose text was typed and may still be in the input box: an `AGENT_BLOCKED` whose agent started waiting, or stopped showing its input box, after the text was typed (behavior spec §7.5), or a `TIMEOUT` whose input box showed only part of the text (§7.6). Omitted otherwise. |
 | `error.reason` | Which of a code's causes a failure is, where the code alone does not tell and a caller acts on them differently. Omitted where there is none. One value so far: `no_input_box`, on an `AGENT_BLOCKED` whose agent draws an input box and showed none, since something is open over it or it is not drawn yet (behavior spec §7.5), typed or not. An `AGENT_BLOCKED` without it is an agent waiting on a person. |
@@ -220,6 +220,9 @@ table says so.
 
 Nothing diagnostic ever goes to stdout, and no payload ever goes to stderr. A
 consumer piping stdout into a parser never has to filter it.
+
+`olympus` with no verb prints its help. With `--json` it is a `USAGE` failure
+envelope instead, since help prose is not an envelope.
 
 ### `attach` and `watch` have no `--json` form
 
@@ -395,6 +398,9 @@ where an entry below says otherwise. They are semver-bound once shipped.
 The shape is the same in all three modes (read, `--set`, `--wait`), so a caller
 needs one parser rather than three.
 
+An empty value clears the status: `--set ""` on the CLI and `"set": ""` on
+`session_status`. A cleared status reads empty, as one never set does.
+
 A wait is bounded by `--timeout` and paced by `--interval` on the CLI, and by
 `seconds` and `interval_ms` on `session_status`, as `wait` and `wait_for` are.
 Zero or an omitted value means the default at both doors, never "give up at
@@ -413,6 +419,9 @@ Backends that cannot carry a status refuse both the read and the write with
 
 `status` addresses the session the calling process is running in, and takes
 that session's *backend and server* from the same answer, not from the defaults.
+`session_status` does the same for the MCP server's own process, and reads none
+of the addressing variables of §4 for it: they say where the server sends other
+calls, not where its process is.
 
 A reporter that resolved its name but not its server would write onto a
 different backend entirely on any isolated setup. The waiter would then time out
@@ -467,7 +476,8 @@ address delivers that reply to somebody else's terminal, silently.
 the server's focus says where the next client will land rather than what the
 running ones show. It is also absent on backends whose clients each show their
 own session (§3.4). A listing where no row carries the flag means the backend
-cannot say, never that the focus is elsewhere.
+cannot say, never that the focus is elsewhere. A listing where a row carries it
+says what it means there in a `DEGRADED` warning, once (behavior spec §0.8).
 
 ### Pane row (`panes`, `info`)
 

@@ -26,6 +26,8 @@ func (h *Herdr) Screen(ctx context.Context, target string, opts backend.ScreenOp
 	}
 
 	args := []string{"pane", "read", row.PaneID}
+	var cap int
+	var cut bool
 	if opts.HistoryLines > 0 {
 		// "recent" is the visible screen with scrollback above it, to the
 		// requested depth. It is not the default here because the default has
@@ -36,13 +38,12 @@ func (h *Herdr) Screen(ctx context.Context, target string, opts backend.ScreenOp
 		// bottom of the grid, so the viewport is added before asking. Handing
 		// the depth over verbatim returned fewer lines than a plain capture
 		// whenever it was shorter than the screen. Measured.
-		lines := opts.HistoryLines
+		viewport := 0
 		if row.Scroll != nil {
-			lines += row.Scroll.ViewportRows
+			viewport = row.Scroll.ViewportRows
 		}
-		if lines > readLineCap {
-			lines = readLineCap
-		}
+		var lines int
+		lines, cap, cut = historyRequest(opts.HistoryLines, viewport)
 		args = append(args, "--source", "recent", "--lines", strconv.Itoa(lines))
 	} else {
 		args = append(args, "--source", "visible")
@@ -63,7 +64,20 @@ func (h *Herdr) Screen(ctx context.Context, target string, opts backend.ScreenOp
 	// calling ScreenMeta: the metadata comes out of the pane listing, and
 	// asking for it again would put a second subprocess on a path callers poll
 	// (§5).
-	return backend.Capture{Text: out, Meta: metaOf(row)}, nil
+	return backend.Capture{Text: out, Meta: metaOf(row), HistoryCut: cut, HistoryCap: cap}, nil
+}
+
+// historyRequest is what a depth of history above a screen of viewport rows
+// asks herdr for, and, when the cap cut it, how much history the answer can
+// still hold. The cut is judged on the depth plus the screen, since that is
+// what herdr counts: a depth under the cap is still cut when the screen takes
+// it past (§6.4).
+func historyRequest(depth, viewport int) (lines, history int, cut bool) {
+	lines = depth + viewport
+	if lines <= readLineCap {
+		return lines, 0, false
+	}
+	return readLineCap, max(readLineCap-viewport, 0), true
 }
 
 // ScreenMeta reports capture metadata without capturing (§5.5).

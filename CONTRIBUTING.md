@@ -57,6 +57,16 @@ legs:
 herdr's floor is below 0.9.0, where each client got a view of its own, so the
 floor leg runs the server steering and the newest leg the walk.
 
+The per-client view leg (behavior §8.10) needs a herdr whose server advertises
+`client_view_focus`, which only the `husniadil/herdr` fork does. It is not in
+CI (`docs/known-issues.md`). It runs where the fork's binary is named in
+`OLYMPUS_TEST_HERDR_CLIENT_VIEW`. Only the tests that read that variable put it
+first on their PATH, and the rest of the suite runs the herdr already there:
+
+```sh
+OLYMPUS_TEST_HERDR_CLIENT_VIEW=/path/to/fork/herdr make test-full
+```
+
 - macOS is not in the matrix. The darwin build is still checked by the
   cross-compile `go vet` inside `make test-full`, but the conformance suite on
   macOS runs only on a developer machine.

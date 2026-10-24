@@ -515,13 +515,15 @@ func TestClientsAreListedOnlyWhereTheServerAdvertisesThem(t *testing.T) {
 	}
 }
 
-// §3.3, §12.3 No server running is an empty listing, not an error: there is
-// no client to find, and nothing went wrong asking.
-func TestClientsWithNoServerRunningIsAnEmptyList(t *testing.T) {
+// §3.3, §12.3 No server running is not an error: there is no client to find,
+// and nothing went wrong asking. The backend answers no list at all, which
+// the layer above reads as the empty listing, so a tag filter there can tell
+// "no server" from "no client carries it" (backend.ClientLister).
+func TestClientsWithNoServerRunningIsNoList(t *testing.T) {
 	t.Parallel()
 	rows, err := New(WithSocketPath(filepath.Join(shortDir(t), "none.sock"))).Clients(context.Background())
-	if err != nil || rows == nil || len(rows) != 0 {
-		t.Errorf("Clients with no server = %#v, %v; want an empty, non-nil list", rows, err)
+	if err != nil || rows != nil {
+		t.Errorf("Clients with no server = %#v, %v; want nil and no error", rows, err)
 	}
 }
 

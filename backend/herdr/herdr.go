@@ -997,16 +997,13 @@ const socketPathEnv = "HERDR_SOCKET_PATH"
 // Deliberately NOT this backend's configured socket: a handle pointed at one
 // server cannot change which one this process is sitting in.
 func AmbientSocketPath() string {
-	if v := os.Getenv(socketPathEnv); v != "" {
+	// Set at all is what herdr asks of each, an empty value included. An
+	// empty override is no socket anybody can reach, and answers as nothing
+	// does.
+	if v, ok := os.LookupEnv(socketPathEnv); ok {
 		return v
 	}
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		return filepath.Join(v, "herdr", "herdr.sock")
-	}
-	if home := os.Getenv("HOME"); home != "" {
-		return filepath.Join(home, ".config", "herdr", "herdr.sock")
-	}
-	return ""
+	return filepath.Join(operatorConfigDir(), "herdr.sock")
 }
 
 // SessionOf reports the session owning a pane id: the name of the workspace

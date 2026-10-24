@@ -11,6 +11,7 @@ import (
 
 	"github.com/husniadil/olympus/backend"
 	"github.com/husniadil/olympus/backend/tmux"
+	"github.com/husniadil/olympus/internal/engine"
 )
 
 // installed builds a preflight stand-in, so resolution is tested against every
@@ -323,6 +324,58 @@ func TestZmxScopeFallsBackToTheEnvironmentSoLockKeysAgree(t *testing.T) {
 	}
 }
 
+// §11.1: the write lock is the server's, not the spelling's. Two addresses of
+// one server, a tmux socket name and the path tmux resolves it to, a zmx
+// daemon by its default directory and by that directory named, a socket
+// reached through a symlinked directory, must take one lock. They took two,
+// and two writers on one session serialized against nothing.
+func TestTwoSpellingsOfOneServerTakeOneLock(t *testing.T) {
+	everywhere := func(backend.Name) bool { return true }
+	key := func(t *testing.T, name string, opts ...Option) engine.LockKey {
+		t.Helper()
+		ol, err := open(config{explicit: name, installs: everywhere}, opts...)
+		if err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		return ol.lockKey("s")
+	}
+
+	dir := t.TempDir()
+	t.Setenv("TMUX_TMPDIR", dir)
+	if a, b := key(t, "tmux", WithSocket("work")), key(t, "tmux", WithSocketPath(filepath.Join(tmux.SocketDir(), "work"))); a != b {
+		t.Errorf("a tmux socket name and its path take two locks:\n  %+v\n  %+v", a, b)
+	}
+	if a, b := key(t, "tmux"), key(t, "tmux", WithSocket(tmux.DefaultSocket)); a != b {
+		t.Errorf("tmux's default server and its name take two locks:\n  %+v\n  %+v", a, b)
+	}
+
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if a, b := key(t, "herdr", WithSocketPath(filepath.Join(real, "h.sock"))), key(t, "herdr", WithSocketPath(filepath.Join(link, "h.sock"))); a != b {
+		t.Errorf("one herdr socket through a symlinked directory takes two locks:\n  %+v\n  %+v", a, b)
+	}
+	// A directory that does not exist yet keys by its nearest existing
+	// ancestor, so the key does not move once a server creates it.
+	if a, b := key(t, "meja", WithSocketPath(filepath.Join(real, "new", "m.sock"))), key(t, "meja", WithSocketPath(filepath.Join(link, "new", "m.sock"))); a != b {
+		t.Errorf("one meja socket under a directory not yet made takes two locks:\n  %+v\n  %+v", a, b)
+	}
+	t.Setenv("ZMX_DIR", "")
+	t.Setenv("XDG_RUNTIME_DIR", real)
+	if a, b := key(t, "zmx"), key(t, "zmx", WithZmxDir(filepath.Join(link, "zmx"))); a != b {
+		t.Errorf("zmx's default directory and that directory named take two locks:\n  %+v\n  %+v", a, b)
+	}
+
+	if a, b := key(t, "tmux", WithSocket("one")), key(t, "tmux", WithSocket("two")); a == b {
+		t.Errorf("two tmux servers share a lock: %+v", a)
+	}
+}
+
 // §13.2 A server name and an explicit address are two answers to one question,
 // so giving both is USAGE — on every backend, before one is even resolved.
 func TestAServerNameIsExclusiveWithAnAddress(t *testing.T) {
@@ -385,8 +438,8 @@ func TestAServerNameResolvesPerBackend(t *testing.T) {
 	if got := ol.Resolution().Backend; got != backend.Tmux {
 		t.Errorf("resolved %s, want tmux", got)
 	}
-	if scope := ol.scope; scope != "work" {
-		t.Errorf("the tmux scope is %q, want the socket name the server name became", scope)
+	if scope, want := ol.scope, canonicalPath(filepath.Join(tmux.SocketDir(), "work")); scope != want {
+		t.Errorf("the tmux scope is %q, want %q, the socket the server name became", scope, want)
 	}
 
 	if _, err := open(config{explicit: "zmx", installs: everything}, WithServer("default"), WithoutLock()); err != nil {

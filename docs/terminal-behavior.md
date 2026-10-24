@@ -211,8 +211,8 @@ cases:
 | capture metadata | herdr | the alt-screen flag is tracked only where the server reports it; the scroll position is real (§5.3) |
 | session creation with a size | zmx, meja, herdr | the requested size is ignored: the session takes its size from the client that attaches it (§2.1, §2.10) |
 | capture | herdr | wrapped lines cannot be rejoined, so they come back split (§5.2) |
-| capture with history | herdr | a depth over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.4) |
-| detached run poll | herdr | a window over 1,000 lines is clamped to 1,000, disclosed only when the request was above it (§6.7) |
+| capture with history | herdr | a depth that with the screen passes 1,000 lines is cut to the history left beside the screen, disclosed with that depth only when it was cut (§6.4) |
+| detached run poll | herdr | a window that with the screen passes 1,000 lines is cut the same way, disclosed the same way (§6.7) |
 | pane listing | herdr | `current_command` is reported for a targeted listing only (§3.4) |
 | pane listing | herdr | `attached` is always false: no per-terminal client count exists (§3.4) |
 | session listing | herdr below 0.9.0 | `focused` marks the workspace EVERY client on the server is showing; absent from 0.9.0, where clients keep their own view, and absent on every other backend, whose clients each show their own session (§3.4) |
@@ -1342,6 +1342,11 @@ A pane is listed once, whatever else below it carries the name. The heuristic
 knows the agent's name and nothing else: the status is read off the pane's
 screen (below), and the row carries no title and no usage.
 
+A pane is also listed once whatever session rows name it. A tmux view shares its
+base's pane, so the whole-server listing names the pane under both (§3.4). The
+row is the base's. A view's row is kept only where no base row names the pane,
+since the base is gone and the view is the one name left to address it by.
+
 The process table is read once per listing. Where it cannot be read the listing
 does not fail: it falls back to the foreground command for every pane.
 
@@ -1634,7 +1639,7 @@ The exception exists because the retry's premise, that the first Enter did not
 land, is unknown there. Text left unsubmitted is a visible fault; a command
 submitted twice is not recoverable.
 
-### 4.5 The submit terminator MUST be a separate, delayed, lone write
+### 4.5 The submit terminator MUST arrive as a keypress, never inside a paste
 
 The submitting terminator MUST register as a keypress on paste-detecting
 consumers, never as part of a paste.
@@ -1643,8 +1648,15 @@ consumers, never as part of a paste.
 
 A single write containing both text and a trailing `\r` is treated as a paste
 by an Ink-based REPL. The terminator becomes a literal newline inside the input
-box and nothing is submitted. Submitting requires a separate write containing
-only `\r`, after a 150ms settle gap.
+box and nothing is submitted.
+
+A terminator sent on its own, after the text, is a keypress. A verified send
+gets that by construction, since its terminator is a separate call made once
+the text is seen. Where text and terminator go in one call, each backend keeps
+the terminator a keypress its own way (below). Only where nothing else
+separates them is the gap a delay: zmx's atomic submit and the run protocol's
+injection wait 150 ms (`SubmitSettle`, §17.3) between the text and a lone
+`\r`.
 
 #### Per backend
 
@@ -2163,8 +2175,11 @@ which is why the loss is disclosed.
 ### 6.3 The command MUST be validated up front
 
 An empty or newline-containing command, or one ending in an odd run of
-backslashes, MUST be rejected as `USAGE` before any injection. Rejecting up
-front also means no partial pane interaction happens.
+backslashes, MUST be rejected as `USAGE` before any injection. So MUST one the
+wrapper cannot parse: one that opens a comment with an unquoted `#` at the
+start of a word, one that leaves a quote open, and one whose last character
+outside quotes and escapes is `;`, `&` or `|`. Rejecting up front also means no
+partial pane interaction happens.
 
 #### Why
 
@@ -2180,6 +2195,21 @@ Neither degradation is a timeout, so only an explicit check catches them:
   command (§6.1). The done marker's echo then becomes an argument of the
   command, and its output, `…OLY_D_<id>_0_`, reads as a completion with exit 0
   whatever the command did. An even run is a literal backslash and is accepted.
+
+The rest report no false answer, only none, and waited out the run's timeout as
+a command that was merely slow:
+
+- A comment takes the rest of the line, the completion echo included, so the
+  start marker shows and the done marker never does. zsh reads `#` as a comment
+  only with `interactive_comments` set, and the command is refused there too:
+  quoting the `#` costs nothing on any shell.
+- An open quote takes in the completion echo, and the shell waits for the rest.
+- A trailing `;`, `&` or `|` joined to the `;` after it (`;;`, `&;`, `|;`) is a
+  syntax error in bash and dash, so nothing runs, not even the start marker.
+
+The same characters quoted, escaped or inside a word are the command's own and
+are accepted: `find … \;`, `echo a#b`, `echo "x # y"`, `$#`. The reading
+follows quotes and backslashes and does not follow command substitution.
 
 ### 6.4 The capture window grows where the depth can be requested
 
@@ -2201,7 +2231,10 @@ the viewport height before asking, and the history available at the cap is
 
 A larger request is not refused by the server but silently clamped. Olympus
 clamps it too and discloses the clamp (§0.8), rather than asking for a number
-it will not get. The growing window works below the cap. Above it, the remedy
+it will not get. The cut is judged on the depth plus the viewport, so a depth
+under 1,000 is disclosed when the screen takes it past. The disclosure names
+the history the answer holds, 1,000 less the viewport, not the 1,000 lines the
+server counts. The growing window works below the cap. Above it, the remedy
 tmux offers does not exist.
 
 Above the cap, §6.2's relaxation recovers the run whenever the completion is
@@ -2335,6 +2368,10 @@ the default shell, §1.1's sanitized spawn environment, and a name reserved per
 stderr and return what the run produced. A leaked throwaway session is a
 problem to notice separately, not a reason to hide the answer.
 
+A run that failed and then failed to clean up reports both. The run's error is
+the failure, and the cleanup failure rides beside it: on stderr, and as a
+warning in the structured failure, where a door has no stderr to narrate on.
+
 A throwaway run MUST NOT be combinable with detaching, since nothing would be
 left to poll. Reject the combination as a usage error.
 
@@ -2402,6 +2439,26 @@ one blob. The rule is about which text is compared, not about truncating it
 A terminal's status or prompt banner routinely fills a line before the line
 holding the echoed text. Normalizing the whole screen as one string risks
 matching a needle assembled from two unrelated lines.
+
+#### A copy already on screen confirms nothing
+
+Where the whole screen is matched, the screen is captured once before the text
+is typed, and the places it shows the text are counted: each line holding a
+needle, and each adjacent pair (§7.3) holding it where neither line does alone.
+The delivery is observed only when a capture shows it in more places than that.
+Text with no letter or digit (§7.1) is counted as typed. A capture before typing
+that fails counts nothing, which is the rule without the count.
+
+A shell routinely still shows the same command from the last time it ran. Found
+anywhere on the screen, that copy confirmed a delivery that never landed, and
+the terminator submitted whatever the input line held.
+
+The cost is one more capture per send. The accepted risk is a screen that
+scrolls as the text is typed, with an old copy on its top line: the count holds
+still and the delivery reads as dropped, so the §7.4 resend types it again. That
+needs an old copy on the one line a wrap pushes off, and reads as a failure
+rather than a success. An input box an agent's watch reads (§7.6) is not
+counted, since it holds only what is being typed.
 
 ### 7.3 Also match adjacent line pairs, for wrap tolerance
 
@@ -2778,6 +2835,18 @@ A non-TTY stdin gets no raw mode and no reset bytes injected into a stream a
 programmatic consumer parses. That consumer owns its own client-side terminal
 state.
 
+#### Input is read only while the client runs
+
+An attach MUST stop reading its caller's input when the client ends, and MUST
+NOT return while its reader may still take a byte. Each read waits until there
+is input or the client has ended, and the attach waits for the reader, bounded,
+before it returns.
+
+A read blocked on a terminal cannot be woken. One left waiting after the attach
+returned took the next thing its caller read, a Go caller's next line, and
+wrote it into a PTY that was already closed. A descriptor `select` cannot watch
+(one at or above `FD_SETSIZE`) is read as before.
+
 ### 8.3 Resize protocol
 
 - **The first size** MUST be on the PTY before the client starts: the caller's
@@ -2962,9 +3031,11 @@ the bounded wait (§17.3) keeps it from blocking forever.
 
 The handler runs on its own goroutine, installed before the PTY is spawned. It
 can fire before the PTY exists, mid-stream, or after the attach tore it down on
-child exit. A mutex-guarded PTY handle, populated when the PTY starts and closed
-by the handler only when non-nil, makes each of those a safe no-op rather than a
-nil-pointer panic or a double-close.
+child exit. The handler touches no PTY: it closes a channel, and the attach
+reads that channel only once its client is running. A steal before the PTY
+exists then ends the client as soon as it starts, one mid-stream ends it at
+once, and one after the client exited is never read. None of the three can
+reach a half-built or closed terminal.
 
 #### Accepted risk: pid recycling
 
@@ -4016,6 +4087,15 @@ The key is the (backend, socket-or-directory, session) triple:
 Two different sockets, directories or backends MUST never contend on the same
 lock file, even when a session name collides.
 
+Two spellings of one server MUST take one lock. The socket-or-directory part is
+the path the address leads to: a tmux socket name is the path tmux resolves it
+to (`$TMUX_TMPDIR/tmux-<uid>/<name>`), a zmx daemon chosen by no directory is
+the one zmx's own order picks, and every path is made absolute with the
+symlinks in its directories resolved. A directory not made yet is resolved
+through its nearest existing ancestor, so the key does not move when a server
+creates it. meja's default socket is meja's to place, so it keys under one
+fixed name, apart from a path that leads to the same socket.
+
 The hash MUST cover the session name, not only the socket or directory.
 
 ##### Why
@@ -4119,10 +4199,10 @@ added.
 | `USAGE` | 2 | Input the caller could have validated. |
 | `SESSION_NOT_FOUND` | 3 | The target session or pane does not exist. |
 | `BACKEND_UNAVAILABLE` | 4 | The selected backend cannot be reached. |
-| `TIMEOUT` | 5 | An operation did not complete or match before its budget elapsed. |
+| `TIMEOUT` | 5 | An operation did not complete or match before its budget elapsed. A verified send whose agent's input box shows only part of the text fails with it marked `typed`, since the rest of the text is not there and what arrived is (§7.6). |
 | `CONFLICT` | 6 | A lock or attach slot is held by someone else. |
 | `UNSUPPORTED` | 7 | The backend has no concept for this operation at all. |
-| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person or shows something open over its input box, and the input was refused before anything was typed, or stopped before its terminator when the prompt opened after typing (§7.5). |
+| `AGENT_BLOCKED` | 8 | The target's agent is waiting on a person or shows something open over its input box, and the input was refused before anything was typed, or stopped before its terminator, marked `typed`, when the prompt opened or the input box went away after typing (§7.5). The input box's absence carries the reason `no_input_box`. |
 | `UNEXPECTED` | 1 | Anything not carrying one of the above. |
 
 ### Two distinctions that MUST be preserved
@@ -4386,6 +4466,10 @@ Olympus reading structure into a string it has promised not to read.
 This is the same tri-state rule as presence (§3.5). A caller must be able to
 tell "has reported nothing" from "could not ask".
 
+Writing an empty status clears it, so a cleared status and one never set read
+the same. Every door MUST be able to write one: a door that took an empty value
+for no value at all left a status nobody could take back.
+
 #### A backend that cannot carry one MUST refuse both the write AND the read
 
 Refusing the write alone is not enough. A read that answers empty is
@@ -4409,6 +4493,7 @@ session and the reader is outside, and they never run at the same moment.
 |---|---|
 | tmux | a session-scoped user option, which tmux keeps and never acts on |
 | zmx | none: no per-session metadata of any kind, so the capability is false |
+| meja | none: no option store to keep one in, so the capability is false and both the read and the write are refused |
 | herdr | display-only server metadata, handed back on the row. A session's status is the workspace's metadata; a pane target's is the pane's own (§3.6) |
 
 herdr's store has the same shape as tmux's user option: written by one process,
@@ -4490,7 +4575,7 @@ human cannot reach.
 | Backend | Source |
 |---|---|
 | tmux | the global `prefix` option, asked of a running server. A stopped one cannot answer, and the row says nothing |
-| herdr | `[keys] prefix` of the config.toml the server resolves under: the session's own where it has one, else the operator's. herdr's default where none is set |
+| herdr | `[keys] prefix` of the config.toml a session client of this handle reads: on a server this handle started, the configuration it wrote for that server (§17.5), whose client is pointed there; otherwise the session's own where it has one, else the operator's, found as herdr finds it (an empty `XDG_CONFIG_HOME` is a directory to herdr). herdr's default where none is set |
 | meja | the constant the program fixes, `C-b`, documented as unconfigurable |
 | zmx | no prefix |
 
@@ -4663,7 +4748,8 @@ differently. The listing itself is the probe.
 
 A tag filter answers the one client carrying it, as a listing of one. A tag no
 client carries is SESSION_NOT_FOUND: a caller asking where its own client is must
-tell "not there" from "there".
+tell "not there" from "there". With no server running there is no client to look
+through, and a tag filter answers the empty listing, as the listing does (§3.3).
 
 A tag is what the server holds it to: one to 128 bytes of UTF-8 with no control
 character. One outside that is USAGE before the server is asked (§12).
@@ -5001,16 +5087,20 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | tmux buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1) |
 | tmux key table | `olympus-passthrough` | view wheel and click bindings (§9.3) |
 | tmux server marker | `@olympus_managed` | records a server Olympus started (§17.5) |
+| tmux session status | session option `@olympus_status` | the session status store (§13.1) |
 | view session | `olympus-view-<base>-<nonce>` | grouped views (§9) |
 | throwaway run session | `olympus-run-<pid>-<nonce>` | §6.10 |
 | run sentinels | `OLY_S_<id>` / `OLY_D_<id>_<code>_` | §6.1 |
 | run/command id | `<pid><counter><8 hex>` | §6.1, §6.7 |
 | lock file | `<backend>-<session>-<hash>.lock`, inside the lock directory | §11.1 |
 | lock directory | `<temp>/olympus-locks-<uid>`, mode 0700 | §11.1 |
+| herdr walk lock | `herdr-walk-<16 hex>.lock`, inside the lock directory | serialises the walks on one herdr server (§8.10) |
 | attach guard pidfile | `olympus-attach-<hash>-<session>.pid` | §8.5 |
 | attach resize control | `\x1b]olympus;resize;<cols>;<rows>\x07` | §8.3 |
 | attach go control | `\x1b]olympus;go;<target>\x07` | §8.3, §8.10 |
 | attach focus control | `\x1b]olympus;focus;<pane>\x07` | §8.3, §8.10 |
+| herdr bare config | `<temp>/olympus-herdr-bare-*.toml`, removed when its attach ends | the stripped configuration a bare session client reads (§8.9) |
+| herdr server log | `<temp>/olympus-herdr-server-*.log`, unlinked once the start settles | the stderr of a herdr server Olympus starts (§13.4) |
 | herdr client tag | `olympus-client-<16 hex>` | a bare client on a server that moves one client's view, where the caller names no tag of its own (§8.10, §13.5) |
 | follow sink | `<temp>/olympus-follow-*` | tmux output tap (§5.6) |
 | tmux follow tag | pane option `@olympus-follow`, `<pid> <follow sink>` | recognises a tap left by a dead follower (§5.6) |
@@ -5020,9 +5110,10 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 Enumerating views (§9.5) selects on the prefix, so changing it orphans every
 view created by an older binary.
 
-#### Two names carry no `olympus-` prefix
+#### Three names carry no `olympus-` prefix
 
-- **The lock file** already lives inside `olympus-locks-<uid>/`.
+- **The lock file** and **the herdr walk lock** already live inside
+  `olympus-locks-<uid>/`.
 - **The run id** is embedded in a sentinel marker that carries its own prefix.
 
 Repeating the prefix would add length to a name whose length is budgeted (§2.5)

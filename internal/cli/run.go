@@ -100,7 +100,8 @@ func (a *App) runThrowaway(cmd *cobra.Command, command string, detach bool, opts
 
 	result, warnings, err := ol.RunOnce(cmd.Context(), command, opts)
 	if err != nil {
-		return err
+		// A cleanup failure is reported beside the run's own (behavior §6.10).
+		return withWarnings(err, warnings)
 	}
 	if err := a.emit(result, warnings, func(w io.Writer) {
 		fmt.Fprint(w, result.Output)

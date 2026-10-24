@@ -20,7 +20,12 @@ import (
 // caller's.
 var Version = devVersion
 
-const devVersion = "0.14.1-dev"
+// devVersion is what a build with no version to read reports. It names no
+// release on purpose: a number that tracked the last one went stale the first
+// release nobody bumped it, and read as a real version that was not. Below
+// every release, a floor check refuses such a build rather than passing it on
+// a guess.
+const devVersion = "0.0.0-dev"
 
 // A `go install github.com/husniadil/olympus/cmd/olympus@v0.1.1` build gets no
 // linker flags, but the Go toolchain records the module version it resolved.

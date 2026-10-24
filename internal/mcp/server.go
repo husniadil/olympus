@@ -14,6 +14,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/address"
 )
 
 // instructions are what a stateless client learns about this server.
@@ -167,9 +169,16 @@ func addFreestandingTool[In, Out any](s *sdk.Server, name, description string, r
 }
 
 func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In, Out]) {
+	addToolWith(s, name, description, func(context.Context, In) (*olympus.Olympus, error) { return open() }, fn)
+}
+
+// addToolWith registers a tool whose handle depends on its parameters, as
+// session_status's does when it names no target.
+func addToolWith[In, Out any](s *sdk.Server, name, description string,
+	opener func(context.Context, In) (*olympus.Olympus, error), fn handler[In, Out]) {
 	sdk.AddTool(s, &sdk.Tool{Name: name, Description: description},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Result[Out], error) {
-			ol, err := open()
+			ol, err := opener(ctx, in)
 			if err != nil {
 				// A failure after resolution still names the backend (api §2).
 				if name, ok := olympus.ResolvedBackendOf(err); ok {
@@ -181,8 +190,8 @@ func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In
 
 			out, warnings, err := fn(ctx, ol, in)
 			if err != nil {
-				// api §2: a failure names the backend that answered.
-				return toolErrorFrom(ol, err), Result[Out]{Backend: ol.Backend()}, nil
+				result, structured := failure[Out](ol.Backend(), err)
+				return result, structured, nil
 			}
 			return nil, Result[Out]{Backend: ol.Backend(), Data: out, Warnings: warnings}, nil
 		})
@@ -211,8 +220,53 @@ func toolError(err error) *sdk.CallToolResult {
 	return result
 }
 
-func toolErrorFrom(ol *olympus.Olympus, err error) *sdk.CallToolResult {
-	return withBackend(toolError(err), ol.Backend())
+// openStatusTarget opens session_status's handle. With no target it addresses
+// the session this process runs in, on that session's own backend and server,
+// and the addressing variables are not read: they say where this server sends
+// other calls, not where its process is (api §5, "With no target").
+func openStatusTarget(ctx context.Context, in statusParams) (*olympus.Olympus, error) {
+	if in.Target != "" {
+		return open()
+	}
+	here, err := olympus.Self(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if here.Session == "" {
+		return nil, backend.Errorf(backend.CodeUsage, "not inside a session; name a target")
+	}
+	return olympus.Open(address.Here(here)...)
+}
+
+// failure is a tool's failed result. api §2: it names the backend that
+// answered. A disclosure that came with the failure rides in its structured
+// content, as a throwaway run's cleanup failure does (behavior §6.10).
+func failure[Out any](name backend.Name, err error) (*sdk.CallToolResult, Result[Out]) {
+	structured := Result[Out]{Backend: name}
+	var warned *warnedError
+	if errors.As(err, &warned) {
+		structured.Warnings = warned.warnings
+	}
+	return withBackend(toolError(err), name), structured
+}
+
+// A warnedError is a failure that came with a disclosure of its own. The error
+// is still the answer and keeps its code; the warnings ride beside it.
+type warnedError struct {
+	err      error
+	warnings []olympus.Warning
+}
+
+func (e *warnedError) Error() string { return e.err.Error() }
+func (e *warnedError) Unwrap() error { return e.err }
+
+// withWarnings attaches warnings to a failure, leaving it as it was when there
+// are none.
+func withWarnings(err error, warnings []olympus.Warning) error {
+	if len(warnings) == 0 {
+		return err
+	}
+	return &warnedError{err: err, warnings: warnings}
 }
 
 func withBackend(result *sdk.CallToolResult, name backend.Name) *sdk.CallToolResult {

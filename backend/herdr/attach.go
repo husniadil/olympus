@@ -1109,7 +1109,8 @@ func (h *Herdr) clientEnv() []string {
 // does not own, and the override is a single file that exists only for the life
 // of this one client.
 func writeBareConfig(prefix string) (string, error) {
-	f, err := os.CreateTemp("", "herdr-bare-*.toml")
+	// The prefix is §17.1's: the file sits in the shared temp root.
+	f, err := os.CreateTemp("", "olympus-herdr-bare-*.toml")
 	if err != nil {
 		return "", backend.Wrapf(backend.CodeUnexpected, err, "creating a stripped herdr config for a bare session attach")
 	}

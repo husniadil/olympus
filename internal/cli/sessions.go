@@ -98,7 +98,7 @@ func (a *App) lsCmd() *cobra.Command {
 				sessions = []backend.Session{}
 			}
 
-			return a.emit(sessions, nil, func(w io.Writer) {
+			return a.emit(sessions, ol.SessionWarnings(sessions), func(w io.Writer) {
 				if len(sessions) == 0 {
 					// The resolved backend is named here on purpose. An empty
 					// list that should not be empty is exactly when a user

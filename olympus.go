@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -207,28 +208,30 @@ func openResolved(resolution Resolution, cfg config) (*Olympus, error) {
 		if cfg.socketPath != "" {
 			options = append(options, tmux.WithSocketPath(cfg.socketPath))
 		}
-		built := tmux.New(options...)
-		o.backend = built
-		// The lock key and the diagnostic identify the server by this, so a
-		// name and a path must never collapse to the same string: they are
-		// different servers.
-		o.scope = built.Scope()
+		o.backend = tmux.New(options...)
+		// The lock key identifies the server by its socket's path, the one a
+		// name resolves to, so a name and the path it names take one lock and
+		// two different servers never share one (§11.1).
+		path := cfg.socketPath
+		if path == "" {
+			path = filepath.Join(tmux.SocketDir(), socket)
+		}
+		o.scope = canonicalPath(path)
 	case backend.Zmx:
 		var options []zmx.Option
 		if cfg.zmxDir != "" {
 			options = append(options, zmx.WithDir(cfg.zmxDir))
 		}
-		o.backend = zmx.New(options...)
-		// Falls back to the environment, and this is load-bearing rather than
-		// tidy: ZMX_DIR is read by the zmx binary ITSELF, so a caller who did
-		// not pass it is still on that daemon. Recording an empty scope would
-		// key the write lock differently from a caller who did pass it, and the
-		// two would then address one daemon under two keys and serialize
-		// against nothing (§11).
-		o.scope = cfg.zmxDir
-		if o.scope == "" {
-			o.scope = os.Getenv(zmxDirEnv)
-		}
+		built := zmx.New(options...)
+		o.backend = built
+		// Falls back to the environment and then to zmx's own default, and
+		// this is load-bearing rather than tidy: ZMX_DIR is read by the zmx
+		// binary ITSELF, so a caller who did not pass it is still on that
+		// daemon. Recording only what was passed would key the write lock
+		// differently from a caller who did pass it, and the two would then
+		// address one daemon under two keys and serialize against nothing
+		// (§11).
+		o.scope = canonicalPath(built.SocketDir())
 	case backend.Meja:
 		// meja takes the same --socket-path a caller gives tmux: both address
 		// a server by an exact path, and a second option meaning the same
@@ -239,7 +242,12 @@ func openResolved(resolution Resolution, cfg config) (*Olympus, error) {
 		}
 		built := meja.New(options...)
 		o.backend = built
+		// A path is keyed by where it leads. meja's default socket is its
+		// own to place, so it stays the one name meja's Scope gives it.
 		o.scope = built.Scope()
+		if cfg.socketPath != "" {
+			o.scope = canonicalPath(cfg.socketPath)
+		}
 	case backend.Herdr:
 		// The same --socket-path again, for the same reason: it addresses a
 		// server by an exact path, and a second option meaning the same thing
@@ -261,13 +269,39 @@ func openResolved(resolution Resolution, cfg config) (*Olympus, error) {
 		}
 		built := herdr.New(options...)
 		o.backend = built
-		o.scope = built.Scope()
+		o.scope = canonicalPath(built.Scope())
 	}
 
 	if !cfg.noLock {
 		o.locks = engine.NewLocks()
 	}
 	return o, nil
+}
+
+// canonicalPath is the one spelling of a socket or directory path a lock key
+// takes: absolute, with every symlink in the directories above it resolved.
+// Two spellings of one server then take one lock (§11.1).
+//
+// The last component is left as written, and a directory that does not exist
+// yet is resolved through its nearest existing ancestor, so the key does not
+// move when a server creates its socket or its directory.
+func canonicalPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	dir, rest := filepath.Dir(abs), filepath.Base(abs)
+	for {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(real, rest)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return abs
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+		dir = parent
+	}
 }
 
 func lockWaitDefault() time.Duration {

@@ -4,6 +4,85 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0]
+
+### Added
+
+- **`SessionWarnings`** on the Go handle: the disclosures a session listing
+  owes, as `PaneWarnings` is for a pane listing.
+- **`session_status` with no target addresses the calling session.** Over MCP,
+  as `status` does on the CLI, the session the server's own process runs in is
+  addressed on that session's backend and server. `target` is now optional.
+
+### Changed
+
+- **A build with no version to read reports `0.0.0-dev`.** The placeholder
+  named 0.14.1, a release long past that a floor check would take for a real
+  version. It now names none and sits below every release.
+- **The write lock's key is the path an address leads to.** An Olympus older
+  than this release, running beside one this release or newer, takes a
+  different lock for the same session, so the two do not serialize against
+  each other.
+
+### Fixed
+
+- **A status can be cleared.** `status --set ""` and `session_status` with
+  `"set": ""` clear the status. An empty value was read as no value at all,
+  so each door read it as a read, and none could take a status back.
+- **herdr's history cap is disclosed by what it cut.** A depth under 1,000
+  lines that the screen took past the cap was cut without a word, and a cut
+  that was disclosed named 1,000 lines of history where the answer held 1,000
+  less the screen. The disclosure now follows what the backend reports it cut,
+  with the depth the answer really holds.
+- **Two spellings of one server take one write lock.** The lock was keyed on
+  the address as written, so a tmux socket name and its path, a zmx daemon by
+  its default directory and by that directory named, or a socket reached
+  through a symlinked directory serialized against nothing. The key is now the
+  path the address leads to.
+- **`clients --tag` with no server running answers `[]`.** It answered
+  `SESSION_NOT_FOUND`, where api §5 and the untagged listing answer the empty
+  list. A running server with no client carrying the tag is still not found.
+- **An attach ends when its terminal goes away, whatever the client does.**
+  On SIGTERM or SIGHUP the attach handed the terminal back and sent its
+  client SIGTERM alone, so a client that ignored it held the attach open. It
+  is now killed after the same grace every other ending gives it.
+- **A verified send into a shell is not confirmed by an old copy.** Text
+  already on screen, from the last time the same command ran, confirmed a
+  delivery that never landed. The screen is now counted before typing, and the
+  text must show in more places than it did.
+- **A shared herdr focus is disclosed on the session listing.** `ls` and
+  `list_sessions` on a herdr below 0.9.0 carry the warning §0.8 lists for a
+  `focused` flag that marks what every client shows. It was listed and never
+  sent.
+- **An ended attach leaves its caller's input alone.** Its reader stayed
+  blocked on stdin after `Attach` returned and took the caller's next input.
+  It now waits for input or for the client's end, and `Attach` returns only
+  once it is done.
+- **`olympus --json` with no verb answers an envelope.** It printed the help
+  prose on stdout and exited 0. It is now a `USAGE` failure envelope, exit 2.
+  Without `--json` the help is unchanged.
+- **A herdr server Olympus started reports its own prefix.** `info` on such a
+  server named the operator's prefix, while its session client reads the
+  configuration Olympus wrote for it. It now names that configuration's, else
+  herdr's default. A bare client keeps the operator's prefix, as before.
+- **herdr's configuration home is found as herdr finds it.** An empty
+  `XDG_CONFIG_HOME` or `HOME` was read as unset, where herdr reads it as a
+  directory, so the ambient socket and the operator's prefix could name a
+  different place from herdr's.
+- **`run` refuses a command its wrapper cannot parse.** A trailing `;`, `&` or
+  `|`, an unquoted `#` comment, or a quote left open ran nothing or hid the
+  completion marker, and the run waited out its timeout as if the command were
+  slow. They are now `USAGE` before anything is typed. Quoted, escaped or
+  inside a word, the characters are accepted as before.
+- **`agents` lists a pane a view shares once.** On tmux, while a view existed,
+  an agent appeared twice, the second row under the view's name. The row is
+  now the base session's.
+- **A failed throwaway run keeps its cleanup failure.** A `run` without a
+  target that failed and then could not kill its session returned the run's
+  error alone at both doors, so the leaked session went unreported. The
+  cleanup failure now rides beside the error: on stderr, and as a warning in
+  the `--json` failure and the MCP result's structured content.
+
 ## [0.39.0]
 
 ### Changed
@@ -1485,7 +1564,47 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.0...HEAD
+[0.40.0]: https://github.com/husniadil/olympus/compare/v0.39.0...v0.40.0
+[0.39.0]: https://github.com/husniadil/olympus/compare/v0.38.3...v0.39.0
+[0.38.3]: https://github.com/husniadil/olympus/compare/v0.38.2...v0.38.3
+[0.38.2]: https://github.com/husniadil/olympus/compare/v0.38.1...v0.38.2
+[0.38.1]: https://github.com/husniadil/olympus/compare/v0.38.0...v0.38.1
+[0.38.0]: https://github.com/husniadil/olympus/compare/v0.37.0...v0.38.0
+[0.37.0]: https://github.com/husniadil/olympus/compare/v0.36.0...v0.37.0
+[0.36.0]: https://github.com/husniadil/olympus/compare/v0.35.0...v0.36.0
+[0.35.0]: https://github.com/husniadil/olympus/compare/v0.34.3...v0.35.0
+[0.34.3]: https://github.com/husniadil/olympus/compare/v0.34.2...v0.34.3
+[0.34.2]: https://github.com/husniadil/olympus/compare/v0.34.1...v0.34.2
+[0.34.1]: https://github.com/husniadil/olympus/compare/v0.34.0...v0.34.1
+[0.34.0]: https://github.com/husniadil/olympus/compare/v0.33.2...v0.34.0
+[0.33.2]: https://github.com/husniadil/olympus/compare/v0.33.1...v0.33.2
+[0.33.1]: https://github.com/husniadil/olympus/compare/v0.33.0...v0.33.1
+[0.33.0]: https://github.com/husniadil/olympus/compare/v0.32.0...v0.33.0
+[0.32.0]: https://github.com/husniadil/olympus/compare/v0.31.0...v0.32.0
+[0.31.0]: https://github.com/husniadil/olympus/compare/v0.30.0...v0.31.0
+[0.30.0]: https://github.com/husniadil/olympus/compare/v0.29.0...v0.30.0
+[0.29.0]: https://github.com/husniadil/olympus/compare/v0.28.0...v0.29.0
+[0.28.0]: https://github.com/husniadil/olympus/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/husniadil/olympus/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/husniadil/olympus/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/husniadil/olympus/compare/v0.24.1...v0.25.0
+[0.24.1]: https://github.com/husniadil/olympus/compare/v0.24.0...v0.24.1
+[0.24.0]: https://github.com/husniadil/olympus/compare/v0.23.2...v0.24.0
+[0.23.2]: https://github.com/husniadil/olympus/compare/v0.23.1...v0.23.2
+[0.23.1]: https://github.com/husniadil/olympus/compare/v0.23.0...v0.23.1
+[0.23.0]: https://github.com/husniadil/olympus/compare/v0.22.0...v0.23.0
+[0.22.0]: https://github.com/husniadil/olympus/compare/v0.21.2...v0.22.0
+[0.21.2]: https://github.com/husniadil/olympus/compare/v0.21.1...v0.21.2
+[0.21.1]: https://github.com/husniadil/olympus/compare/v0.21.0...v0.21.1
+[0.21.0]: https://github.com/husniadil/olympus/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/husniadil/olympus/compare/v0.19.1...v0.20.0
+[0.19.1]: https://github.com/husniadil/olympus/compare/v0.19.0...v0.19.1
+[0.19.0]: https://github.com/husniadil/olympus/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/husniadil/olympus/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/husniadil/olympus/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/husniadil/olympus/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/husniadil/olympus/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/husniadil/olympus/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/husniadil/olympus/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/husniadil/olympus/compare/v0.12.0...v0.13.0

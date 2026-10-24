@@ -340,6 +340,90 @@ func TestACancelledAttachDoesNotWaitOnAClientThatIgnoresSIGTERM(t *testing.T) {
 	}
 }
 
+// §8.2 A SIGTERM or SIGHUP to Olympus ends its client the way every other
+// ending does: SIGTERM, then SIGKILL after a grace. That branch sent SIGTERM
+// alone, so a client that ignored it held the attach open for as long as it
+// chose to run, with the terminal already handed back.
+//
+// The signal is sent to this test process, which is what the operator's
+// terminal closing does to Olympus. Attach has it registered by the time the
+// client has painted anything, so it never reaches the default disposition.
+func TestATerminalThatGoesAwayDoesNotWaitOnAClientThatIgnoresSIGTERM(t *testing.T) {
+	out, err := os.CreateTemp(t.TempDir(), "out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "trap '' TERM; echo ready; while :; do sleep 0.1; done")}
+
+	ended := make(chan error, 1)
+	go func() {
+		_, err := engine.Attach(context.Background(), attachment,
+			engine.AttachIO{Out: out}, backend.AttachSpec{Role: backend.RoleController}, nil)
+		ended <- err
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		painted, _ := os.ReadFile(out.Name())
+		if strings.Contains(string(painted), "ready") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the client never started")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-ended:
+		if err != nil {
+			t.Fatalf("Attach: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		_ = attachment.Cmd.Process.Kill()
+		t.Fatal("the attach did not end after its terminal went away: a client that ignores SIGTERM held it open")
+	}
+}
+
+// An attach reads its caller's input only while it runs. Its reader went on
+// waiting on the caller's stdin after Attach returned, and took whatever the
+// caller read next: a Go caller that attached and then read a line lost it,
+// written into a PTY that was already closed.
+func TestAnEndedAttachLeavesTheCallersInputAlone(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close(); _ = r.Close() })
+	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "sleep 0.3")}
+
+	if _, err := engine.Attach(context.Background(), attachment,
+		engine.AttachIO{In: r, Out: discard(t)}, backend.AttachSpec{Role: backend.RoleController}, nil); err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+
+	if _, err := w.WriteString("next\n"); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 16)
+		n, _ := r.Read(buf)
+		got <- string(buf[:n])
+	}()
+	select {
+	case line := <-got:
+		if line != "next\n" {
+			t.Errorf("the caller read %q after the attach, want its own %q", line, "next\n")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the caller's next input never reached it: the ended attach's reader took it")
+	}
+}
+
 // §8.3 The client is started with the size the caller gave, not handed it a
 // moment later. A client that reads its size as it starts saw 0x0 when the
 // PTY was sized after the start, and herdr's exits on that ("terminal reported
