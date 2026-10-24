@@ -4,16 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.40.0]
 
 ### Added
 
 - **`SessionWarnings`** on the Go handle: the disclosures a session listing
   owes, as `PaneWarnings` is for a pane listing.
-
 - **`session_status` with no target addresses the calling session.** Over MCP,
   as `status` does on the CLI, the session the server's own process runs in is
   addressed on that session's backend and server. `target` is now optional.
+
+### Changed
+
+- **A build with no version to read reports `0.0.0-dev`.** The placeholder
+  named 0.14.1, a release long past that a floor check would take for a real
+  version. It now names none and sits below every release.
+- **The write lock's key is the path an address leads to.** An Olympus older
+  than this release, running beside one this release or newer, takes a
+  different lock for the same session, so the two do not serialize against
+  each other.
 
 ### Fixed
 
@@ -1555,7 +1564,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.39.0...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.0...HEAD
+[0.40.0]: https://github.com/husniadil/olympus/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/husniadil/olympus/compare/v0.38.3...v0.39.0
 [0.38.3]: https://github.com/husniadil/olympus/compare/v0.38.2...v0.38.3
 [0.38.2]: https://github.com/husniadil/olympus/compare/v0.38.1...v0.38.2
