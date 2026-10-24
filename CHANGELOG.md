@@ -52,6 +52,14 @@ All notable changes to this project are documented here. The format follows
 - **`olympus --json` with no verb answers an envelope.** It printed the help
   prose on stdout and exited 0. It is now a `USAGE` failure envelope, exit 2.
   Without `--json` the help is unchanged.
+- **A herdr server Olympus started reports its own prefix.** `info` on such a
+  server named the operator's prefix, while its session client reads the
+  configuration Olympus wrote for it. It now names that configuration's, else
+  herdr's default. A bare client keeps the operator's prefix, as before.
+- **herdr's configuration home is found as herdr finds it.** An empty
+  `XDG_CONFIG_HOME` or `HOME` was read as unset, where herdr reads it as a
+  directory, so the ambient socket and the operator's prefix could name a
+  different place from herdr's.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

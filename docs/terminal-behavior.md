@@ -4557,7 +4557,7 @@ human cannot reach.
 | Backend | Source |
 |---|---|
 | tmux | the global `prefix` option, asked of a running server. A stopped one cannot answer, and the row says nothing |
-| herdr | `[keys] prefix` of the config.toml the server resolves under: the session's own where it has one, else the operator's. herdr's default where none is set |
+| herdr | `[keys] prefix` of the config.toml a session client of this handle reads: on a server this handle started, the configuration it wrote for that server (§17.5), whose client is pointed there; otherwise the session's own where it has one, else the operator's, found as herdr finds it (an empty `XDG_CONFIG_HOME` is a directory to herdr). herdr's default where none is set |
 | meja | the constant the program fixes, `C-b`, documented as unconfigurable |
 | zmx | no prefix |
 

@@ -31,11 +31,7 @@ func rawConfiguredPrefix(sessionDir string) string {
 	// The operator's configuration directory, resolved the way herdr resolves
 	// it. Not beside the ambient socket: HERDR_SOCKET_PATH may name any
 	// socket, and inside an Olympus session it names Olympus's own.
-	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
-		candidates = append(candidates, filepath.Join(v, "herdr", "config.toml"))
-	} else if home := os.Getenv("HOME"); home != "" {
-		candidates = append(candidates, filepath.Join(home, ".config", "herdr", "config.toml"))
-	}
+	candidates = append(candidates, filepath.Join(operatorConfigDir(), "config.toml"))
 	for _, path := range candidates {
 		if v, ok := prefixInConfig(path); ok {
 			return v
@@ -44,11 +40,41 @@ func rawConfiguredPrefix(sessionDir string) string {
 	return defaultPrefix
 }
 
-// Prefix reports the prefix of the server this handle addresses: the
-// config.toml beside its socket where there is one (a named session's
-// directory), else the operator's (behavior §13.3, §8.10).
+// operatorConfigDir is herdr's configuration directory for this environment,
+// resolved as herdr resolves it (src/config/io.rs config_dir): XDG_CONFIG_HOME
+// when it is set at all, an empty value included, then HOME the same way, then
+// the temp directory. An empty value is a directory to herdr, the relative
+// one it joins onto, so it is one here too.
+func operatorConfigDir() string {
+	if v, ok := os.LookupEnv("XDG_CONFIG_HOME"); ok {
+		return filepath.Join(v, "herdr")
+	}
+	if home, ok := os.LookupEnv("HOME"); ok {
+		return filepath.Join(home, ".config", "herdr")
+	}
+	return filepath.Join(os.TempDir(), "herdr")
+}
+
+// Prefix reports the prefix of the server this handle addresses: the one a
+// session client of this handle reads (behavior §13.3, §8.10).
 func (h *Herdr) Prefix(context.Context) (string, error) {
-	return configuredPrefix(filepath.Dir(h.socketPath)), nil
+	return spellPrefix(h.rawPrefix()), nil
+}
+
+// rawPrefix is the prefix a session client of this handle reads, in herdr's
+// spelling. A client onto a server this handle started is pointed at this
+// backend's own configuration (clientEnv), so it reads the prefix that names,
+// else herdr's default, and never the operator's. Any other is the
+// config.toml beside the socket where there is one (a named session's
+// directory), else the operator's.
+func (h *Herdr) rawPrefix() string {
+	if h.startedTheServer() && !h.socketOnly {
+		if v, ok := prefixInConfig(h.managedConfigPath()); ok {
+			return v
+		}
+		return defaultPrefix
+	}
+	return rawConfiguredPrefix(filepath.Dir(h.socketPath))
 }
 
 // prefixInConfig finds `prefix = "…"` under `[keys]`. It reports false for a
