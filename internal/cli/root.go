@@ -119,13 +119,45 @@ func classify(err error) error {
 	return backend.Wrapf(backend.CodeUsage, err, "invalid arguments")
 }
 
-// report emits a failure on whichever channel the caller asked for.
+// report emits a failure on whichever channel the caller asked for, with any
+// disclosure that came with it.
 func (a *App) report(err error) {
+	var warned *warnedError
+	var warnings []olympus.Warning
+	if errors.As(err, &warned) {
+		warnings = warned.warnings
+	}
 	if a.json {
-		_ = writeJSON(a.Out, failureEnvelope(a.resolved, err))
+		envelope := failureEnvelope(a.resolved, err)
+		envelope.Warnings = warnings
+		_ = writeJSON(a.Out, envelope)
 		return
 	}
+	if !a.quiet {
+		writeWarnings(a.Err, warnings)
+	}
 	fmt.Fprintf(a.Err, "olympus: %s\n", err.Error())
+}
+
+// A warnedError is a failure that came with a disclosure of its own: a
+// throwaway run that failed and then could not clean up its session (behavior
+// §6.10). The error is still the answer, so it keeps its code; the warnings
+// ride beside it instead of being dropped with the result.
+type warnedError struct {
+	err      error
+	warnings []olympus.Warning
+}
+
+func (e *warnedError) Error() string { return e.err.Error() }
+func (e *warnedError) Unwrap() error { return e.err }
+
+// withWarnings attaches warnings to a failure, leaving it as it was when there
+// are none.
+func withWarnings(err error, warnings []olympus.Warning) error {
+	if len(warnings) == 0 {
+		return err
+	}
+	return &warnedError{err: err, warnings: warnings}
 }
 
 // An exitCode carries a deliberate deviation from the shared mapping.

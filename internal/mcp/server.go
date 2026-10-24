@@ -14,6 +14,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -181,8 +182,8 @@ func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In
 
 			out, warnings, err := fn(ctx, ol, in)
 			if err != nil {
-				// api §2: a failure names the backend that answered.
-				return toolErrorFrom(ol, err), Result[Out]{Backend: ol.Backend()}, nil
+				result, structured := failure[Out](ol.Backend(), err)
+				return result, structured, nil
 			}
 			return nil, Result[Out]{Backend: ol.Backend(), Data: out, Warnings: warnings}, nil
 		})
@@ -211,8 +212,35 @@ func toolError(err error) *sdk.CallToolResult {
 	return result
 }
 
-func toolErrorFrom(ol *olympus.Olympus, err error) *sdk.CallToolResult {
-	return withBackend(toolError(err), ol.Backend())
+// failure is a tool's failed result. api §2: it names the backend that
+// answered. A disclosure that came with the failure rides in its structured
+// content, as a throwaway run's cleanup failure does (behavior §6.10).
+func failure[Out any](name backend.Name, err error) (*sdk.CallToolResult, Result[Out]) {
+	structured := Result[Out]{Backend: name}
+	var warned *warnedError
+	if errors.As(err, &warned) {
+		structured.Warnings = warned.warnings
+	}
+	return withBackend(toolError(err), name), structured
+}
+
+// A warnedError is a failure that came with a disclosure of its own. The error
+// is still the answer and keeps its code; the warnings ride beside it.
+type warnedError struct {
+	err      error
+	warnings []olympus.Warning
+}
+
+func (e *warnedError) Error() string { return e.err.Error() }
+func (e *warnedError) Unwrap() error { return e.err }
+
+// withWarnings attaches warnings to a failure, leaving it as it was when there
+// are none.
+func withWarnings(err error, warnings []olympus.Warning) error {
+	if len(warnings) == 0 {
+		return err
+	}
+	return &warnedError{err: err, warnings: warnings}
 }
 
 func withBackend(result *sdk.CallToolResult, name backend.Name) *sdk.CallToolResult {

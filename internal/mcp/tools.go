@@ -532,7 +532,12 @@ func register(s *sdk.Server) {
 						"a throwaway run creates its own session, so it takes no target")
 				}
 				result, warnings, err := ol.RunOnce(ctx, in.Command, opts)
-				return result, warnings, err
+				if err != nil {
+					// A cleanup failure is reported beside the run's own
+					// (behavior §6.10).
+					return olympus.Result{}, nil, withWarnings(err, warnings)
+				}
+				return result, warnings, nil
 			}
 			// Not through withSession: it has no warnings channel, and a run
 			// that recovered its exit code without the start marker owes the

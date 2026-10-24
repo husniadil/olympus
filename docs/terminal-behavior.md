@@ -2335,6 +2335,10 @@ the default shell, §1.1's sanitized spawn environment, and a name reserved per
 stderr and return what the run produced. A leaked throwaway session is a
 problem to notice separately, not a reason to hide the answer.
 
+A run that failed and then failed to clean up reports both. The run's error is
+the failure, and the cleanup failure rides beside it: on stderr, and as a
+warning in the structured failure, where a door has no stderr to narrate on.
+
 A throwaway run MUST NOT be combinable with detaching, since nothing would be
 left to poll. Reject the combination as a usage error.
 

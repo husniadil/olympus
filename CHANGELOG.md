@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A failed throwaway run keeps its cleanup failure.** A `run` without a
+  target that failed and then could not kill its session returned the run's
+  error alone at both doors, so the leaked session went unreported. The
+  cleanup failure now rides beside the error: on stderr, and as a warning in
+  the `--json` failure and the MCP result's structured content.
+
 ## [0.39.0]
 
 ### Changed
