@@ -49,6 +49,9 @@ All notable changes to this project are documented here. The format follows
   blocked on stdin after `Attach` returned and took the caller's next input.
   It now waits for input or for the client's end, and `Attach` returns only
   once it is done.
+- **`olympus --json` with no verb answers an envelope.** It printed the help
+  prose on stdout and exited 0. It is now a `USAGE` failure envelope, exit 2.
+  Without `--json` the help is unchanged.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

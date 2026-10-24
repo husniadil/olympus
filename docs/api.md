@@ -221,6 +221,9 @@ table says so.
 Nothing diagnostic ever goes to stdout, and no payload ever goes to stderr. A
 consumer piping stdout into a parser never has to filter it.
 
+`olympus` with no verb prints its help. With `--json` it is a `USAGE` failure
+envelope instead, since help prose is not an envelope.
+
 ### `attach` and `watch` have no `--json` form
 
 Asking for one is a `USAGE` error. Use `screen` for a capture that can be

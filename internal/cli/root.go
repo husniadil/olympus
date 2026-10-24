@@ -196,6 +196,15 @@ Human-readable output is for reading and is NOT stable: it may change in any
 release. Scripts should use --json, whose shape is semver-bound.`),
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// With no verb a person gets the help. Under --json stdout carries
+		// the envelope and nothing else (api §2.3), so there it is a usage
+		// error: help prose with exit 0 reads to a parser as a broken success.
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if a.json {
+				return backend.Errorf(backend.CodeUsage, "a verb is required; run olympus --help for the list")
+			}
+			return cmd.Help()
+		},
 	}
 
 	// Every error reaches the envelope, including this framework's own flag

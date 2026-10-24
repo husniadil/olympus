@@ -1807,3 +1807,23 @@ func TestSelfDisclosesWhyTheNameCouldNotBeRead(t *testing.T) {
 		t.Errorf("self --json says nothing about the unreadable name:\n%s", got.stdout)
 	}
 }
+
+// api §2.3: stdout under --json carries the envelope and nothing else. With no
+// verb there is nothing to run, so it is a usage error in an envelope, not
+// help prose with exit 0, which a parser reads as a broken success. Without
+// --json the help is still what a person gets.
+func TestJSONWithNoVerbIsAUsageEnvelope(t *testing.T) {
+	got := run(t, "--json")
+	if got.code != 2 {
+		t.Errorf("exit %d, want 2 (USAGE)", got.code)
+	}
+	e := got.envelope(t)
+	if e.OK || e.Error == nil || e.Error.Code != "USAGE" {
+		t.Errorf("envelope = %+v, want a USAGE failure", e)
+	}
+
+	help := run(t)
+	if help.code != 0 || !strings.Contains(help.stdout, "Usage:") {
+		t.Errorf("no verb and no --json: exit %d, stdout %q; want the help and exit 0", help.code, help.stdout)
+	}
+}
