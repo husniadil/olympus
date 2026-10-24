@@ -395,6 +395,9 @@ where an entry below says otherwise. They are semver-bound once shipped.
 The shape is the same in all three modes (read, `--set`, `--wait`), so a caller
 needs one parser rather than three.
 
+An empty value clears the status: `--set ""` on the CLI and `"set": ""` on
+`session_status`. A cleared status reads empty, as one never set does.
+
 A wait is bounded by `--timeout` and paced by `--interval` on the CLI, and by
 `seconds` and `interval_ms` on `session_status`, as `wait` and `wait_for` are.
 Zero or an omitted value means the default at both doors, never "give up at
@@ -413,6 +416,9 @@ Backends that cannot carry a status refuse both the read and the write with
 
 `status` addresses the session the calling process is running in, and takes
 that session's *backend and server* from the same answer, not from the defaults.
+`session_status` does the same for the MCP server's own process, and reads none
+of the addressing variables of §4 for it: they say where the server sends other
+calls, not where its process is.
 
 A reporter that resolved its name but not its server would write onto a
 different backend entirely on any isolated setup. The waiter would then time out

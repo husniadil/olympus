@@ -170,10 +170,12 @@ type focusSessionResult struct {
 }
 
 type statusParams struct {
-	Target  string `json:"target" jsonschema:"the session to address"`
-	Set     string `json:"set,omitempty" jsonschema:"record this status on the session instead of reading it"`
-	Wait    string `json:"wait,omitempty" jsonschema:"block until the session reports exactly this status"`
-	Seconds int    `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
+	Target string `json:"target,omitempty" jsonschema:"the session to address; omit for the session this server's own process runs in, on that session's server"`
+	// Set is a pointer so an empty value is a write: "" clears the status,
+	// where an omitted set reads it.
+	Set     *string `json:"set,omitempty" jsonschema:"record this status on the session instead of reading it; an empty value clears it"`
+	Wait    string  `json:"wait,omitempty" jsonschema:"block until the session reports exactly this status"`
+	Seconds int     `json:"seconds,omitempty" jsonschema:"how long to wait, in seconds"`
 	// Interval matches wait_for's, the same pacing under the same name.
 	Interval int `json:"interval_ms,omitempty" jsonschema:"how often a wait re-reads the status, in milliseconds"`
 }
@@ -443,22 +445,33 @@ func register(s *sdk.Server) {
 			}
 			return focusSessionResult{Target: in.Target}, nil, nil
 		})
-	addTool(s, "session_status", "Read, set, or wait for a session's status: an opaque label a process INSIDE a session leaves for whoever drives it from outside. It answers what a capture cannot — a program at a prompt and a program mid-work render identically. Olympus never interprets the value and defines no vocabulary of states. Not every backend can carry one; `capabilities` reports it as session_status.",
+	addToolWith(s, "session_status", "Read, set, or wait for a session's status: an opaque label a process INSIDE a session leaves for whoever drives it from outside. It answers what a capture cannot — a program at a prompt and a program mid-work render identically. Olympus never interprets the value and defines no vocabulary of states. With no target it addresses the session this server's own process runs in, on that session's server. An empty set clears the status. Not every backend can carry one; `capabilities` reports it as session_status.",
+		openStatusTarget,
 		func(ctx context.Context, ol *olympus.Olympus, in statusParams) (statusResult, []olympus.Warning, error) {
-			if in.Set != "" && in.Wait != "" {
+			if in.Set != nil && in.Wait != "" {
 				return statusResult{}, nil, backend.Errorf(backend.CodeUsage, "set and wait cannot be combined")
 			}
-			session, err := ol.Open(ctx, in.Target)
+			target := in.Target
+			if target == "" {
+				// openStatusTarget already refused a process outside a
+				// session, so this answers.
+				here, err := olympus.Self(ctx)
+				if err != nil {
+					return statusResult{}, nil, err
+				}
+				target = here.Session
+			}
+			session, err := ol.Open(ctx, target)
 			if err != nil {
 				return statusResult{}, nil, err
 			}
-			out := statusResult{Session: in.Target}
+			out := statusResult{Session: target}
 			switch {
-			case in.Set != "":
-				if err := session.SetStatus(ctx, in.Set); err != nil {
+			case in.Set != nil:
+				if err := session.SetStatus(ctx, *in.Set); err != nil {
 					return statusResult{}, nil, err
 				}
-				out.Status = in.Set
+				out.Status = *in.Set
 			case in.Wait != "":
 				var opts []olympus.WaitOption
 				if in.Seconds > 0 {

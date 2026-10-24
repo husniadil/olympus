@@ -694,3 +694,64 @@ func TestAToolFailureNamesTheResolvedBackend(t *testing.T) {
 		t.Errorf("the failure's structured content names backend %v, want tmux", structured["backend"])
 	}
 }
+
+// `"set": ""` clears a status, as `status --set ""` does on the CLI. An empty
+// value used to be read as no value, so no door could clear one.
+func TestSessionStatusClearsWithAnEmptySet(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+	w.callTool(t, "session_status", map[string]any{"target": name, "set": "busy"})
+
+	cleared := w.callTool(t, "session_status", map[string]any{"target": name, "set": ""})
+	if data, _ := cleared["data"].(map[string]any); data["status"] != "" {
+		t.Errorf("clearing answered %v, want an empty status", data)
+	}
+	read := w.callTool(t, "session_status", map[string]any{"target": name})
+	if data, _ := read["data"].(map[string]any); data["status"] != "" {
+		t.Errorf("after clearing, the status reads %v, want empty", data)
+	}
+	if text := w.callToolExpectingError(t, "session_status", map[string]any{"target": name, "set": "", "wait": "x"}); !strings.Contains(text, "USAGE") {
+		t.Errorf("an empty set with a wait answered %s, want USAGE", text)
+	}
+}
+
+// With no target, session_status addresses the session the server's own
+// process runs in, and that session's server, as `status` with no target does
+// on the CLI (api §5 "With no target"). The addressing in the environment
+// points somewhere else, which is the case the fallback exists for.
+func TestSessionStatusWithNoTargetAddressesTheCallingSession(t *testing.T) {
+	isolate(t)
+	w := newWire(t)
+	name := sessionName()
+	w.callTool(t, "start_session", map[string]any{"name": name})
+
+	socket := os.Getenv("OLYMPUS_SOCKET")
+	path, err := exec.Command("tmux", "-L", socket, "display-message", "-p", "-t", name, "#{socket_path}").Output()
+	if err != nil {
+		t.Fatalf("reading the socket path: %v", err)
+	}
+	pane, err := exec.Command("tmux", "-L", socket, "display-message", "-p", "-t", name, "#{pane_id}").Output()
+	if err != nil {
+		t.Fatalf("reading the pane id: %v", err)
+	}
+	t.Setenv("TMUX", strings.TrimSpace(string(path))+",1,0")
+	t.Setenv("TMUX_PANE", strings.TrimSpace(string(pane)))
+	for _, other := range []string{"ZMX_SESSION", "MEJA_SESSION_TARGET", "HERDR_PANE_ID"} {
+		t.Setenv(other, "")
+	}
+	t.Setenv("OLYMPUS_SOCKET", socket+"-elsewhere")
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket+"-elsewhere", "kill-server").Run() })
+
+	set := w.callTool(t, "session_status", map[string]any{"set": "ready"})
+	if data, _ := set["data"].(map[string]any); data["session"] != name || data["status"] != "ready" {
+		t.Fatalf("setting with no target answered %v, want %s and ready", data, name)
+	}
+
+	t.Setenv("OLYMPUS_SOCKET", socket)
+	read := w.callTool(t, "session_status", map[string]any{"target": name})
+	if data, _ := read["data"].(map[string]any); data["status"] != "ready" {
+		t.Errorf("the session's own server reads %v, want ready", data)
+	}
+}

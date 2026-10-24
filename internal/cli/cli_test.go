@@ -602,13 +602,43 @@ func TestDoctorDistinguishesAServerItStartedFromOneItFound(t *testing.T) {
 	}
 }
 
-// Reading a status nobody set is an answer, not a failure, and the CLI has to
-// preserve that: exit 0 with an empty value.
+// A status on a session that does not exist is not found, never an empty
+// answer: empty means a session that has reported nothing (behavior §13.1).
+//
+// On a private server like every other case here, so it never addresses the
+// operator's default backend and server (behavior §2.9).
 func TestStatusOnAnAbsentSessionIsNotFound(t *testing.T) {
-	requireBackend(t)
-	got := run(t, "status", "no-such-session-"+t.Name(), "--json")
+	flags := isolation(t)
+	got := run(t, append(flags, "status", "no-such-session", "--json")...)
 	if got.code != 3 {
 		t.Errorf("exit %d, want 3 (SESSION_NOT_FOUND)", got.code)
+	}
+}
+
+// `--set ""` clears a status. It used to read as a read, since an empty flag
+// value looked like no flag at all, so no door could clear one.
+func TestAnEmptySetClearsTheStatus(t *testing.T) {
+	flags := isolation(t)
+	target := name()
+	if got := run(t, append(flags, "start", target)...); got.code != 0 {
+		t.Fatalf("start: exit %d, stderr %q", got.code, got.stderr)
+	}
+	if got := run(t, append(flags, "status", target, "--set", "busy")...); got.code != 0 {
+		t.Fatalf("status --set busy: exit %d, stderr %q", got.code, got.stderr)
+	}
+	cleared := run(t, append(flags, "status", target, "--set", "", "--json")...)
+	if cleared.code != 0 {
+		t.Fatalf("status --set \"\": exit %d, stderr %q", cleared.code, cleared.stderr)
+	}
+	if data, _ := cleared.envelope(t).Data.(map[string]any); data["status"] != "" {
+		t.Errorf("clearing answered %v, want an empty status", data)
+	}
+	read := run(t, append(flags, "status", target, "--json")...)
+	if data, _ := read.envelope(t).Data.(map[string]any); data["status"] != "" {
+		t.Errorf("after clearing, the status reads %v, want empty", data)
+	}
+	if got := run(t, append(flags, "status", target, "--set", "", "--wait", "x")...); got.code != 2 {
+		t.Errorf("--set \"\" with --wait: exit %d, want 2 (USAGE)", got.code)
 	}
 }
 
@@ -890,22 +920,6 @@ func TestWindowsBelongToTheMultiplexerNotToOlympus(t *testing.T) {
 			}
 		})
 	}
-}
-
-// requireBackend skips when no multiplexer is installed.
-//
-// Cases that assert a SESSION-level outcome need something to have sessions.
-// Without this they fail with BACKEND_UNAVAILABLE, which is the CORRECT answer
-// on such a machine — so the failure reports a working product as broken, and
-// does it on exactly the machines least able to tell the difference.
-func requireBackend(t *testing.T) {
-	t.Helper()
-	for _, name := range []string{"tmux", "zmx", "meja"} {
-		if _, err := exec.LookPath(name); err == nil {
-			return
-		}
-	}
-	t.Skip("no terminal multiplexer is installed")
 }
 
 // skipUnlessFull skips work that drives a real multiplexer when the gate is

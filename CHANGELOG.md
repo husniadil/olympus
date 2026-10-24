@@ -6,7 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`session_status` with no target addresses the calling session.** Over MCP,
+  as `status` does on the CLI, the session the server's own process runs in is
+  addressed on that session's backend and server. `target` is now optional.
+
 ### Fixed
+
+- **A status can be cleared.** `status --set ""` and `session_status` with
+  `"set": ""` clear the status. An empty value was read as no value at all,
+  so each door read it as a read, and none could take a status back.
 
 - **A failed throwaway run keeps its cleanup failure.** A `run` without a
   target that failed and then could not kill its session returned the run's

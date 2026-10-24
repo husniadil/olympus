@@ -38,7 +38,11 @@ func (a *App) statusCmd() *cobra.Command {
 			scriptsNote,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if set != "" && wait != "" {
+			// Whether --set was given, not whether its value is empty:
+			// `--set ""` clears the status, and reading an empty value as no
+			// flag at all left no door able to clear one.
+			setting := cmd.Flags().Changed("set")
+			if setting && wait != "" {
 				return backend.Errorf(backend.CodeUsage, "--set and --wait cannot be combined")
 			}
 
@@ -63,7 +67,7 @@ func (a *App) statusCmd() *cobra.Command {
 
 			report := StatusReport{Session: target}
 			switch {
-			case set != "":
+			case setting:
 				if err := s.SetStatus(cmd.Context(), set); err != nil {
 					return err
 				}
@@ -97,7 +101,7 @@ func (a *App) statusCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&set, "set", "", "record this status on the target")
+	cmd.Flags().StringVar(&set, "set", "", "record this status on the target; an empty value clears it")
 	cmd.Flags().StringVar(&wait, "wait", "", "block until the target reports exactly this status")
 	cmd.Flags().DurationVar(&timeout, "timeout", olympus.DefaultWaitTimeout, "how long --wait blocks; zero means the default")
 	cmd.Flags().DurationVar(&poll, "interval", olympus.DefaultWaitPoll, "how often --wait re-reads the status")

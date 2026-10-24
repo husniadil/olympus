@@ -23,6 +23,7 @@ import (
 
 	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/address"
 )
 
 // instructions are what a stateless client learns about this server.
@@ -168,9 +169,16 @@ func addFreestandingTool[In, Out any](s *sdk.Server, name, description string, r
 }
 
 func addTool[In, Out any](s *sdk.Server, name, description string, fn handler[In, Out]) {
+	addToolWith(s, name, description, func(context.Context, In) (*olympus.Olympus, error) { return open() }, fn)
+}
+
+// addToolWith registers a tool whose handle depends on its parameters, as
+// session_status's does when it names no target.
+func addToolWith[In, Out any](s *sdk.Server, name, description string,
+	opener func(context.Context, In) (*olympus.Olympus, error), fn handler[In, Out]) {
 	sdk.AddTool(s, &sdk.Tool{Name: name, Description: description},
 		func(ctx context.Context, _ *sdk.CallToolRequest, in In) (*sdk.CallToolResult, Result[Out], error) {
-			ol, err := open()
+			ol, err := opener(ctx, in)
 			if err != nil {
 				// A failure after resolution still names the backend (api §2).
 				if name, ok := olympus.ResolvedBackendOf(err); ok {
@@ -210,6 +218,24 @@ func toolError(err error) *sdk.CallToolResult {
 		result.Content = append(result.Content, &sdk.TextContent{Text: "reason: " + string(reason)})
 	}
 	return result
+}
+
+// openStatusTarget opens session_status's handle. With no target it addresses
+// the session this process runs in, on that session's own backend and server,
+// and the addressing variables are not read: they say where this server sends
+// other calls, not where its process is (api §5, "With no target").
+func openStatusTarget(ctx context.Context, in statusParams) (*olympus.Olympus, error) {
+	if in.Target != "" {
+		return open()
+	}
+	here, err := olympus.Self(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if here.Session == "" {
+		return nil, backend.Errorf(backend.CodeUsage, "not inside a session; name a target")
+	}
+	return olympus.Open(address.Here(here)...)
 }
 
 // failure is a tool's failed result. api §2: it names the backend that

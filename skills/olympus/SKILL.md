@@ -132,7 +132,7 @@ olympus panes --json            # every pane across every session
 
 ### Coordinate with a process inside a session
 
-- Inside: `olympus self` says which session this process is in, and `olympus status --set ready` records a status.
+- Inside: `olympus self` says which session this process is in, and `olympus status --set ready` records a status. `olympus status --set ""` clears it.
 - Outside: `olympus status build --wait ready --timeout 2m` blocks until it says so.
 
 Use this instead of matching output when you control both sides.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/husniadil/olympus"
 	"github.com/husniadil/olympus/backend"
+	"github.com/husniadil/olympus/internal/address"
 )
 
 // An App holds the streams and options one invocation runs with.
@@ -266,29 +267,8 @@ func (a *App) open() (*olympus.Olympus, error) {
 // default pointing somewhere else entirely.
 func (a *App) openAt(here olympus.Identity) (*olympus.Olympus, error) {
 	opts := []olympus.Option{}
-	if a.backendName == "" && here.Backend != "" {
-		opts = append(opts, olympus.WithBackend(string(here.Backend)))
-		if here.Scope != "" {
-			switch here.Backend {
-			case backend.Tmux:
-				// Self reports tmux's scope as the socket PATH, which is what
-				// tmux itself puts in the environment.
-				opts = append(opts, olympus.WithSocketPath(here.Scope))
-			case backend.Zmx:
-				opts = append(opts, olympus.WithZmxDir(here.Scope))
-			case backend.Meja:
-				// Self reports meja's scope as the socket path meja itself
-				// publishes into the session.
-				opts = append(opts, olympus.WithSocketPath(here.Scope))
-			case backend.Herdr:
-				// Passed explicitly rather than left to the environment. The
-				// herdr binary does read HERDR_SOCKET_PATH itself, but the
-				// backend strips it from every invocation and substitutes its
-				// own — so a reporter inside a session would otherwise be sent
-				// to Olympus's default server instead of the one it is in.
-				opts = append(opts, olympus.WithSocketPath(here.Scope))
-			}
-		}
+	if a.backendName == "" {
+		opts = append(opts, address.Here(here)...)
 	}
 	if a.backendName != "" {
 		opts = append(opts, olympus.WithBackend(a.backendName))

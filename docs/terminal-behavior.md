@@ -4390,6 +4390,10 @@ Olympus reading structure into a string it has promised not to read.
 This is the same tri-state rule as presence (§3.5). A caller must be able to
 tell "has reported nothing" from "could not ask".
 
+Writing an empty status clears it, so a cleared status and one never set read
+the same. Every door MUST be able to write one: a door that took an empty value
+for no value at all left a status nobody could take back.
+
 #### A backend that cannot carry one MUST refuse both the write AND the read
 
 Refusing the write alone is not enough. A read that answers empty is
