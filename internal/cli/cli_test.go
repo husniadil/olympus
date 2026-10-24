@@ -377,6 +377,18 @@ func TestCreateOnASizingBackendWarnsNothing(t *testing.T) {
 	}
 }
 
+// A command goes after `--`. A second word without it is refused rather than
+// executed as the session's process.
+func TestStartTakesACommandOnlyAfterTheDash(t *testing.T) {
+	flags := isolation(t)
+	for _, verb := range []string{"start", "new"} {
+		got := run(t, append(flags, verb, name(), "stray")...)
+		if got.code != olympus.ExitCode(backend.CodeUsage) {
+			t.Errorf("%s <name> stray exited %d, want the usage exit: %s", verb, got.code, got.stderr)
+		}
+	}
+}
+
 // Quiet suppresses narration only. It must never change the data channel.
 func TestQuietDoesNotChangeTheDataChannel(t *testing.T) {
 	flags := isolation(t)
@@ -1490,7 +1502,7 @@ func TestAgentsListsPanesRunningAKnownAgentCommand(t *testing.T) {
 	if got := run(t, append(flags, "start", shell)...); got.code != 0 {
 		t.Fatalf("starting a shell session: exit %d: %s%s", got.code, got.stdout, got.stderr)
 	}
-	if got := run(t, append(flags, "start", agent, "--dir", dir, fakes["claude"])...); got.code != 0 {
+	if got := run(t, append(flags, "start", agent, "--dir", dir, "--", fakes["claude"])...); got.code != 0 {
 		t.Fatalf("starting the agent session: exit %d: %s%s", got.code, got.stdout, got.stderr)
 	}
 	// A second command after the agent keeps the shell from exec'ing it, so
