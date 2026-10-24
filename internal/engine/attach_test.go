@@ -340,6 +340,54 @@ func TestACancelledAttachDoesNotWaitOnAClientThatIgnoresSIGTERM(t *testing.T) {
 	}
 }
 
+// §8.2 A SIGTERM or SIGHUP to Olympus ends its client the way every other
+// ending does: SIGTERM, then SIGKILL after a grace. That branch sent SIGTERM
+// alone, so a client that ignored it held the attach open for as long as it
+// chose to run, with the terminal already handed back.
+//
+// The signal is sent to this test process, which is what the operator's
+// terminal closing does to Olympus. Attach has it registered by the time the
+// client has painted anything, so it never reaches the default disposition.
+func TestATerminalThatGoesAwayDoesNotWaitOnAClientThatIgnoresSIGTERM(t *testing.T) {
+	out, err := os.CreateTemp(t.TempDir(), "out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	attachment := backend.Attachment{Cmd: exec.Command("sh", "-c", "trap '' TERM; echo ready; while :; do sleep 0.1; done")}
+
+	ended := make(chan error, 1)
+	go func() {
+		_, err := engine.Attach(context.Background(), attachment,
+			engine.AttachIO{Out: out}, backend.AttachSpec{Role: backend.RoleController}, nil)
+		ended <- err
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		painted, _ := os.ReadFile(out.Name())
+		if strings.Contains(string(painted), "ready") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the client never started")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-ended:
+		if err != nil {
+			t.Fatalf("Attach: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		_ = attachment.Cmd.Process.Kill()
+		t.Fatal("the attach did not end after its terminal went away: a client that ignores SIGTERM held it open")
+	}
+}
+
 // §8.3 The client is started with the size the caller gave, not handed it a
 // moment later. A client that reads its size as it starts saw 0x0 when the
 // PTY was sized after the start, and herdr's exits on that ("terminal reported

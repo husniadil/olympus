@@ -30,6 +30,10 @@ All notable changes to this project are documented here. The format follows
 - **`clients --tag` with no server running answers `[]`.** It answered
   `SESSION_NOT_FOUND`, where api §5 and the untagged listing answer the empty
   list. A running server with no client carrying the tag is still not found.
+- **An attach ends when its terminal goes away, whatever the client does.**
+  On SIGTERM or SIGHUP the attach handed the terminal back and sent its
+  client SIGTERM alone, so a client that ignored it held the attach open. It
+  is now killed after the same grace every other ending gives it.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

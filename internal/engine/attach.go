@@ -216,10 +216,20 @@ func Attach(ctx context.Context, attachment backend.Attachment, io AttachIO, spe
 		defer close(signalled)
 		select {
 		case <-terminalGone:
-			// Restore before dying, then let the default disposition finish
-			// the job. Without this the terminal is left raw.
+			// The signal was caught here, so no default disposition ends
+			// Olympus: the terminal is handed back first, the client is
+			// ended, and the attach returns as it would on any other exit.
+			// Without the restore the terminal is left raw. The kill after
+			// the grace is the same backstop every other ending has, since a
+			// client that ignores SIGTERM would otherwise hold the attach
+			// open for as long as it chose to run.
 			restore()
 			_ = child.Process.Signal(syscall.SIGTERM)
+			select {
+			case <-exited:
+			case <-time.After(targetGoneGrace):
+				_ = child.Process.Kill()
+			}
 		case <-superseded:
 			// The message is generic on purpose. POSIX signal delivery carries
 			// no sender pid portably, so the superseded side cannot honestly
