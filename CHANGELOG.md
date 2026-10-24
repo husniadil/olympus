@@ -22,6 +22,11 @@ All notable changes to this project are documented here. The format follows
   that was disclosed named 1,000 lines of history where the answer held 1,000
   less the screen. The disclosure now follows what the backend reports it cut,
   with the depth the answer really holds.
+- **Two spellings of one server take one write lock.** The lock was keyed on
+  the address as written, so a tmux socket name and its path, a zmx daemon by
+  its default directory and by that directory named, or a socket reached
+  through a symlinked directory serialized against nothing. The key is now the
+  path the address leads to.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

@@ -121,6 +121,12 @@ func (z *Zmx) Version(ctx context.Context) (string, error) {
 // raw verification calls to the same isolation rule as the backend (§2.9).
 func (z *Zmx) Dir() string { return z.dir }
 
+// SocketDir is the directory this backend's daemon keeps its sockets in, by
+// zmx's own order: the one chosen, then ZMX_DIR, then $XDG_RUNTIME_DIR/zmx,
+// then $TMPDIR/zmx-<uid>. It names the daemon whichever of those spellings
+// reached it, which is what a lock key needs (§11.1).
+func (z *Zmx) SocketDir() string { return z.validationDir() }
+
 // validationDir resolves the socket directory for the purpose of checking a
 // name against the budget.
 //

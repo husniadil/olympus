@@ -4028,6 +4028,15 @@ The key is the (backend, socket-or-directory, session) triple:
 Two different sockets, directories or backends MUST never contend on the same
 lock file, even when a session name collides.
 
+Two spellings of one server MUST take one lock. The socket-or-directory part is
+the path the address leads to: a tmux socket name is the path tmux resolves it
+to (`$TMUX_TMPDIR/tmux-<uid>/<name>`), a zmx daemon chosen by no directory is
+the one zmx's own order picks, and every path is made absolute with the
+symlinks in its directories resolved. A directory not made yet is resolved
+through its nearest existing ancestor, so the key does not move when a server
+creates it. meja's default socket is meja's to place, so it keys under one
+fixed name, apart from a path that leads to the same socket.
+
 The hash MUST cover the session name, not only the socket or directory.
 
 ##### Why

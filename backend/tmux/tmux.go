@@ -829,9 +829,9 @@ func saysNoServer(msg string) bool {
 }
 
 // Scope reports how this backend addresses its server: the socket path when one
-// was given, otherwise the socket name. It is what a lock key and a diagnostic
-// identify the server by, so the two forms must never collapse to the same
-// string — they are different servers.
+// was given, otherwise the socket name, as the caller spelled it. A diagnostic
+// names the server by it. The write lock keys on the path a name resolves to
+// instead, so a name and its path take one lock (behavior §11.1).
 func (t *Tmux) Scope() string {
 	if t.socketPath != "" {
 		return t.socketPath
