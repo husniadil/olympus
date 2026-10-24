@@ -81,8 +81,12 @@ func (a *App) newCmd() *cobra.Command {
 			if keepCorpse {
 				opts = append(opts, olympus.KeepCorpse())
 			}
-			if len(args) > 1 {
-				opts = append(opts, olympus.Command(args[1:]...))
+			command, err := spawnCommand(cmd, args)
+			if err != nil {
+				return err
+			}
+			if command != nil {
+				opts = append(opts, olympus.Command(command...))
 			}
 
 			s, err := ol.Create(cmd.Context(), args[0], opts...)

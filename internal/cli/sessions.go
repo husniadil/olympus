@@ -48,8 +48,12 @@ func (a *App) startCmd() *cobra.Command {
 			if keepCorpse {
 				opts = append(opts, olympus.KeepCorpse())
 			}
-			if len(args) > 1 {
-				opts = append(opts, olympus.Command(args[1:]...))
+			command, err := spawnCommand(cmd, args)
+			if err != nil {
+				return err
+			}
+			if command != nil {
+				opts = append(opts, olympus.Command(command...))
 			}
 
 			s, err := ol.Session(cmd.Context(), args[0], opts...)
@@ -243,4 +247,18 @@ func sizeWarnings(ol *olympus.Olympus, cols, rows int) []olympus.Warning {
 		return nil
 	}
 	return ol.SizeWarnings()
+}
+
+// spawnCommand is the argv after `--`, which the usage line puts there. A
+// second word without it is refused: taken as the command, a mistyped flag
+// value or a stray word was executed as the session's process.
+func spawnCommand(cmd *cobra.Command, args []string) ([]string, error) {
+	if len(args) < 2 {
+		return nil, nil
+	}
+	if cmd.ArgsLenAtDash() != 1 {
+		return nil, backend.Errorf(backend.CodeUsage,
+			"%s takes one name, and a command only after --: %s <name> -- <command...>", cmd.Name(), cmd.Name())
+	}
+	return args[1:], nil
 }

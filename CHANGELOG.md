@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking for the CLI: `start` and `new` take a command only after `--`.**
+  A second word without it was executed as the session's process, so a
+  mistyped flag value or a stray word started a program. It is now a usage
+  error that shows where the command goes: `start <name> -- <command...>`.
+  A caller that passed the command bare puts `--` before it. MCP's `start`
+  and `new` take the command as a parameter and are unchanged.
+
 ## [0.38.3]
 
 ### Fixed
