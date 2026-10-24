@@ -297,3 +297,50 @@ func TestACommandEndingInAnEscapingBackslashIsRejected(t *testing.T) {
 		}
 	}
 }
+
+// §6.3: a command whose end, joined to the separator the protocol appends, is
+// a syntax error runs nothing, and one that opens a comment swallows the
+// completion echo. Both waited out the timeout and read as a slow command.
+// They are USAGE before anything is typed. The same characters quoted, escaped
+// or inside a word are the command's own and are accepted.
+func TestACommandTheWrapperCannotParseIsRejected(t *testing.T) {
+	for _, command := range []string{
+		"make build;",
+		"make build ; ",
+		"sleep 10 &",
+		"make &&",
+		"ls |",
+		"ls ||",
+		"make build # the comment",
+		"#only a comment",
+		"echo a;# glued",
+		"(true) #c",
+		"echo 'x' #c",
+		"echo 'unclosed",
+		`echo "unclosed`,
+	} {
+		err := engine.ValidateCommand(command)
+		if backend.CodeOf(err) != backend.CodeUsage {
+			t.Errorf("command %q: error %v, want USAGE", command, err)
+		}
+	}
+	for _, command := range []string{
+		`find . -name x -exec rm {} \;`,
+		`echo 'a;'`,
+		`echo "b &"`,
+		`echo a#b`,
+		`echo $#`,
+		`echo ${#PATH}`,
+		`echo '# not a comment'`,
+		`echo "x # y"`,
+		`echo \#literal`,
+		`echo $'it\'s # quoted'`,
+		`a && b`,
+		`a | b`,
+		`echo x\\`,
+	} {
+		if err := engine.ValidateCommand(command); err != nil {
+			t.Errorf("command %q was rejected: %v", command, err)
+		}
+	}
+}

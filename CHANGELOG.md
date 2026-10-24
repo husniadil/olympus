@@ -60,6 +60,11 @@ All notable changes to this project are documented here. The format follows
   `XDG_CONFIG_HOME` or `HOME` was read as unset, where herdr reads it as a
   directory, so the ambient socket and the operator's prefix could name a
   different place from herdr's.
+- **`run` refuses a command its wrapper cannot parse.** A trailing `;`, `&` or
+  `|`, an unquoted `#` comment, or a quote left open ran nothing or hid the
+  completion marker, and the run waited out its timeout as if the command were
+  slow. They are now `USAGE` before anything is typed. Quoted, escaped or
+  inside a word, the characters are accepted as before.
 - **`agents` lists a pane a view shares once.** On tmux, while a view existed,
   an agent appeared twice, the second row under the view's name. The row is
   now the base session's.

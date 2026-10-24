@@ -236,7 +236,7 @@ func trimOneNewline(s string) string {
 	return s
 }
 
-// ValidateCommand rejects the two commands that would degrade silently
+// ValidateCommand rejects the commands that would degrade silently
 // (behavior §6.3).
 //
 // Neither degradation is a timeout, which is why an explicit check is needed. A
@@ -262,5 +262,95 @@ func ValidateCommand(command string) error {
 		return backend.Errorf(backend.CodeUsage,
 			"the command ends in an unpaired backslash, which would escape the separator after it and report a false success")
 	}
+	// The rest would not report a false answer, only none: the shell runs
+	// nothing, or never prints the completion, and the run waits out its
+	// timeout as if the command were slow.
+	shape := shellShapeOf(command)
+	switch {
+	case shape.comment:
+		return backend.Errorf(backend.CodeUsage,
+			"the command opens a comment with an unquoted #, which would hide the completion marker after it; quote the # or leave the comment out")
+	case shape.openQuote:
+		return backend.Errorf(backend.CodeUsage,
+			"the command leaves a quote open, which would take in the completion marker after it and wait for the rest")
+	case shape.lastOp != 0:
+		return backend.Errorf(backend.CodeUsage,
+			"the command ends in %q, which joined to the separator after it is a syntax error, so nothing would run; leave it out", string(shape.lastOp))
+	}
 	return nil
+}
+
+// A shellShape is what ValidateCommand needs of a command's shell syntax: an
+// unquoted # opening a comment, a quote left open, and an unquoted, unescaped
+// ;, & or | as its last character.
+type shellShape struct {
+	comment   bool
+	openQuote bool
+	lastOp    byte
+}
+
+// shellShapeOf reads a command the way a POSIX shell's tokenizer does, as far
+// as the wrapper needs: single quotes take everything to the next one, double
+// quotes and $'…' take a backslash as escaping the next character, a backslash
+// outside quotes escapes the next character, and a # opens a comment only at
+// the start of a word. Command substitution is not followed.
+func shellShapeOf(command string) shellShape {
+	const (
+		plain = iota
+		single
+		double
+		ansi
+	)
+	var shape shellShape
+	state := plain
+	wordStart := true
+	dollar := false
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		switch state {
+		case single:
+			if c == '\'' {
+				state = plain
+			}
+			continue
+		case double, ansi:
+			switch {
+			case c == '\\':
+				i++
+			case c == '"' && state == double, c == '\'' && state == ansi:
+				state = plain
+			}
+			continue
+		}
+		wasDollar := dollar
+		dollar = false
+		switch {
+		case c == '\\':
+			i++
+			shape.lastOp, wordStart = 0, false
+		case c == '\'':
+			state = single
+			if wasDollar {
+				state = ansi
+			}
+			shape.lastOp, wordStart = 0, false
+		case c == '"':
+			state = double
+			shape.lastOp, wordStart = 0, false
+		case c == '#' && wordStart:
+			shape.comment = true
+			return shape
+		case c == ' ' || c == '\t':
+			wordStart = true
+		case strings.IndexByte(";&|", c) >= 0:
+			shape.lastOp, wordStart = c, true
+		case strings.IndexByte("()<>", c) >= 0:
+			shape.lastOp, wordStart = 0, true
+		default:
+			shape.lastOp, wordStart = 0, false
+			dollar = c == '$'
+		}
+	}
+	shape.openQuote = state != plain
+	return shape
 }

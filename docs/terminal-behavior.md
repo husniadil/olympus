@@ -2175,8 +2175,11 @@ which is why the loss is disclosed.
 ### 6.3 The command MUST be validated up front
 
 An empty or newline-containing command, or one ending in an odd run of
-backslashes, MUST be rejected as `USAGE` before any injection. Rejecting up
-front also means no partial pane interaction happens.
+backslashes, MUST be rejected as `USAGE` before any injection. So MUST one the
+wrapper cannot parse: one that opens a comment with an unquoted `#` at the
+start of a word, one that leaves a quote open, and one whose last character
+outside quotes and escapes is `;`, `&` or `|`. Rejecting up front also means no
+partial pane interaction happens.
 
 #### Why
 
@@ -2192,6 +2195,21 @@ Neither degradation is a timeout, so only an explicit check catches them:
   command (§6.1). The done marker's echo then becomes an argument of the
   command, and its output, `…OLY_D_<id>_0_`, reads as a completion with exit 0
   whatever the command did. An even run is a literal backslash and is accepted.
+
+The rest report no false answer, only none, and waited out the run's timeout as
+a command that was merely slow:
+
+- A comment takes the rest of the line, the completion echo included, so the
+  start marker shows and the done marker never does. zsh reads `#` as a comment
+  only with `interactive_comments` set, and the command is refused there too:
+  quoting the `#` costs nothing on any shell.
+- An open quote takes in the completion echo, and the shell waits for the rest.
+- A trailing `;`, `&` or `|` joined to the `;` after it (`;;`, `&;`, `|;`) is a
+  syntax error in bash and dash, so nothing runs, not even the start marker.
+
+The same characters quoted, escaped or inside a word are the command's own and
+are accepted: `find … \;`, `echo a#b`, `echo "x # y"`, `$#`. The reading
+follows quotes and backslashes and does not follow command substitution.
 
 ### 6.4 The capture window grows where the depth can be requested
 
