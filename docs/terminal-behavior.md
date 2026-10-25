@@ -821,7 +821,7 @@ supported (§0.5 floors meja at 0.0.25). Measured on both:
 | on a session with NO client attached | 0.0.25 | 0.0.26 |
 | --- | --- | --- |
 | `send-keys`: literal, named key, control key | refused | delivered |
-| `set-buffer` | accepted | accepted |
+| `set-buffer`, `load-buffer` | accepted | accepted |
 | `paste-buffer` | refused | delivered |
 | `send-keys -X` (copy mode) | refused | **refused** |
 | listing, capture | accepted | accepted |
@@ -1604,16 +1604,59 @@ call made by the consumer.
 It keeps injection symmetric across backends and composable, and it means
 §4.4's retry discipline belongs to whoever issues the Enter.
 
-#### Injected text stays off an argv where the backend allows it
+#### Injected text stays off the multiplexer's argv
 
 Text a caller injects can be a password typed at a prompt or a token pasted
 into an agent. On an argv, every local user reads it in the process list while
-the call runs, and Linux refuses one argument past 128 KiB. So tmux's Type and
-Paste load a buffer from stdin, and herdr's Type, Paste and atomic submit go
-over the API socket rather than through the CLI. zmx, meja and tmux's atomic
-submit have no such path, and still carry the text on an argv
-(`docs/known-issues.md`). An error that names a failed herdr invocation cuts
-the invocation at 120 bytes, since an argument can be the caller's text.
+the call runs, and Linux refuses one argument past 128 KiB (`MAX_ARG_STRLEN`):
+the call fails with E2BIG before the multiplexer runs. So tmux's Type, Paste
+and atomic submit load a buffer from stdin (§4.1, §4.7), zmx's write the text
+to `zmx send`'s stdin, meja's load a buffer from a pipe, and herdr's Type,
+Paste and atomic submit go over the API socket rather than through the CLI. No
+backend puts injected text on an argv. The CLI's own `type` and `send` still
+take it as an argument to Olympus (`docs/known-issues.md`). An error that names
+a failed herdr invocation cuts the invocation at 120 bytes, since an argument
+can be the caller's text.
+
+#### zmx takes a long text in pieces, and refuses one past 256 KiB
+
+`zmx send` given no text argument reads its stdin to the end, and drops one
+trailing newline from what it read, so a text that ends in one is sent with one
+more. Two limits in zmx's daemon drop input with nothing said and exit status 0
+(measured on 0.6.0 and 0.7.0, and read in their source):
+
+- It reads a client's socket 4096 bytes per poll pass, and closes the client
+  on the pass that sees it hang up, discarding what it has not read. A send
+  whose message, an 8-byte header and the text, fits in one read always
+  arrives. Past that it is lost more often than not, with the text on an argv
+  as much as on stdin. So a text longer than 4088 bytes goes as several sends,
+  in order, each finished before the next starts.
+- It queues at most 256 KiB of input for the pty, and drops a write that would
+  take the queue past that. A Type, Paste or atomic submit that would queue
+  more MUST be refused as `USAGE` before anything runs, and the message names
+  the limit. What is counted is the text, plus a paste's 12 bytes of bracket
+  markers whether or not it turns out framed, plus an atomic submit's
+  terminator.
+
+Empty text is not sent, since zmx refuses an empty send. Typing nothing is a
+presence check, as on tmux (§4.1).
+
+#### meja reads the text from a pipe
+
+meja's `set-buffer` and `send-keys -l` take the text as an argument, and its
+`load-buffer` refuses stdin. `load-buffer` takes a path, which the server opens
+and reads to its end. So the path is a FIFO, in a directory of mode 0700 made
+for the one call and removed when it ends, and Olympus writes the text into it
+as the server reads. The text never reaches a disk, and a crash leaves an empty
+pipe behind rather than the text.
+
+Type and the atomic submit then paste the buffer with `-S -r` and no `-p`:
+unsanitized, with no newline translated and no bracket, the bytes
+`send-keys -l` wrote. Paste keeps `-p` (§4.6).
+
+meja holds at most 8 MiB in a paste buffer, and refuses a text past it with a
+message naming the limit (`paste buffer exceeds 8388608 bytes`). That refusal
+MUST be `USAGE`.
 
 ### 4.4 A failed Enter after injection MUST be retried once
 
@@ -1662,9 +1705,9 @@ injection wait 150 ms (`SubmitSettle`, §17.3) between the text and a lone
 
 | Backend | How the terminator stays a keypress |
 |---|---|
-| tmux | two `send-keys` subcommands chained by a literal `";"` argv element into one client invocation |
+| tmux | `load-buffer` reading the text from stdin, `paste-buffer` and `send-keys Enter`, chained by literal `";"` argv elements into one client invocation. The paste and the Enter are two writes |
 | zmx | text write, 150ms settle, then a lone `\r` write. zmx has no subcommand chaining, so backend-level single-operation atomicity is unachievable |
-| meja | `send-keys -l` for the text, then a separate `send-keys Enter`, both on one held client |
+| meja | the text pasted from a buffer with no bracket (§4.3), then a separate `send-keys Enter`, both on one held client |
 | herdr | one input request with the text and an Enter key, over the API socket (what the CLI's `pane run` sends). The server frames the text as a paste and encodes the Enter after it as a keypress, in one write |
 
 ### 4.6 Paste is normalized, multi-line, and never auto-submitted
@@ -1722,7 +1765,7 @@ that switches the mode in between gets the other form.
 |---|---|
 | tmux | literal injection with `-p` added to the `paste-buffer` argv. Unique buffer, delete-on-failure and error mapping are as §4.1, so no buffer leaks |
 | zmx | a presence check, a read of the mode, then a send with no terminator, framed as `ESC[200~` … `ESC[201~` where the mode is set |
-| meja | `set-buffer` then `paste-buffer -d -p`, the `-p` framing the paste as tmux's does |
+| meja | `load-buffer` from a pipe (§4.3), then `paste-buffer -d -p`, the `-p` framing the paste as tmux's does. Unique buffer and delete-on-failure as tmux's |
 | herdr | the server's input request with text and no keys, over the API socket, since the CLI has no verb for it. The server frames the text as a bracketed paste where the pane's program asked for one, writes it raw where it did not, and adds no Enter |
 
 ### 4.7 Atomic submit trades verification for atomicity
@@ -1738,6 +1781,16 @@ Atomic submit is single-line only, since multi-line text has no unambiguous
 submit point. The door layer validates and rejects `\n`/`\r`. The backend does
 not re-check.
 
+On tmux it is one client invocation: `load-buffer` reading the text from
+stdin, then `paste-buffer` with no `-p`, then `send-keys Enter`, chained.
+`load-buffer` holds the client's command queue until stdin is read
+(`CMD_RETURN_WAIT`, resumed by `cmdq_continue`), and the two after it never
+wait, so they run back to back in one pass of the single-threaded server. No
+other client's command lands between the text and its Enter. A command that
+fails drops the rest of the chain, so a failed paste sends no Enter, and the
+buffer it leaves is deleted as §4.2 requires. Empty text sends the Enter alone,
+since tmux cannot paste an empty buffer (§4.1).
+
 On zmx, caller-visible atomicity comes from holding the per-session write lock
 across both writes. A failed submit write MUST return a timeout-class error
 ("text delivered but not submitted"), never silent success.
@@ -1750,10 +1803,11 @@ any cross-invocation retry re-types the text before checking, doubling it.
 ### 4.8 tmux eats an unescaped trailing semicolon
 
 Every argument a caller supplies to tmux MUST have a trailing `;` escaped to
-`\;`: the chained `send-keys` text, and also a created session's name and
-command, a rename's name and a status value. The escape is unconditional, since
-tmux also strips one backslash from a trailing `\;`. `-l --` is also required
-on `send-keys`, guarding against text beginning with `-`.
+`\;`: a created session's name and command, a rename's name and a status
+value. The escape is unconditional, since tmux also strips one backslash from a
+trailing `\;`. Injected text is not an argument: it reaches tmux on stdin
+(§4.3), where nothing parses it, so neither a trailing `;` nor a leading `-`
+can be read as syntax.
 
 #### Why
 
@@ -5084,7 +5138,8 @@ Olympus MUST use these and only these, and MUST NOT invent per-door variants.
 | herdr state directory | `<socket dir>/<socket stem>-state` | §2.9 |
 | herdr metadata source | `olympus` | §13.1 |
 | herdr metadata token | `status` | §13.1 |
-| tmux buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1) |
+| tmux and meja buffer | `olympus-<pid>-<counter>` | per-call injection buffer (§4.1, §4.3) |
+| meja text pipe | `<temp>/olympus-meja-*/text`, a FIFO in a directory of mode 0700, removed when the call ends | the text meja's `load-buffer` reads (§4.3) |
 | tmux key table | `olympus-passthrough` | view wheel and click bindings (§9.3) |
 | tmux server marker | `@olympus_managed` | records a server Olympus started (§17.5) |
 | tmux session status | session option `@olympus_status` | the session status store (§13.1) |

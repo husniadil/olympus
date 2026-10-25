@@ -2,9 +2,12 @@ package meja
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -225,38 +228,46 @@ func (m *Meja) paneSize(ctx context.Context, target string) (int, int) {
 }
 
 // Type delivers literal text with no terminator.
+//
+// Through a buffer rather than send-keys -l, so the text is never on an argv
+// (§4.3). paste-buffer -S -r with no -p writes the buffer's bytes as they are,
+// unsanitized, with no newline translated and no bracket: the bytes send-keys
+// -l wrote.
 func (m *Meja) Type(ctx context.Context, target, text string) error {
 	if text == "" {
 		return nil
 	}
-	return m.withClient(ctx, target, func() error {
-		_, err := m.run(ctx, nil, "send-keys", "-t", target, "-l", "--", text)
-		return named(target, err)
-	})
+	return m.injectBuffer(ctx, target, text, []string{"-S", "-r"})
 }
 
 // Paste delivers multi-line text through a paste buffer.
 //
 // Through a buffer rather than as literal keys so a consumer that detects
-// bracketed paste sees one paste rather than a burst of typing (§4.4). The
-// buffer is named per call: paste-buffer without -b pastes the most recent
-// one, so two concurrent pastes into different sessions would cross (§4.1).
-// -p frames it as a bracketed paste for a pane that asked for one.
+// bracketed paste sees one paste rather than a burst of typing (§4.4). -p
+// frames it as a bracketed paste for a pane that asked for one.
 func (m *Meja) Paste(ctx context.Context, target, text string) error {
 	if text == "" {
 		return nil
 	}
+	return m.injectBuffer(ctx, target, text, []string{"-p"})
+}
+
+// injectBuffer loads text into a buffer of its own and pastes it with the
+// given paste-buffer flags, then runs any steps after it on the same client.
+//
+// The buffer is named per call: paste-buffer without -b pastes the most recent
+// one, so two concurrent pastes into different sessions would cross (§4.1).
+func (m *Meja) injectBuffer(ctx context.Context, target, text string, flags []string, after ...func() error) error {
 	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), buffers.Add(1))
-	err := m.withClient(ctx, target, resumable(
+	paste := append([]string{"paste-buffer", "-b", name, "-t", target, "-d"}, flags...)
+	steps := append([]func() error{
+		func() error { return named(target, m.loadBuffer(ctx, name, text)) },
 		func() error {
-			_, err := m.run(ctx, nil, "set-buffer", "-b", name, "--", text)
+			_, err := m.run(ctx, nil, paste...)
 			return named(target, err)
 		},
-		func() error {
-			_, err := m.run(ctx, nil, "paste-buffer", "-b", name, "-t", target, "-d", "-p")
-			return named(target, err)
-		},
-	))
+	}, after...)
+	err := m.withClient(ctx, target, resumable(steps...))
 	if err != nil {
 		// -d deletes the buffer only when the paste succeeds, so a failed one
 		// would leave the text on the server. Its own failure never masks the
@@ -265,6 +276,86 @@ func (m *Meja) Paste(ctx context.Context, target, text string) error {
 	}
 	return err
 }
+
+// loadBuffer puts text in the named buffer without putting it on an argv.
+//
+// set-buffer takes the text as an argument, where every local user reads it in
+// the process list and Linux refuses one past 128 KiB, and load-buffer refuses
+// stdin ("load-buffer does not support stdin"). What load-buffer takes is a
+// path, which the server opens and reads to its end (readPasteBufferFile, from
+// 0.0.25). So the path is a FIFO in a directory of mode 0700 made for this call,
+// and the text is written into it as the server reads. It never reaches a disk,
+// and a crash leaves an empty pipe behind rather than the text.
+func (m *Meja) loadBuffer(ctx context.Context, name, text string) error {
+	dir, err := os.MkdirTemp("", "olympus-meja-")
+	if err != nil {
+		return backend.Wrapf(backend.CodeUnexpected, err, "making a directory for the text")
+	}
+	defer os.RemoveAll(dir)
+	fifo := filepath.Join(dir, "text")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		return backend.Wrapf(backend.CodeUnexpected, err, "making a pipe for the text")
+	}
+
+	done := make(chan struct{})
+	fed := make(chan error, 1)
+	go func() { fed <- feed(fifo, text, done) }()
+	_, err = m.run(ctx, nil, "load-buffer", "-b", name, fifo)
+	close(done)
+	if ferr := <-fed; err == nil && ferr != nil {
+		return backend.Wrapf(backend.CodeUnexpected, ferr, "writing the text to meja")
+	}
+	return err
+}
+
+// feed writes text into the FIFO once the server opens it for reading, and
+// gives up when done closes first.
+//
+// The write end is opened non-blocking, so it neither waits on a reader that
+// never comes (a server that refused the command before opening the path) nor
+// outlives the call: a failed open is retried until the reader arrives or done
+// closes, and a write stalled on a reader that stopped reading is ended by
+// closing the file once done closes.
+func feed(fifo, text string, done <-chan struct{}) error {
+	var f *os.File
+	for {
+		var err error
+		f, err = os.OpenFile(fifo, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.ENXIO) {
+			return err
+		}
+		select {
+		case <-done:
+			// A server that opened the pipe just now would wait on its open
+			// for good. Once more, and an empty pipe ends its read.
+			if f, err := os.OpenFile(fifo, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+				_ = f.Close()
+			}
+			return nil
+		case <-time.After(feedRetry):
+		}
+	}
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-done:
+			_ = f.Close()
+		case <-finished:
+		}
+	}()
+	if _, err := io.WriteString(f, text); err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// feedRetry is how often the write end is tried while the server has not yet
+// opened the pipe.
+const feedRetry = 2 * time.Millisecond
 
 // Press sends named keys.
 //
@@ -319,20 +410,16 @@ func (m *Meja) Submit(ctx context.Context, target string) error {
 // literal newline inside a consumer's input box instead of registering as a
 // keypress (§4.5). What is atomic is the client, not the bytes — holding one
 // client across both is what stops another caller's injection landing between
-// them.
+// them. The text goes through a buffer as Type's does, off the argv (§4.3).
 func (m *Meja) SendAtomic(ctx context.Context, target, text string) error {
-	var steps []func() error
-	if text != "" {
-		steps = append(steps, func() error {
-			_, err := m.run(ctx, nil, "send-keys", "-t", target, "-l", "--", text)
-			return named(target, err)
-		})
-	}
-	steps = append(steps, func() error {
+	enter := func() error {
 		_, err := m.run(ctx, nil, "send-keys", "-t", target, "Enter")
 		return named(target, err)
-	})
-	return m.withClient(ctx, target, resumable(steps...))
+	}
+	if text == "" {
+		return m.withClient(ctx, target, enter)
+	}
+	return m.injectBuffer(ctx, target, text, []string{"-S", "-r"}, enter)
 }
 
 // Interrupt asks the foreground program to stop.

@@ -114,6 +114,41 @@ func injectionCases() []Case {
 			},
 		},
 		{
+			Name: "§4.3 a text past the 128 KiB argument limit reaches the pane whole",
+			Fn: func(e *Env) {
+				// Linux refuses one argument past 128 KiB (MAX_ARG_STRLEN), so a
+				// backend that carries the text on a multiplexer's argv fails
+				// here with E2BIG. One that keeps it off delivers every byte,
+				// which a checksum the shell computes proves.
+				//
+				// The reader turns canonical mode off: a line in canonical mode
+				// holds 4 KiB on Linux and drops the rest. Echo goes too, so the
+				// text does not flood the screen the answer is read from.
+				target := e.StartShell()
+				e.Warm(target)
+				ops := []struct {
+					name string
+					fn   func(target, text string) error
+				}{
+					{"type", func(target, text string) error { return e.Backend.Type(e.Ctx(), target, text) }},
+					{"paste", func(target, text string) error { return e.Backend.Paste(e.Ctx(), target, text) }},
+					{"atomic submit", func(target, text string) error { return e.Backend.SendAtomic(e.Ctx(), target, text) }},
+				}
+				for i, op := range ops {
+					text := largeText(160<<10, uint32(i+1))
+					reader := fmt.Sprintf(`stty -icanon -echo; printf 'big-ready-%%d\n' %d; head -c %d | cksum; stty sane`, i, len(text))
+					if err := e.Backend.SendAtomic(e.Ctx(), target, reader); err != nil {
+						e.T.Fatalf("%s: starting the reader: %v", op.name, err)
+					}
+					e.WaitFor(target, fmt.Sprintf("big-ready-%d", i))
+					if err := op.fn(target, text); err != nil {
+						e.T.Fatalf("%s of %d bytes: %v", op.name, len(text), err)
+					}
+					e.WaitFor(target, fmt.Sprintf("%d %d", cksum([]byte(text)), len(text)))
+				}
+			},
+		},
+		{
 			Name: "§4 named keys are translated and arrive as keypresses",
 			Fn: func(e *Env) {
 				// Deliberately NOT Ctrl-C. Interrupt-by-key looks like the
@@ -316,3 +351,43 @@ func injectionCases() []Case {
 		},
 	}
 }
+
+// largeText is n bytes of lower-case letters drawn from seed, so each call in a
+// case carries a text of its own and none of it is a control byte.
+func largeText(n int, seed uint32) string {
+	b := make([]byte, n)
+	for i := range b {
+		seed = seed*1664525 + 1013904223
+		b[i] = 'a' + byte(seed>>24)%26
+	}
+	return string(b)
+}
+
+// cksum is the checksum POSIX cksum prints first: CRC-32 over the bytes and
+// then over the length, least significant byte first, complemented.
+func cksum(b []byte) uint32 {
+	var crc uint32
+	step := func(c byte) { crc = crc<<8 ^ cksumTable[byte(crc>>24)^c] }
+	for _, c := range b {
+		step(c)
+	}
+	for n := len(b); n > 0; n >>= 8 {
+		step(byte(n))
+	}
+	return ^crc
+}
+
+var cksumTable = func() (t [256]uint32) {
+	for i := range t {
+		c := uint32(i) << 24
+		for range 8 {
+			if c&0x80000000 != 0 {
+				c = c<<1 ^ 0x04c11db7
+			} else {
+				c <<= 1
+			}
+		}
+		t[i] = c
+	}
+	return t
+}()

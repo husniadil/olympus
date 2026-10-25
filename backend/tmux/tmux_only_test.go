@@ -137,12 +137,13 @@ func TestChainedOptionsSurviveAnInstantlyExitingCommand(t *testing.T) {
 }
 
 // §4.8: tmux's ";" chaining separator eats an unescaped TRAILING semicolon in a
-// text argv element.
+// text argv element. The atomic submit is a chain, so its text must not be
+// read as one.
 //
 // The observable is the PTY's echo of the typed line: the characters that
 // actually reached the pane are painted on screen, so a dropped ";" is visible
 // there whether or not the command's behavior would have changed.
-func TestTrailingSemicolonSurvivesTheChainedSendKeysPath(t *testing.T) {
+func TestTrailingSemicolonSurvivesTheChainedAtomicSubmit(t *testing.T) {
 	b := newBackend(t)
 	name := create(t, b, backend.CreateSpec{Name: "oly-semi"})
 	warm(t, b, name)
@@ -173,11 +174,79 @@ func TestAFailedPasteLeavesNoBufferBehind(t *testing.T) {
 	if err == nil {
 		t.Fatal("typing into an absent session succeeded")
 	}
-
-	buffers := listBuffers(t, b)
-	if buffers != "" {
+	if buffers := listBuffers(t, b); buffers != "" {
 		t.Errorf("a buffer leaked after the paste failed:\n%s", buffers)
 	}
+
+	// The atomic submit loads its buffer in the same chain, and a paste that
+	// fails there leaves it the same way.
+	err = b.SendAtomic(context.Background(), "oly-does-not-exist", "some text")
+	if backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Fatalf("an atomic submit into an absent session is %v, want not-found", err)
+	}
+	if buffers := listBuffers(t, b); buffers != "" {
+		t.Errorf("a buffer leaked after the atomic submit's paste failed:\n%s", buffers)
+	}
+}
+
+// §4.3: injected text stays off the multiplexer's argv, where every local user
+// reads it in the process list while the call runs.
+//
+// A tmux ahead of the real one on PATH records every argument it is given, and
+// each injection carries a text no argument may hold.
+func TestInjectedTextIsOnNoArgv(t *testing.T) {
+	requireTmux(t)
+	log := recordArgv(t, "tmux")
+	b := newIsolated(t)
+	name := create(t, b, backend.CreateSpec{Name: "oly-argv"})
+	warm(t, b, name)
+	ctx := context.Background()
+
+	secret := fmt.Sprintf("argv-secret-%d", time.Now().UnixNano())
+	for _, step := range []struct {
+		op string
+		fn func() error
+	}{
+		{"type", func() error { return b.Type(ctx, name, ": "+secret+"-t") }},
+		{"paste", func() error { return b.Paste(ctx, name, " "+secret+"-p") }},
+		{"atomic submit", func() error { return b.SendAtomic(ctx, name, " "+secret+"-a") }},
+	} {
+		if err := step.fn(); err != nil {
+			t.Fatalf("%s: %v", step.op, err)
+		}
+	}
+	// The text reached the pane: the line the three built is echoed whole.
+	waitForScreen(t, b, name, secret+"-t "+secret+"-p "+secret+"-a")
+
+	argv, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("reading the recorded argv: %v", err)
+	}
+	if strings.Contains(string(argv), secret) {
+		t.Errorf("the injected text was on tmux's argv:\n%s", argv)
+	}
+	if !strings.Contains(string(argv), "paste-buffer") {
+		t.Fatalf("the recording tmux was never run, so this proves nothing. It recorded:\n%s", argv)
+	}
+}
+
+// recordArgv puts a bin ahead of the real one on PATH that appends each
+// argument it is given to a file, one per line, and then runs the real one.
+// It returns the file's path.
+func recordArgv(t *testing.T, bin string) string {
+	t.Helper()
+	real, err := exec.LookPath(bin)
+	if err != nil {
+		t.Skipf("%s is not installed", bin)
+	}
+	dir := t.TempDir()
+	log := filepath.Join(dir, "argv")
+	script := fmt.Sprintf("#!/bin/sh\nfor a in \"$@\"; do printf '%%s\\n' \"$a\" >> '%s'; done\nexec '%s' \"$@\"\n", log, real)
+	if err := os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing the recording %s: %v", bin, err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
 }
 
 // §4.1: the buffer name MUST be unique per call. Two concurrent injections
@@ -288,6 +357,52 @@ func TestConcurrentInjectionsThroughSeparateHandlesDoNotClobber(t *testing.T) {
 			if j != i && strings.Contains(screen, "hconc"+itoa(j)+"-"+itoa(j)) {
 				t.Errorf("session %s received session %d's text, so the buffers collided", name, j)
 			}
+		}
+	}
+}
+
+// §4.7: an atomic submit is one unit on the server. Its load-buffer waits on
+// the client's stdin, and the paste and the Enter after it run back to back, so
+// atomic submits from separate clients into one pane never interleave: each
+// line the shell reads is one caller's text, whole, with its own Enter.
+//
+// Driven through separate handles and no lock, the way separate processes
+// reach one server. Text spliced into another's, or an Enter between another's
+// text and its own, breaks a command, and its line never appears.
+func TestConcurrentAtomicSubmitsIntoOnePaneDoNotInterleave(t *testing.T) {
+	b := newBackend(t)
+	socket := socketOf(t, b)
+	ctx := context.Background()
+	name := create(t, b, backend.CreateSpec{Name: "oly-atomic-conc", Cols: 120, Rows: 50})
+	warm(t, b, name)
+
+	const senders = 12
+	var wg sync.WaitGroup
+	for i := range senders {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			own := tmux.New(tmux.WithSocketPath(socket))
+			text := `printf 'atom` + itoa(i) + `-%d\n' ` + itoa(i)
+			if err := own.SendAtomic(ctx, name, text); err != nil {
+				t.Errorf("sender %d: %v", i, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for i := range senders {
+		want := "atom" + itoa(i) + "-" + itoa(i) + "\n"
+		for {
+			capture, err := b.Screen(ctx, name, backend.ScreenOpts{HistoryLines: 500})
+			if err == nil && strings.Contains(capture.Text, want) {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("sender %d's command never ran whole. Screen was:\n%s", i, capture.Text)
+			}
+			time.Sleep(50 * time.Millisecond)
 		}
 	}
 }

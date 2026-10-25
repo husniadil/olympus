@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **tmux's atomic submit keeps its text off the argv.** `send --atomic`, and
+  `send_text` with `atomic`, ran tmux's `send-keys` with the text as an
+  argument, where any local user reads it in the process list while the call
+  runs, and a text past 128 KiB failed as `UNEXPECTED`. The text now reaches
+  tmux on stdin, loaded into a buffer and pasted in the same invocation as the
+  Enter, so the submit is still one unit.
+- **zmx keeps injected text off the argv, and delivers a long text whole.**
+  Type, paste and both sends on zmx ran `zmx send` with the text as an
+  argument. The text now goes on its stdin. zmx's daemon dropped a send past
+  about 4 KiB more often than not, with exit status 0, so a long text now goes
+  as several sends in order. A text past the 256 KiB zmx queues at once is
+  refused as `USAGE`, naming the limit, where zmx would drop it.
+- **meja keeps injected text off the argv.** Type, paste and both sends on
+  meja ran `send-keys -l` or `set-buffer` with the text as an argument. The
+  text now reaches meja's `load-buffer` through a pipe made for the call. A
+  text past the 8 MiB a meja paste buffer holds is `USAGE`, naming the limit.
+- **Typing nothing on zmx is a presence check.** An empty type or paste ran an
+  empty `zmx send`, which zmx refuses, and failed as `UNEXPECTED`.
+
 ## [0.40.0]
 
 ### Added

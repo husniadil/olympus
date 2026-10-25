@@ -49,14 +49,27 @@ server that dies between that check and the client starting is booted again,
 under the configuration the client was given. herdr's client has no option to
 attach only, so the window cannot be closed from Olympus.
 
-## Injected text is on an argv on zmx, meja and tmux's atomic submit
+## The CLI's type and send take the text as an argument
 
-zmx's `send`, meja's `send-keys -l` and the `send-keys -l` of tmux's atomic
-submit take the text as an argument (behavior §4.3). While the call runs, any
-local user can read it in the process list, and on Linux a text past 128 KiB
-fails as unexpected rather than as a usage error. tmux's Type and Paste and
-every herdr injection keep the text off an argv. zmx and meja have no verb that
-reads it from stdin.
+`olympus type` and `olympus send` take the text as an argument, so it is on
+Olympus's own argv, in the process list, while the call runs, and a text past
+128 KiB is refused by the kernel before Olympus starts. No multiplexer is handed
+it on an argv (behavior §4.3), and the MCP and Go doors carry it in a request.
+`olympus paste -` reads its text from stdin. The two verbs have no such form.
+
+## zmx can still drop input that others queued
+
+zmx's daemon holds at most 256 KiB of input for a session's pty, and drops a
+write that would pass it with nothing said (behavior §4.3). Olympus refuses a
+write of its own past that size as `USAGE`, but it cannot see what is already
+queued. Where the session's program is not reading and another client's input
+is waiting, a smaller Olympus write can still be dropped, and the call reports
+success.
+
+zmx 0.6.0 screens a send the way it screens a client's keystrokes
+(`isUserInput`), and drops one that holds no printable character, CR, LF, tab,
+backspace or key sequence. A text past 4088 bytes goes as several sends, so on
+0.6.0 a piece made only of other control bytes is lost.
 
 ## The herdr status token is not scoped to Olympus
 

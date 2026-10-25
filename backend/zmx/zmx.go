@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -381,6 +382,9 @@ func (z *Zmx) Kill(ctx context.Context, target string) error {
 }
 
 func (z *Zmx) Type(ctx context.Context, target, text string) error {
+	if err := fitsInput(len(text)); err != nil {
+		return err
+	}
 	if err := z.requirePresent(ctx, target); err != nil {
 		return err
 	}
@@ -400,6 +404,11 @@ func (z *Zmx) Type(ctx context.Context, target, text string) error {
 func (z *Zmx) Paste(ctx context.Context, target, text string) error {
 	if text == "" {
 		return z.Type(ctx, target, text)
+	}
+	// Counted with the markers, whether or not the mode turns out to want
+	// them, so the refusal comes before anything is run.
+	if err := fitsInput(len(pasteStart) + len(text) + len(pasteEnd)); err != nil {
+		return err
 	}
 	if err := z.requirePresent(ctx, target); err != nil {
 		return err
@@ -453,6 +462,11 @@ func (z *Zmx) Submit(ctx context.Context, target string) error {
 // inside an input box (§4.5). Caller-visible atomicity comes from the
 // per-session write lock held across both writes, one layer up (§4.7).
 func (z *Zmx) SendAtomic(ctx context.Context, target, text string) error {
+	// The terminator is counted: written while the text may still be queued,
+	// it is dropped with nothing said if the two pass zmx's cap.
+	if err := fitsInput(len(text) + 1); err != nil {
+		return err
+	}
 	if err := z.requirePresent(ctx, target); err != nil {
 		return err
 	}
@@ -472,8 +486,64 @@ func (z *Zmx) SendAtomic(ctx context.Context, target, text string) error {
 	return nil
 }
 
+// The two sizes zmx drops input past, with nothing said and exit status 0.
+// Measured on 0.6.0 and 0.7.0, and read in their source, which 0.8.1 keeps.
+const (
+	// maxInput is the daemon's cap on input queued for the session's pty
+	// (PTY_WRITE_BUF_MAX). A send that would take the queue past it is dropped
+	// whole.
+	maxInput = 256 << 10
+	// sendChunk is the most text one `zmx send` delivers for certain. The
+	// daemon reads a client's socket 4096 bytes per poll pass and closes the
+	// client on the pass that sees it hang up, discarding what it has not
+	// read. A send whose message, an 8-byte header and the text, fits in one
+	// read always arrives. One larger than that is lost more often than not.
+	sendChunk = 4096 - 8
+)
+
+// fitsInput refuses, as the caller's input, a write zmx would drop (§4.3).
+func fitsInput(n int) error {
+	if n > maxInput {
+		return backend.Errorf(backend.CodeUsage,
+			"zmx takes at most %d bytes of input at once, and this is %d", maxInput, n)
+	}
+	return nil
+}
+
+// send writes text to the session's input.
+//
+// The text goes on zmx's stdin, never on its argv, where every local user reads
+// it in the process list and Linux refuses one argument past 128 KiB (§4.3).
+// Given no text argument, `zmx send` reads stdin to its end when stdin is not a
+// terminal (main.zig, send, from 0.6.0).
+//
+// A text longer than sendChunk goes as several sends, in order, each one a
+// message the daemon reads whole. Each send finishes before the next starts,
+// and the daemon handles a closed client's message before it answers the next
+// client's probe, so the pieces reach the pty in the order sent.
+//
+// Empty text is not sent: zmx refuses an empty send. Every caller has checked
+// the target's presence first, which is all that is left of the operation
+// (§4.1).
 func (z *Zmx) send(ctx context.Context, target, text string) error {
-	_, err := z.run(ctx, "send", target, text)
+	for len(text) > 0 {
+		n := min(len(text), sendChunk)
+		if err := z.sendOnce(ctx, target, text[:n]); err != nil {
+			return err
+		}
+		text = text[n:]
+	}
+	return nil
+}
+
+// sendOnce is one `zmx send` of a piece of text. zmx drops one trailing newline
+// from what it read on stdin, so a piece that ends in a newline gets one more
+// for zmx to take back.
+func (z *Zmx) sendOnce(ctx context.Context, target, piece string) error {
+	if strings.HasSuffix(piece, "\n") {
+		piece += "\n"
+	}
+	_, err := z.runInput(ctx, strings.NewReader(piece), "send", target)
 	return err
 }
 
@@ -590,7 +660,13 @@ func (z *Zmx) env(base []string) []string {
 }
 
 func (z *Zmx) run(ctx context.Context, args ...string) (string, error) {
+	return z.runInput(ctx, nil, args...)
+}
+
+// runInput is run with stdin read from in.
+func (z *Zmx) runInput(ctx context.Context, in io.Reader, args ...string) (string, error) {
 	cmd := z.command(ctx, args...)
+	cmd.Stdin = in
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

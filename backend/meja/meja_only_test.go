@@ -231,3 +231,143 @@ func TestKillingAMissingSessionIsSuccess(t *testing.T) {
 		t.Errorf("killing a session that is not there is %v, want success", err)
 	}
 }
+
+// §4.3: injected text stays off meja's argv, where every local user reads it in
+// the process list while the call runs. The text reaches the server through a
+// pipe that load-buffer reads.
+//
+// A meja ahead of the real one on PATH records every argument it is given, and
+// each injection carries a text no argument may hold. The pipe's directory is
+// gone after every call, the ones that failed included.
+func TestInjectedTextIsOnNoArgv(t *testing.T) {
+	requireMeja(t)
+	log := recordArgv(t, "meja")
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	b, _ := newBackend(t)
+	ctx := context.Background()
+	const name = "argv"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 120, Rows: 40, Command: []string{"cat"}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Short, so the line the three build does not wrap on a narrow pane.
+	secret := "s" + strconv.FormatInt(time.Now().UnixNano()%1e6, 10)
+	for _, step := range []struct {
+		op string
+		fn func() error
+	}{
+		{"type", func() error { return b.Type(ctx, name, secret+"-t ") }},
+		{"paste", func() error { return b.Paste(ctx, name, secret+"-p ") }},
+		{"atomic submit", func() error { return b.SendAtomic(ctx, name, secret+"-a") }},
+	} {
+		if err := step.fn(); err != nil {
+			t.Fatalf("%s: %v", step.op, err)
+		}
+	}
+	// cat echoes the submitted line once as typed and once as its output.
+	want := secret + "-t " + secret + "-p " + secret + "-a"
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		scr, err := b.Screen(ctx, name, backend.ScreenOpts{})
+		if err == nil && strings.Count(scr.Text, want) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the text never arrived. Screen was:\n%s", scr.Text)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err := b.Type(ctx, "absent", secret); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("typing into an absent session is %v, want not-found", err)
+	}
+
+	argv, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("reading the recorded argv: %v", err)
+	}
+	if strings.Contains(string(argv), secret) {
+		t.Errorf("the injected text was on meja's argv:\n%s", argv)
+	}
+	if !strings.Contains(string(argv), "load-buffer") {
+		t.Fatalf("the recording meja never loaded a buffer, so this proves nothing. It recorded:\n%s", argv)
+	}
+	if left, _ := filepath.Glob(filepath.Join(tmp, "olympus-meja-*")); len(left) > 0 {
+		t.Errorf("a pipe's directory outlived its call: %v", left)
+	}
+}
+
+// §4.3: Type and the atomic submit write the text's bytes as they are, as
+// send-keys -l did: an ESC is not drawn as ^[ and a newline is not made a
+// carriage return. The reader takes exactly the bytes typed and prints them.
+func TestTypedBytesArriveUnchanged(t *testing.T) {
+	requireMeja(t)
+	b, _ := newBackend(t)
+	ctx := context.Background()
+	const name = "bytes"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 80, Rows: 24,
+		Command: []string{"sh", "-c", `stty -icanon -echo; printf 'reading-%d\n' 4; head -c 4 | od -An -tx1; exec cat`}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	wait := func(want string) {
+		t.Helper()
+		for {
+			scr, err := b.Screen(ctx, name, backend.ScreenOpts{})
+			if err == nil && strings.Contains(scr.Text, want) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("waiting for %q: never appeared. Screen was:\n%s", want, scr.Text)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	wait("reading-4")
+	if err := b.Type(ctx, name, "x\x1by\n"); err != nil {
+		t.Fatalf("Type: %v", err)
+	}
+	wait("78 1b 79 0a")
+}
+
+// §4.3: meja holds at most 8 MiB in a paste buffer, and says so. A text past it
+// is the caller's input to fix, so it is usage, naming the limit, and leaves no
+// buffer behind.
+func TestATextPastThePasteBufferCapIsUsage(t *testing.T) {
+	requireMeja(t)
+	b, socket := newBackend(t)
+	ctx := context.Background()
+	const name = "cap"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 80, Rows: 24, Command: []string{"cat"}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	err := b.Type(ctx, name, strings.Repeat("x", 8<<20+1))
+	if backend.CodeOf(err) != backend.CodeUsage {
+		t.Fatalf("a text past the paste buffer's cap is %v, want %s", err, backend.CodeUsage)
+	}
+	if !strings.Contains(err.Error(), "8388608") {
+		t.Errorf("the refusal %q does not state the limit", err)
+	}
+	if out, _ := exec.Command("meja", "-S", socket, "list-buffers").CombinedOutput(); strings.TrimSpace(string(out)) != "" {
+		t.Errorf("the refused text left a buffer behind:\n%s", out)
+	}
+}
+
+// recordArgv puts a bin ahead of the real one on PATH that appends each
+// argument it is given to a file, one per line, and then runs the real one.
+// It returns the file's path.
+func recordArgv(t *testing.T, bin string) string {
+	t.Helper()
+	real, err := exec.LookPath(bin)
+	if err != nil {
+		t.Skipf("%s is not installed", bin)
+	}
+	dir := t.TempDir()
+	log := filepath.Join(dir, "argv")
+	script := "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\" >> '" + log + "'; done\nexec '" + real + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing the recording %s: %v", bin, err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}

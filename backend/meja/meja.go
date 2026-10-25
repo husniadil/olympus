@@ -136,11 +136,12 @@ func classify(text string, err error) error {
 	case strings.Contains(lower, "unknown command"), strings.Contains(lower, "unsupported"):
 		return backend.Wrapf(backend.CodeUnsupported, err, "%s", trim(text))
 	case strings.Contains(lower, " must be "), strings.Contains(lower, " must not "),
-		strings.Contains(lower, "requires a "):
+		strings.Contains(lower, "requires a "), strings.Contains(lower, " exceeds "):
 		// meja's input-validation family, and it is one family: every rejection
 		// it spells this way is a caller's argument it will not take — a
 		// session name that is entirely numeric, a resize amount that is not
-		// positive, a buffer name with a newline in it.
+		// positive, a buffer name with a newline in it, a text past the 8 MiB a
+		// paste buffer holds ("paste buffer exceeds 8388608 bytes").
 		//
 		// USAGE and not UNEXPECTED because the two say opposite things to a
 		// program. UNEXPECTED means retrying will not help and nothing the

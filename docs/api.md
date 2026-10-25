@@ -264,6 +264,17 @@ never removed, only added to.
 | `AGENT_BLOCKED` | 8 | A send refused because the target's agent is waiting on a person, or shows something open over its input box. Nothing was submitted: nothing was typed, or the prompt opened after typing and the terminator was never sent. |
 | `UNEXPECTED` | 1 | Anything else: Olympus broke, and retrying will not help. |
 
+### A text a backend cannot take whole is `USAGE`
+
+Text a backend would drop or refuse for its size is refused as `USAGE`, with
+the limit in the message, rather than delivered in part or failed as
+`UNEXPECTED` (behavior spec §4.3). It applies to type, paste and both sends.
+
+| Backend | Limit |
+|---|---|
+| zmx | 256 KiB (262144 bytes) that one call queues: the text, plus a paste's 12 bytes of bracket markers and an atomic send's terminator. Refused before anything runs. |
+| meja | 8 MiB (8388608 bytes) in one paste buffer. meja refuses it, naming the limit, and nothing is pasted. |
+
 ### Every error reaches the envelope
 
 This includes argument-parsing errors. The CLI MUST intercept its framework's
