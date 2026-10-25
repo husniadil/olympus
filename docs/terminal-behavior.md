@@ -1608,12 +1608,13 @@ It keeps injection symmetric across backends and composable, and it means
 
 Text a caller injects can be a password typed at a prompt or a token pasted
 into an agent. On an argv, every local user reads it in the process list while
-the call runs, and Linux refuses one argument past 128 KiB. So tmux's Type and
-Paste load a buffer from stdin, and herdr's Type, Paste and atomic submit go
-over the API socket rather than through the CLI. zmx, meja and tmux's atomic
-submit have no such path, and still carry the text on an argv
-(`docs/known-issues.md`). An error that names a failed herdr invocation cuts
-the invocation at 120 bytes, since an argument can be the caller's text.
+the call runs, and Linux refuses one argument past 128 KiB (`MAX_ARG_STRLEN`):
+the call fails with E2BIG before the multiplexer runs. So tmux's Type, Paste
+and atomic submit load a buffer from stdin (§4.1, §4.7), and herdr's Type,
+Paste and atomic submit go over the API socket rather than through the CLI.
+zmx and meja still carry the text on an argv (`docs/known-issues.md`). An
+error that names a failed herdr invocation cuts the invocation at 120 bytes,
+since an argument can be the caller's text.
 
 ### 4.4 A failed Enter after injection MUST be retried once
 
@@ -1662,7 +1663,7 @@ injection wait 150 ms (`SubmitSettle`, §17.3) between the text and a lone
 
 | Backend | How the terminator stays a keypress |
 |---|---|
-| tmux | two `send-keys` subcommands chained by a literal `";"` argv element into one client invocation |
+| tmux | `load-buffer` reading the text from stdin, `paste-buffer` and `send-keys Enter`, chained by literal `";"` argv elements into one client invocation. The paste and the Enter are two writes |
 | zmx | text write, 150ms settle, then a lone `\r` write. zmx has no subcommand chaining, so backend-level single-operation atomicity is unachievable |
 | meja | `send-keys -l` for the text, then a separate `send-keys Enter`, both on one held client |
 | herdr | one input request with the text and an Enter key, over the API socket (what the CLI's `pane run` sends). The server frames the text as a paste and encodes the Enter after it as a keypress, in one write |
@@ -1738,6 +1739,16 @@ Atomic submit is single-line only, since multi-line text has no unambiguous
 submit point. The door layer validates and rejects `\n`/`\r`. The backend does
 not re-check.
 
+On tmux it is one client invocation: `load-buffer` reading the text from
+stdin, then `paste-buffer` with no `-p`, then `send-keys Enter`, chained.
+`load-buffer` holds the client's command queue until stdin is read
+(`CMD_RETURN_WAIT`, resumed by `cmdq_continue`), and the two after it never
+wait, so they run back to back in one pass of the single-threaded server. No
+other client's command lands between the text and its Enter. A command that
+fails drops the rest of the chain, so a failed paste sends no Enter, and the
+buffer it leaves is deleted as §4.2 requires. Empty text sends the Enter alone,
+since tmux cannot paste an empty buffer (§4.1).
+
 On zmx, caller-visible atomicity comes from holding the per-session write lock
 across both writes. A failed submit write MUST return a timeout-class error
 ("text delivered but not submitted"), never silent success.
@@ -1750,10 +1761,11 @@ any cross-invocation retry re-types the text before checking, doubling it.
 ### 4.8 tmux eats an unescaped trailing semicolon
 
 Every argument a caller supplies to tmux MUST have a trailing `;` escaped to
-`\;`: the chained `send-keys` text, and also a created session's name and
-command, a rename's name and a status value. The escape is unconditional, since
-tmux also strips one backslash from a trailing `\;`. `-l --` is also required
-on `send-keys`, guarding against text beginning with `-`.
+`\;`: a created session's name and command, a rename's name and a status
+value. The escape is unconditional, since tmux also strips one backslash from a
+trailing `\;`. Injected text is not an argument: it reaches tmux on stdin
+(§4.3), where nothing parses it, so neither a trailing `;` nor a leading `-`
+can be read as syntax.
 
 #### Why
 

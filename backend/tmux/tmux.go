@@ -561,14 +561,39 @@ func (t *Tmux) Submit(ctx context.Context, target string) error {
 // line behind to double (§4.7).
 func (t *Tmux) SendAtomic(ctx context.Context, target, text string) error {
 	pane := paneTarget(target)
-	// Two send-keys subcommands chained by a literal ";" argv element into one
-	// client invocation: the terminator is still its own write, so it registers
-	// as a keypress on a paste-detecting consumer rather than becoming a
-	// literal newline inside an input box (§4.5).
-	_, err := t.run(ctx, nil,
-		"send-keys", "-t", pane, "-l", "--", escapeTrailingSemicolon(text),
+	if text == "" {
+		// tmux cannot paste an empty buffer, and there is no text to deliver:
+		// what is left is the terminator (§4.1).
+		_, err := t.run(ctx, nil, "send-keys", "-t", pane, "Enter")
+		return named(target, err)
+	}
+	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), buffers.Add(1))
+
+	// Three commands chained by literal ";" argv elements into one client
+	// invocation, with the text on the client's stdin rather than on its argv,
+	// where every local user reads it in the process list and Linux refuses
+	// one argument past 128 KiB (§4.3).
+	//
+	// It stays one unit. load-buffer reads stdin asynchronously and holds the
+	// client's command queue until the read is done (cmd-load-buffer.c
+	// returns CMD_RETURN_WAIT and resumes it with cmdq_continue). The other
+	// two never wait, so they run back to back in that resumed pass of the
+	// single-threaded server, and no other client's command lands between the
+	// text and the Enter. A failed command drops the rest of the chain, so a
+	// paste that fails sends no Enter.
+	//
+	// paste-buffer without -p writes the text as send-keys -l did, with no
+	// bracket, and the Enter is still a separate keypress after it rather than
+	// a newline inside the paste (§4.5).
+	_, err := t.run(ctx, strings.NewReader(text),
+		"load-buffer", "-b", name, "-",
+		";", "paste-buffer", "-d", "-b", name, "-t", pane,
 		";", "send-keys", "-t", pane, "Enter",
 	)
+	if err != nil {
+		// The buffer outlives a paste that failed, as in inject (§4.2).
+		_, _ = t.run(context.WithoutCancel(ctx), nil, "delete-buffer", "-b", name)
+	}
 	return named(target, err)
 }
 

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses
 [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **tmux's atomic submit keeps its text off the argv.** `send --atomic`, and
+  `send_text` with `atomic`, ran tmux's `send-keys` with the text as an
+  argument, where any local user reads it in the process list while the call
+  runs, and a text past 128 KiB failed as `UNEXPECTED`. The text now reaches
+  tmux on stdin, loaded into a buffer and pasted in the same invocation as the
+  Enter, so the submit is still one unit.
+
 ## [0.40.0]
 
 ### Added

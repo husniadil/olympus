@@ -49,14 +49,13 @@ server that dies between that check and the client starting is booted again,
 under the configuration the client was given. herdr's client has no option to
 attach only, so the window cannot be closed from Olympus.
 
-## Injected text is on an argv on zmx, meja and tmux's atomic submit
+## Injected text is on an argv on zmx and meja
 
-zmx's `send`, meja's `send-keys -l` and the `send-keys -l` of tmux's atomic
-submit take the text as an argument (behavior §4.3). While the call runs, any
-local user can read it in the process list, and on Linux a text past 128 KiB
-fails as unexpected rather than as a usage error. tmux's Type and Paste and
-every herdr injection keep the text off an argv. zmx and meja have no verb that
-reads it from stdin.
+zmx's `send` and meja's `send-keys -l` and `set-buffer` take the text as an
+argument (behavior §4.3). While the call runs, any local user can read it in
+the process list, and on Linux a text past 128 KiB (`MAX_ARG_STRLEN`) fails
+with E2BIG, reported as `UNEXPECTED` rather than as a usage error. Every tmux
+and herdr injection keeps the text off an argv.
 
 ## The herdr status token is not scoped to Olympus
 
