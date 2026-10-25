@@ -3,6 +3,10 @@ package zmx_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -429,4 +433,133 @@ func TestAPasteToAProgramThatDidNotAskIsRaw(t *testing.T) {
 	if strings.Contains(screen, "200~") {
 		t.Errorf("a program that never asked for bracketed paste was sent the markers:\n%s", screen)
 	}
+}
+
+// §4.3: injected text stays off zmx's argv, where every local user reads it in
+// the process list while the call runs. zmx send reads its text from stdin when
+// it is given none as an argument.
+//
+// A zmx ahead of the real one on PATH records every argument it is given, and
+// each injection carries a text no argument may hold.
+func TestInjectedTextIsOnNoArgv(t *testing.T) {
+	requireZmx(t)
+	log := recordArgv(t, "zmx")
+	b := newIsolated(t)
+	name := startShell(t, b, "oly-argv")
+	warm(t, b, name)
+	ctx := context.Background()
+
+	// Short, since zmx does not rejoin a wrapped line and the prompt is long.
+	secret := fmt.Sprintf("s%06d", time.Now().UnixNano()%1e6)
+	for _, step := range []struct {
+		op string
+		fn func() error
+	}{
+		{"type", func() error { return b.Type(ctx, name, ": "+secret+"-t") }},
+		{"paste", func() error { return b.Paste(ctx, name, " "+secret+"-p") }},
+		{"atomic submit", func() error { return b.SendAtomic(ctx, name, " "+secret+"-a") }},
+	} {
+		if err := step.fn(); err != nil {
+			t.Fatalf("%s: %v", step.op, err)
+		}
+	}
+	waitFor(t, b, name, secret+"-t "+secret+"-p "+secret+"-a")
+
+	argv, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatalf("reading the recorded argv: %v", err)
+	}
+	if strings.Contains(string(argv), secret) {
+		t.Errorf("the injected text was on zmx's argv:\n%s", argv)
+	}
+	if !strings.Contains(string(argv), "send") {
+		t.Fatalf("the recording zmx never sent anything, so this proves nothing. It recorded:\n%s", argv)
+	}
+}
+
+// §4.3: zmx send drops one trailing newline from what it reads on stdin, so a
+// text that ends in one must still arrive with it. The reader takes exactly the
+// bytes typed and prints them: a newline dropped leaves it waiting for a byte
+// that never comes.
+func TestATypedTrailingNewlineArrives(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	const name = "oly-trailing-nl"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Cols: 80, Rows: 24,
+		Command: []string{"sh", "-c", `printf 'reading-%d\n' 4; head -c 4 | od -An -tx1; exec cat`}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Kill(context.Background(), name) })
+	waitFor(t, b, name, "reading-4")
+
+	if err := b.Type(ctx, name, "ab\n"); err != nil {
+		t.Fatalf("Type: %v", err)
+	}
+	if err := b.Press(ctx, name, backend.Key("c-j")); err != nil {
+		t.Fatalf("Press: %v", err)
+	}
+	waitFor(t, b, name, "61 62 0a 0a")
+}
+
+// §4.3: a text longer than one zmx send delivers for certain goes as several,
+// and arrives whole and in order. A piece that ends in a newline keeps it, since
+// zmx drops one trailing newline from each read of stdin.
+func TestALongTextArrivesWholeAcrossSends(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	text := []byte(strings.Repeat("0123456789abcdef", 1000))
+	text[4087] = '\n' // the last byte of the first send
+	text[len(text)-1] = '\n'
+	const name = "oly-long-text"
+	reader := fmt.Sprintf(`stty -icanon -echo; printf 'reading-%%d\n' 5; head -c %d | tr -dc '\n' | wc -c | tr -d ' ' | sed 's/^/newlines-/'`, len(text))
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Cols: 80, Rows: 24,
+		Command: []string{"sh", "-c", reader + "; exec cat"}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Kill(context.Background(), name) })
+	waitFor(t, b, name, "reading-5")
+
+	if err := b.Type(ctx, name, string(text)); err != nil {
+		t.Fatalf("Type: %v", err)
+	}
+	// Both newlines arrived only if every byte did: the reader stops at the
+	// count it was given, and the second newline is the text's last byte. The
+	// order the pieces arrive in is the conformance suite's checksum case.
+	waitFor(t, b, name, "newlines-2")
+}
+
+// §4.1: empty text is not injected at all. Only the target's presence is
+// checked, so a missing session is still not-found.
+func TestInjectingNothingIsAPresenceCheck(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	name := startShell(t, b, "oly-empty")
+	if err := b.Type(ctx, name, ""); err != nil {
+		t.Errorf("typing nothing: %v", err)
+	}
+	if err := b.Paste(ctx, name, ""); err != nil {
+		t.Errorf("pasting nothing: %v", err)
+	}
+	if err := b.Type(ctx, "oly-empty-missing", ""); backend.CodeOf(err) != backend.CodeSessionNotFound {
+		t.Errorf("typing nothing into an absent session is %v, want not-found", err)
+	}
+}
+
+// recordArgv puts a bin ahead of the real one on PATH that appends each
+// argument it is given to a file, one per line, and then runs the real one.
+// It returns the file's path.
+func recordArgv(t *testing.T, bin string) string {
+	t.Helper()
+	real, err := exec.LookPath(bin)
+	if err != nil {
+		t.Skipf("%s is not installed", bin)
+	}
+	dir := t.TempDir()
+	log := filepath.Join(dir, "argv")
+	script := fmt.Sprintf("#!/bin/sh\nfor a in \"$@\"; do printf '%%s\\n' \"$a\" >> '%s'; done\nexec '%s' \"$@\"\n", log, real)
+	if err := os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing the recording %s: %v", bin, err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
 }

@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The format follows
   runs, and a text past 128 KiB failed as `UNEXPECTED`. The text now reaches
   tmux on stdin, loaded into a buffer and pasted in the same invocation as the
   Enter, so the submit is still one unit.
+- **zmx keeps injected text off the argv, and delivers a long text whole.**
+  Type, paste and both sends on zmx ran `zmx send` with the text as an
+  argument. The text now goes on its stdin. zmx's daemon dropped a send past
+  about 4 KiB more often than not, with exit status 0, so a long text now goes
+  as several sends in order. A text past the 256 KiB zmx queues at once is
+  refused as `USAGE`, naming the limit, where zmx would drop it.
+- **Typing nothing on zmx is a presence check.** An empty type or paste ran an
+  empty `zmx send`, which zmx refuses, and failed as `UNEXPECTED`.
 
 ## [0.40.0]
 

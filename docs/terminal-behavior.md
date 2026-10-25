@@ -1610,11 +1610,34 @@ Text a caller injects can be a password typed at a prompt or a token pasted
 into an agent. On an argv, every local user reads it in the process list while
 the call runs, and Linux refuses one argument past 128 KiB (`MAX_ARG_STRLEN`):
 the call fails with E2BIG before the multiplexer runs. So tmux's Type, Paste
-and atomic submit load a buffer from stdin (§4.1, §4.7), and herdr's Type,
-Paste and atomic submit go over the API socket rather than through the CLI.
-zmx and meja still carry the text on an argv (`docs/known-issues.md`). An
-error that names a failed herdr invocation cuts the invocation at 120 bytes,
-since an argument can be the caller's text.
+and atomic submit load a buffer from stdin (§4.1, §4.7), zmx's write the text
+to `zmx send`'s stdin, and herdr's Type, Paste and atomic submit go over the
+API socket rather than through the CLI. meja still carries the text on an argv
+(`docs/known-issues.md`). An error that names a failed herdr invocation cuts
+the invocation at 120 bytes, since an argument can be the caller's text.
+
+#### zmx takes a long text in pieces, and refuses one past 256 KiB
+
+`zmx send` given no text argument reads its stdin to the end, and drops one
+trailing newline from what it read, so a text that ends in one is sent with one
+more. Two limits in zmx's daemon drop input with nothing said and exit status 0
+(measured on 0.6.0 and 0.7.0, and read in their source):
+
+- It reads a client's socket 4096 bytes per poll pass, and closes the client
+  on the pass that sees it hang up, discarding what it has not read. A send
+  whose message, an 8-byte header and the text, fits in one read always
+  arrives. Past that it is lost more often than not, with the text on an argv
+  as much as on stdin. So a text longer than 4088 bytes goes as several sends,
+  in order, each finished before the next starts.
+- It queues at most 256 KiB of input for the pty, and drops a write that would
+  take the queue past that. A Type, Paste or atomic submit that would queue
+  more MUST be refused as `USAGE` before anything runs, and the message names
+  the limit. What is counted is the text, plus a paste's 12 bytes of bracket
+  markers whether or not it turns out framed, plus an atomic submit's
+  terminator.
+
+Empty text is not sent, since zmx refuses an empty send. Typing nothing is a
+presence check, as on tmux (§4.1).
 
 ### 4.4 A failed Enter after injection MUST be retried once
 
