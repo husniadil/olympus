@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.40.1]
+
 ### Fixed
 
 - **tmux's atomic submit keeps its text off the argv.** `send --atomic`, and
@@ -1587,7 +1589,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.0...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.1...HEAD
+[0.40.1]: https://github.com/husniadil/olympus/compare/v0.40.0...v0.40.1
 [0.40.0]: https://github.com/husniadil/olympus/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/husniadil/olympus/compare/v0.38.3...v0.39.0
 [0.38.3]: https://github.com/husniadil/olympus/compare/v0.38.2...v0.38.3
