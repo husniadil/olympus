@@ -273,6 +273,7 @@ the limit in the message, rather than delivered in part or failed as
 | Backend | Limit |
 |---|---|
 | zmx | 256 KiB (262144 bytes) that one call queues: the text, plus a paste's 12 bytes of bracket markers and an atomic send's terminator. Refused before anything runs. |
+| meja | 8 MiB (8388608 bytes) in one paste buffer. meja refuses it, naming the limit, and nothing is pasted. |
 
 ### Every error reaches the envelope
 

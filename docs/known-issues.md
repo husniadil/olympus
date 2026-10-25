@@ -49,13 +49,13 @@ server that dies between that check and the client starting is booted again,
 under the configuration the client was given. herdr's client has no option to
 attach only, so the window cannot be closed from Olympus.
 
-## Injected text is on an argv on meja
+## The CLI's type and send take the text as an argument
 
-meja's `send-keys -l` and `set-buffer` take the text as an argument (behavior
-§4.3). While the call runs, any local user can read it in the process list,
-and on Linux a text past 128 KiB (`MAX_ARG_STRLEN`) fails with E2BIG, reported
-as `UNEXPECTED` rather than as a usage error. Every tmux, zmx and herdr
-injection keeps the text off an argv.
+`olympus type` and `olympus send` take the text as an argument, so it is on
+Olympus's own argv, in the process list, while the call runs, and a text past
+128 KiB is refused by the kernel before Olympus starts. No multiplexer is handed
+it on an argv (behavior §4.3), and the MCP and Go doors carry it in a request.
+`olympus paste -` reads its text from stdin. The two verbs have no such form.
 
 ## zmx can still drop input that others queued
 

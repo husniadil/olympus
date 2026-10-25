@@ -20,6 +20,10 @@ All notable changes to this project are documented here. The format follows
   about 4 KiB more often than not, with exit status 0, so a long text now goes
   as several sends in order. A text past the 256 KiB zmx queues at once is
   refused as `USAGE`, naming the limit, where zmx would drop it.
+- **meja keeps injected text off the argv.** Type, paste and both sends on
+  meja ran `send-keys -l` or `set-buffer` with the text as an argument. The
+  text now reaches meja's `load-buffer` through a pipe made for the call. A
+  text past the 8 MiB a meja paste buffer holds is `USAGE`, naming the limit.
 - **Typing nothing on zmx is a presence check.** An empty type or paste ran an
   empty `zmx send`, which zmx refuses, and failed as `UNEXPECTED`.
 
