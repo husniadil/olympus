@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.40.5]
+
 ### Fixed
 
 - **A failed Enter that left its text behind is marked `typed` whatever its
@@ -1651,7 +1653,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.4...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.5...HEAD
+[0.40.5]: https://github.com/husniadil/olympus/compare/v0.40.4...v0.40.5
 [0.40.4]: https://github.com/husniadil/olympus/compare/v0.40.3...v0.40.4
 [0.40.3]: https://github.com/husniadil/olympus/compare/v0.40.2...v0.40.3
 [0.40.2]: https://github.com/husniadil/olympus/compare/v0.40.1...v0.40.2

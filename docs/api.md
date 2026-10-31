@@ -1178,7 +1178,7 @@ offer a flag that combines them (behavior §4.7). `send_text` with `atomic` and
 | | `Send` | `SendAtomic` |
 |---|---|---|
 | Confirms the text landed | yes | no |
-| Retry-safe across invocations | no: a retry re-types before checking | yes, unless it failed after any of its text arrived, which zmx and meja mark `typed` except where the session is gone or the Enter's delivery is unknown (§2) |
+| Retry-safe across invocations | no: a retry re-types before checking | yes, unless it failed after any of its text arrived, which zmx and meja mark `typed` except where the session is gone or a write's delivery is unknown (§2) |
 | Multi-line | yes | rejected: no unambiguous submit point |
 | Lock scope | send, verify, submit, as one section | both writes |
 | Refuses an agent waiting on a person, as `AGENT_BLOCKED` | yes, before typing and on every capture after | yes, before the write |
