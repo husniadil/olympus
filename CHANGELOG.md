@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.40.4]
+
 ### Fixed
 
 - **Two more ways to leave a text unsubmitted are marked `typed`.** A run whose
@@ -1638,7 +1640,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.3...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.4...HEAD
+[0.40.4]: https://github.com/husniadil/olympus/compare/v0.40.3...v0.40.4
 [0.40.3]: https://github.com/husniadil/olympus/compare/v0.40.2...v0.40.3
 [0.40.2]: https://github.com/husniadil/olympus/compare/v0.40.1...v0.40.2
 [0.40.1]: https://github.com/husniadil/olympus/compare/v0.40.0...v0.40.1
