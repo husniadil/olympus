@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.40.2]
+
 ### Fixed
 
 - **A zmx write that fails part way says the text is partly there.** zmx takes
@@ -1611,7 +1613,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.1...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.2...HEAD
+[0.40.2]: https://github.com/husniadil/olympus/compare/v0.40.1...v0.40.2
 [0.40.1]: https://github.com/husniadil/olympus/compare/v0.40.0...v0.40.1
 [0.40.0]: https://github.com/husniadil/olympus/compare/v0.39.0...v0.40.0
 [0.39.0]: https://github.com/husniadil/olympus/compare/v0.38.3...v0.39.0
