@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/husniadil/olympus/backend"
 )
@@ -214,32 +216,49 @@ func (t *Tmux) refuseRewrittenDot(ctx context.Context, name string) error {
 // with a dot as given: 3.7a onwards does. A version that cannot be read — a
 // development build, a vendor's own label — is not held against the caller.
 func keepsDotInSessionName(version string) bool {
-	v := strings.TrimPrefix(strings.TrimSpace(version), "next-")
-	major, rest, ok := strings.Cut(v, ".")
-	if !ok {
-		return true
-	}
-	maj, err := strconv.Atoi(major)
-	if err != nil {
-		return true
-	}
-	end := 0
-	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
-		end++
-	}
-	minor, err := strconv.Atoi(rest[:end])
-	if err != nil {
-		return true
-	}
-	letter := rest[end:] != "" && rest[end] >= 'a' && rest[end] <= 'z'
+	major, minor, letter, ok := parseVersion(version)
 	switch {
-	case maj != 3:
-		return maj > 3
+	case !ok:
+		return true
+	case major != 3:
+		return major > 3
 	case minor != 7:
 		return minor > 7
 	default:
 		return letter
 	}
+}
+
+// sanitizesPastes reports whether a tmux version passes a pasted buffer
+// through vis(3) unless given -S: 3.7 onwards does, and earlier versions refuse
+// -S as an unknown flag. A version that cannot be read is taken to be recent.
+func sanitizesPastes(version string) bool {
+	major, minor, _, ok := parseVersion(version)
+	return !ok || major > 3 || major == 3 && minor >= 7
+}
+
+// parseVersion reads "3.7b" as 3, 7 and a letter after them. ok is false for a
+// version that cannot be read.
+func parseVersion(version string) (major, minor int, letter, ok bool) {
+	v := strings.TrimPrefix(strings.TrimSpace(version), "next-")
+	head, rest, found := strings.Cut(v, ".")
+	if !found {
+		return 0, 0, false, false
+	}
+	major, err := strconv.Atoi(head)
+	if err != nil {
+		return 0, 0, false, false
+	}
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	minor, err = strconv.Atoi(rest[:end])
+	if err != nil {
+		return 0, 0, false, false
+	}
+	letter = rest[end:] != "" && rest[end] >= 'a' && rest[end] <= 'z'
+	return major, minor, letter, true
 }
 
 // capturePaneTarget is paneTarget with one extra shape: `<session>:<window>`
@@ -509,20 +528,27 @@ func (t *Tmux) inject(ctx context.Context, target, text string, bracketed bool) 
 		_, err := t.run(ctx, nil, "has-session", "-t", sessionTarget(target))
 		return named(target, err)
 	}
+	args := []string{"paste-buffer", "-d", "-t", paneTarget(target)}
+	if bracketed {
+		args = append(args, "-p")
+	} else {
+		raw, err := t.rawPasteFlags(ctx, text)
+		if err != nil {
+			return named(target, err)
+		}
+		args = append(args, raw...)
+	}
+
 	// A buffer name unique per call. Two concurrent injections sharing a name
 	// race: one call's load-buffer clobbers the other's text before
 	// paste-buffer consumes it (§4.1).
 	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), buffers.Add(1))
+	args = append(args, "-b", name)
 
 	// load-buffer from stdin rather than send-keys -l, which mangles special
 	// characters and cannot carry arbitrary bytes (§4.1).
 	if _, err := t.run(ctx, strings.NewReader(text), "load-buffer", "-b", name, "-"); err != nil {
 		return named(target, err)
-	}
-
-	args := []string{"paste-buffer", "-d", "-b", name, "-t", paneTarget(target)}
-	if bracketed {
-		args = append(args, "-p")
 	}
 	if _, err := t.run(ctx, nil, args...); err != nil {
 		// -d is not unconditional cleanup: tmux deletes the buffer only when
@@ -567,6 +593,10 @@ func (t *Tmux) SendAtomic(ctx context.Context, target, text string) error {
 		_, err := t.run(ctx, nil, "send-keys", "-t", pane, "Enter")
 		return named(target, err)
 	}
+	raw, err := t.rawPasteFlags(ctx, text)
+	if err != nil {
+		return named(target, err)
+	}
 	name := fmt.Sprintf("olympus-%d-%d", os.Getpid(), buffers.Add(1))
 
 	// Three commands chained by literal ";" argv elements into one client
@@ -582,19 +612,45 @@ func (t *Tmux) SendAtomic(ctx context.Context, target, text string) error {
 	// text and the Enter. A failed command drops the rest of the chain, so a
 	// paste that fails sends no Enter.
 	//
-	// paste-buffer without -p writes the text as send-keys -l did, with no
-	// bracket, and the Enter is still a separate keypress after it rather than
-	// a newline inside the paste (§4.5).
-	_, err := t.run(ctx, strings.NewReader(text),
-		"load-buffer", "-b", name, "-",
-		";", "paste-buffer", "-d", "-b", name, "-t", pane,
-		";", "send-keys", "-t", pane, "Enter",
-	)
+	// paste-buffer with the raw flags and no -p writes the text as send-keys -l
+	// did, with no bracket, and the Enter is still a separate keypress after it
+	// rather than a newline inside the paste (§4.5).
+	args := []string{"load-buffer", "-b", name, "-", ";", "paste-buffer", "-d", "-b", name, "-t", pane}
+	args = append(args, raw...)
+	args = append(args, ";", "send-keys", "-t", pane, "Enter")
+	_, err = t.run(ctx, strings.NewReader(text), args...)
 	if err != nil {
 		// The buffer outlives a paste that failed, as in inject (§4.2).
 		_, _ = t.run(context.WithoutCancel(ctx), nil, "delete-buffer", "-b", name)
 	}
 	return named(target, err)
+}
+
+// rawPasteFlags are the paste-buffer flags that write text's bytes as they are,
+// the bytes send-keys -l wrote (§4.1). -r keeps a newline a newline, where
+// tmux would write the carriage return a terminal sends for Enter. -S keeps 3.7
+// onwards from passing the text through vis(3), and is added only where vis
+// would rewrite something, so ordinary text costs no version lookup.
+func (t *Tmux) rawPasteFlags(ctx context.Context, text string) ([]string, error) {
+	if !visRewrites(text) {
+		return []string{"-r"}, nil
+	}
+	version, err := t.Version(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if sanitizesPastes(version) {
+		return []string{"-S", "-r"}, nil
+	}
+	return []string{"-r"}, nil
+}
+
+// visRewrites reports whether vis(3) would rewrite any of text: a control
+// character other than a tab or a newline, a DEL, or a byte that is not UTF-8.
+func visRewrites(text string) bool {
+	return strings.ContainsFunc(text, func(r rune) bool {
+		return r == utf8.RuneError || unicode.IsControl(r) && r != '\t' && r != '\n'
+	})
 }
 
 // escapeTrailingSemicolon guards every argument a caller supplies.

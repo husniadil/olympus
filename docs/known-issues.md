@@ -64,7 +64,9 @@ write that would pass it with nothing said (behavior §4.3). Olympus refuses a
 write of its own past that size as `USAGE`, but it cannot see what is already
 queued. Where the session's program is not reading and another client's input
 is waiting, a smaller Olympus write can still be dropped, and the call reports
-success.
+success. A text past 4088 bytes goes as several sends, each checked against
+the queue on its own, so the drop can take one piece of it: the pane then
+holds the text with a piece missing, and the call still reports success.
 
 zmx 0.6.0 screens a send the way it screens a client's keystrokes
 (`isUserInput`), and drops one that holds no printable character, CR, LF, tab,

@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A zmx write that fails part way says the text is partly there.** zmx takes
+  a long text as several sends. One that failed after an earlier send landed
+  returned the bare failure, usually `UNEXPECTED`, though part of the text was
+  already in the input line and a second attempt would type it again. It is
+  now a `TIMEOUT` marked `typed` that names how many bytes arrived, or keeps
+  its own code where it has one.
+- **tmux types the text's bytes as they are.** tmux's type wrote each newline
+  as a carriage return, which an agent's input box reads as Enter, and from
+  tmux 3.7 wrote an ESC or a DEL as the two characters `^[` or `^?`. The atomic
+  submit did the same with control bytes since 0.40.1. Both now write the bytes
+  given, as `send-keys -l` did and as the other backends do. Paste is
+  unchanged.
+- **meja on macOS takes a text larger than a pipe holds.** Type, paste and both
+  sends on meja failed as `UNEXPECTED` ("resource temporarily unavailable")
+  once the text filled the pipe it reaches meja through, since Go does not wait
+  on a full pipe on macOS. The rest of the text is now written as meja reads.
+- **A cancelled meja input no longer leaves meja waiting on its pipe.** A call
+  cancelled before meja opened the pipe could leave meja's open waiting for a
+  writer for good, holding a thread of its server.
+
 ## [0.40.1]
 
 ### Fixed

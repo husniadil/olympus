@@ -321,6 +321,33 @@ func TestInjectingNothingIsAPresenceCheck(t *testing.T) {
 // fresh handle for every operation — the MCP door does, one per tool call, and
 // runs calls concurrently — must not have its handles all start their counters
 // at the same value and share a buffer name.
+// §4.1: Type and the atomic submit write the text's bytes as they are, as
+// send-keys -l did and as the other backends do. paste-buffer replaces each
+// newline with a carriage return unless given -r, and from 3.7 writes an ESC as
+// the two characters ^[ unless given -S. The reader takes exactly the bytes
+// typed, with the tty translating none, and prints them. Its spacing is
+// squeezed, since od pads its columns differently on macOS and Linux.
+func TestTypedBytesArriveUnchanged(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	reader := []string{"sh", "-c", `stty -icanon -icrnl -echo; printf 'reading-%d\n' 4; head -c 4 | od -An -tx1 | tr -s ' '; exec cat`}
+
+	typed := create(t, b, backend.CreateSpec{Name: "oly-typed", Command: reader})
+	waitForScreen(t, b, typed, "reading-4")
+	if err := b.Type(ctx, typed, "x\x1by\n"); err != nil {
+		t.Fatalf("Type: %v", err)
+	}
+	waitForScreen(t, b, typed, "78 1b 79 0a")
+
+	// The terminator is the Enter keypress after the text, a carriage return.
+	sent := create(t, b, backend.CreateSpec{Name: "oly-sent", Command: reader})
+	waitForScreen(t, b, sent, "reading-4")
+	if err := b.SendAtomic(ctx, sent, "x\x1by"); err != nil {
+		t.Fatalf("SendAtomic: %v", err)
+	}
+	waitForScreen(t, b, sent, "78 1b 79 0d")
+}
+
 func TestConcurrentInjectionsThroughSeparateHandlesDoNotClobber(t *testing.T) {
 	b := newBackend(t)
 	socket := socketOf(t, b)

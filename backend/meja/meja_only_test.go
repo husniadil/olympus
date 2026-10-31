@@ -242,9 +242,11 @@ func TestKillingAMissingSessionIsSuccess(t *testing.T) {
 func TestInjectedTextIsOnNoArgv(t *testing.T) {
 	requireMeja(t)
 	log := recordArgv(t, "meja")
+	// The socket's directory is made before TMPDIR moves to the test's own,
+	// whose long path would take the socket past the 103 bytes one may have.
+	b, _ := newBackend(t)
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
-	b, _ := newBackend(t)
 	ctx := context.Background()
 	const name = "argv"
 	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 120, Rows: 40, Command: []string{"cat"}}); err != nil {
@@ -299,14 +301,15 @@ func TestInjectedTextIsOnNoArgv(t *testing.T) {
 
 // §4.3: Type and the atomic submit write the text's bytes as they are, as
 // send-keys -l did: an ESC is not drawn as ^[ and a newline is not made a
-// carriage return. The reader takes exactly the bytes typed and prints them.
+// carriage return. The reader takes exactly the bytes typed and prints them. Its
+// spacing is squeezed, since od pads its columns differently on macOS and Linux.
 func TestTypedBytesArriveUnchanged(t *testing.T) {
 	requireMeja(t)
 	b, _ := newBackend(t)
 	ctx := context.Background()
 	const name = "bytes"
 	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 80, Rows: 24,
-		Command: []string{"sh", "-c", `stty -icanon -echo; printf 'reading-%d\n' 4; head -c 4 | od -An -tx1; exec cat`}}); err != nil {
+		Command: []string{"sh", "-c", `stty -icanon -icrnl -echo; printf 'reading-%d\n' 4; head -c 4 | od -An -tx1 | tr -s ' '; exec cat`}}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	deadline := time.Now().Add(10 * time.Second)

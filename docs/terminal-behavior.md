@@ -1573,6 +1573,20 @@ reports "no buffer", which would turn a no-op into `UNEXPECTED` on tmux alone.
 Only the target's presence is checked, so a missing session is still
 `SESSION_NOT_FOUND`.
 
+#### Type and the atomic submit paste the buffer's bytes as they are
+
+`paste-buffer` rewrites what it pastes in two ways. It replaces each newline
+with a carriage return, the byte a terminal sends for Enter, unless given `-r`.
+From 3.7 it also passes the buffer through vis(3), writing an ESC as the two
+characters `^[` and a DEL as `^?`, unless given `-S`, which earlier versions
+refuse as an unknown flag. Type and the atomic submit write the bytes
+`send-keys -l` wrote, as every other backend does, so they paste with `-r`, and
+add `-S` on 3.7 onwards. The version is asked only for a text vis would
+rewrite: a control character other than a tab or a newline, a DEL, or a byte
+that is not UTF-8. Ordinary text costs no lookup.
+
+Paste keeps both rewrites, as meja's paste does (§4.6).
+
 #### Why
 
 Two concurrent injections sharing a name race. One call's `load-buffer`
@@ -1630,7 +1644,11 @@ more. Two limits in zmx's daemon drop input with nothing said and exit status 0
   whose message, an 8-byte header and the text, fits in one read always
   arrives. Past that it is lost more often than not, with the text on an argv
   as much as on stdin. So a text longer than 4088 bytes goes as several sends,
-  in order, each finished before the next starts.
+  in order, each finished before the next starts. A send that fails after an
+  earlier one landed has left that part of the text in the input line, where a
+  second attempt would type it again. The failure names how many bytes
+  arrived and is marked typed. An `UNEXPECTED` failure becomes `TIMEOUT`, and
+  any other keeps its code.
 - It queues at most 256 KiB of input for the pty, and drops a write that would
   take the queue past that. A Type, Paste or atomic submit that would queue
   more MUST be refused as `USAGE` before anything runs, and the message names
@@ -1648,7 +1666,11 @@ meja's `set-buffer` and `send-keys -l` take the text as an argument, and its
 and reads to its end. So the path is a FIFO, in a directory of mode 0700 made
 for the one call and removed when it ends, and Olympus writes the text into it
 as the server reads. The text never reaches a disk, and a crash leaves an empty
-pipe behind rather than the text.
+pipe behind rather than the text. A call cancelled before the server reached
+its `load-buffer` leaves the server to open the pipe after Olympus stopped
+writing, and that open waits for a writer even once the path is gone. So the
+directory is removed with a write end held open across the removal, and the
+server's read finds the pipe empty.
 
 Type and the atomic submit then paste the buffer with `-S -r` and no `-p`:
 unsanitized, with no newline translated and no bracket, the bytes
@@ -1782,7 +1804,8 @@ submit point. The door layer validates and rejects `\n`/`\r`. The backend does
 not re-check.
 
 On tmux it is one client invocation: `load-buffer` reading the text from
-stdin, then `paste-buffer` with no `-p`, then `send-keys Enter`, chained.
+stdin, then `paste-buffer` with the flags of §4.1 that keep its bytes and no
+`-p`, then `send-keys Enter`, chained.
 `load-buffer` holds the client's command queue until stdin is read
 (`CMD_RETURN_WAIT`, resumed by `cmdq_continue`), and the two after it never
 wait, so they run back to back in one pass of the single-threaded server. No
