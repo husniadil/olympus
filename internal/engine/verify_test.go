@@ -375,7 +375,8 @@ func TestATerminatorOfUnknownDeliveryIsNotRetried(t *testing.T) {
 }
 
 // A second failure that already carries its own classification keeps it. Were
-// it rewrapped as TIMEOUT, errors.Is would answer to two sentinels at once.
+// it rewrapped as TIMEOUT, errors.Is would answer to two sentinels at once. A
+// session that is gone has no input line, so it is not marked typed.
 func TestAClassifiedSecondTerminatorFailureKeepsItsCode(t *testing.T) {
 	gone := backend.Errorf(backend.CodeSessionNotFound, "session build is gone")
 	f := &fakeBackend{submitErr: gone}
@@ -387,8 +388,26 @@ func TestAClassifiedSecondTerminatorFailureKeepsItsCode(t *testing.T) {
 	if errors.Is(err, backend.ErrTimeout) {
 		t.Errorf("error %v also answers to ErrTimeout", err)
 	}
+	if backend.TypedOf(err) {
+		t.Errorf("error %v is marked typed, though its session is gone", err)
+	}
 	if f.submitCalls != 2 {
 		t.Errorf("the terminator was tried %d times, want 2", f.submitCalls)
+	}
+}
+
+// §4.4: any other classified second failure keeps its code and is marked
+// typed, since the text is still in the input line.
+func TestAClassifiedSecondTerminatorFailureIsTyped(t *testing.T) {
+	down := backend.Errorf(backend.CodeBackendUnavailable, "the server is not answering")
+	f := &fakeBackend{submitErr: down}
+
+	err := engine.SubmitOnce(context.Background(), f, "build")
+	if backend.CodeOf(err) != backend.CodeBackendUnavailable {
+		t.Fatalf("code is %s, want BACKEND_UNAVAILABLE", backend.CodeOf(err))
+	}
+	if !backend.TypedOf(err) {
+		t.Errorf("error %v is not marked typed, though the text is still in the input line", err)
 	}
 }
 

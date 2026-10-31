@@ -111,10 +111,8 @@ func (d Delivery) Verified(ctx context.Context, target, text string, submit bool
 // rest, which is exactly the state this repository was in.
 //
 // A terminator whose delivery is unknown is the exception: it may already have
-// submitted, and a second one would submit twice. A second failure that already
-// carries its own code keeps it, so it answers to one sentinel, not two. Any
-// other is a timeout marked typed, since the text is in the input line and a
-// second send would type it again.
+// submitted, and a second one would submit twice. A second failure is
+// classified by backend.Unsubmitted.
 //
 // It does NOT take the lock: the caller already holds it, and the whole point
 // is that nothing lands between the injection and its terminator.
@@ -127,13 +125,7 @@ func SubmitOnce(ctx context.Context, b backend.Backend, target string) error {
 		return err
 	}
 	if err := b.Submit(ctx, target); err != nil {
-		if backend.UncertainOf(err) || backend.CodeOf(err) != backend.CodeUnexpected {
-			return err
-		}
-		unsubmitted := backend.Wrapf(backend.CodeTimeout, err,
-			"text was delivered to %s but not submitted, and is still sitting in the input line", target)
-		unsubmitted.Typed = true
-		return unsubmitted
+		return backend.Unsubmitted(err, target)
 	}
 	return nil
 }

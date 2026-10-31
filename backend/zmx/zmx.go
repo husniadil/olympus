@@ -475,23 +475,15 @@ func (z *Zmx) SendAtomic(ctx context.Context, target, text string) error {
 	}
 	select {
 	case <-ctx.Done():
-		return unsubmitted(target, ctx.Err())
+		return backend.Unsubmitted(ctx.Err(), target)
 	case <-time.After(backend.SubmitSettle):
 	}
 	if err := z.send(ctx, target, "\r"); err != nil {
-		return unsubmitted(target, err)
+		// Never silent success: the text is sitting unsubmitted in the input
+		// line (§4.7).
+		return backend.Unsubmitted(err, target)
 	}
 	return nil
-}
-
-// unsubmitted is an atomic submit whose text arrived and whose terminator did
-// not. Never silent success: the caller has to know the text is sitting
-// unsubmitted in the input line, where a second attempt would type it again,
-// so the failure is marked typed (§4.7).
-func unsubmitted(target string, cause error) error {
-	err := backend.Wrapf(backend.CodeTimeout, cause, "text delivered to %s but not submitted", target)
-	err.Typed = true
-	return err
 }
 
 // The two sizes zmx drops input past, with nothing said and exit status 0.
