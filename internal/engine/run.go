@@ -166,7 +166,12 @@ func (r Runner) inject(ctx context.Context, target, command string) (Markers, er
 		}
 		select {
 		case <-ctx.Done():
-			return backend.Wrapf(backend.CodeTimeout, ctx.Err(), "injecting a command into %s", target)
+			// The line is in the input line, unsubmitted, and a second run
+			// would type it again (§4.4).
+			unsubmitted := backend.Wrapf(backend.CodeTimeout, ctx.Err(),
+				"a command was typed into %s but not submitted, and is still sitting in the input line", target)
+			unsubmitted.Typed = true
+			return unsubmitted
 		case <-time.After(backend.SubmitSettle):
 		}
 		return SubmitOnce(ctx, r.Backend, target)

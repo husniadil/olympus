@@ -1694,6 +1694,8 @@ When the retry fails too, a failure that already carries a code other than
 `UNEXPECTED` keeps that code. Only an unclassified one becomes `TIMEOUT`, so the
 error answers to exactly one code. That `TIMEOUT` is marked typed (api §2): the
 text is in the input line, unsubmitted, and a second send would type it again.
+A run whose context ends in the settle between its line and its Enter (§4.5)
+has left its line the same way, and is a `TIMEOUT` marked typed too.
 
 #### Why
 
@@ -1794,8 +1796,12 @@ that switches the mode in between gets the other form.
 ### 4.7 Atomic submit trades verification for atomicity
 
 An atomic operation delivers text and submits it as one caller-visible unit,
-so the retry unit is the whole delivery-plus-submit. A caller retrying a failed
-invocation can never leave a typed-but-unsubmitted line behind to double.
+so the retry unit is the whole delivery-plus-submit, never the text alone. What
+a failed invocation leaves behind depends on the backend. On tmux the paste and
+the Enter run in one pass of the server, and a failed paste sends no Enter. On
+zmx and meja they are two writes, so an invocation can fail after its text
+arrived. That failure leaves the text unsubmitted, where a retry would type it
+again, and is marked typed (api §2) so the caller reads the screen first.
 
 Atomic submit MUST NOT verify. Callers needing both properties do not get them
 from one call, and the doors MUST reject the combination.
@@ -1816,8 +1822,15 @@ buffer it leaves is deleted as §4.2 requires. Empty text sends the Enter alone,
 since tmux cannot paste an empty buffer (§4.1).
 
 On zmx, caller-visible atomicity comes from holding the per-session write lock
-across both writes. A failed submit write MUST return a timeout-class error
-("text delivered but not submitted") marked typed, never silent success.
+across both writes. An Enter that fails after the text arrived, or a context
+that ends before it, MUST return a timeout-class error ("text delivered but
+not submitted") marked typed, never silent success.
+
+On meja, it comes from holding one client across both writes, so no other
+caller's injection lands between them. An Enter that fails after the paste
+landed is classified as §4.4 classifies a retried Enter's failure: one of
+unknown delivery, or one with a code of its own, keeps it, and any other is a
+`TIMEOUT` marked typed.
 
 #### Why
 
