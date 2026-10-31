@@ -159,3 +159,44 @@ func TestAnyErrorReachesAnExitStatus(t *testing.T) {
 		}
 	}
 }
+
+// behavior §4.4: an Enter that failed after its text landed leaves the text in
+// the input line, where a second send would type it again. Unsubmitted marks
+// that typed, keeping a code the failure already has, so the error answers to
+// one sentinel, and making an unclassified one a timeout. A gone session has
+// no input line, and an Enter of unknown delivery may have submitted, so both
+// come back as they were.
+func TestUnsubmittedMarksTheTextLeftBehind(t *testing.T) {
+	lost := &backend.Error{Code: backend.CodeUnexpected, Msg: "client went away", Uncertain: true}
+	gone := backend.Errorf(backend.CodeSessionNotFound, "no session build")
+	for _, c := range []struct {
+		name  string
+		err   error
+		code  backend.Code
+		typed bool
+	}{
+		{"unclassified", errors.New("exit status 1"), backend.CodeTimeout, true},
+		{"unexpected", backend.Errorf(backend.CodeUnexpected, "boom"), backend.CodeTimeout, true},
+		{"its own timeout", backend.Errorf(backend.CodeTimeout, "waiting for a client"), backend.CodeTimeout, true},
+		{"unavailable", backend.Errorf(backend.CodeBackendUnavailable, "no server"), backend.CodeBackendUnavailable, true},
+		{"session gone", gone, backend.CodeSessionNotFound, false},
+		{"unknown delivery", lost, backend.CodeUnexpected, false},
+	} {
+		got := backend.Unsubmitted(c.err, "build")
+		if backend.CodeOf(got) != c.code {
+			t.Errorf("%s: code is %s, want %s", c.name, backend.CodeOf(got), c.code)
+		}
+		if backend.TypedOf(got) != c.typed {
+			t.Errorf("%s: typed is %v, want %v", c.name, backend.TypedOf(got), c.typed)
+		}
+		if !errors.Is(got, c.err) {
+			t.Errorf("%s: %v does not wrap %v", c.name, got, c.err)
+		}
+		if c.code != backend.CodeTimeout && errors.Is(got, backend.ErrTimeout) {
+			t.Errorf("%s: %v answers to ErrTimeout as well as its own code", c.name, got)
+		}
+		if !c.typed && got != c.err {
+			t.Errorf("%s: %v came back changed", c.name, got)
+		}
+	}
+}

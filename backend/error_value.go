@@ -48,7 +48,7 @@ type Error struct {
 	// box: an AGENT_BLOCKED whose agent started waiting after the typing
 	// (behavior §7.5), a TIMEOUT whose box held only part of the text (§7.6),
 	// a write a backend made in pieces that failed after one landed (§4.3), or
-	// a TIMEOUT whose text arrived and whose terminator did not (§4.4, §4.7).
+	// a failure whose text arrived and whose terminator did not (§4.4, §4.7).
 	// A second send would type it again.
 	Typed bool
 	// Reason says which of a code's causes this is, where a caller acts on
@@ -133,6 +133,25 @@ func ReasonOf(err error) Reason {
 		return classified.Reason
 	}
 	return ""
+}
+
+// Unsubmitted classifies the failure of an Enter sent once its text had landed
+// (behavior §4.4, §4.7). The text is in the input line, where a second send
+// would type it again, so the failure is marked typed: one with a code of its
+// own keeps it, so it answers to one sentinel, and any other becomes a
+// TIMEOUT. Two come back as they were: an Enter of unknown delivery, which may
+// have submitted, and a session that is gone, which has no input line left.
+func Unsubmitted(err error, target string) error {
+	code := CodeOf(err)
+	if UncertainOf(err) || code == CodeSessionNotFound {
+		return err
+	}
+	if code == CodeUnexpected {
+		code = CodeTimeout
+	}
+	typed := Wrapf(code, err, "text was delivered to %s but not submitted, and is still sitting in the input line", target)
+	typed.Typed = true
+	return typed
 }
 
 // UncertainOf reports whether err is a write of unknown delivery (behavior

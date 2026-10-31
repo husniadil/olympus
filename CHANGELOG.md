@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failed Enter that left its text behind is marked `typed` whatever its
+  code.** A send, a run, or a type or paste with its submit, whose retried
+  Enter failed with a code of its own, such as a `TIMEOUT` waiting for meja's
+  client, kept the code but not `typed`, though the text was in the input line.
+  So did an atomic send on meja. Both are now marked `typed` and keep their
+  code. A gone session (`SESSION_NOT_FOUND`) and an Enter of unknown delivery
+  stay unmarked, on zmx's atomic send too, where a gone session used to become
+  a `TIMEOUT`. `send --help` now names both exceptions.
+
 ## [0.40.4]
 
 ### Fixed

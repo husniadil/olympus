@@ -335,9 +335,10 @@ func TestTypedBytesArriveUnchanged(t *testing.T) {
 
 // §4.7: an atomic submit whose Enter fails after its paste landed has left the
 // text in the input line, unsubmitted. A failure with no code of its own is a
-// timeout marked typed (api §2). As SubmitOnce does (§4.4), an Enter whose
-// client went away keeps its uncertain delivery, since it may have submitted,
-// and a failure with a code of its own keeps it.
+// timeout marked typed (api §2). As SubmitOnce does (§4.4), a failure with a
+// code of its own keeps it and is marked typed too, while an Enter whose client
+// went away keeps its uncertain delivery, since it may have submitted, and a
+// gone session is not marked, having no input line.
 func TestAnAtomicSubmitWhoseEnterFailsIsTyped(t *testing.T) {
 	requireMeja(t)
 	b, _ := newBackend(t)
@@ -353,6 +354,7 @@ func TestAnAtomicSubmitWhoseEnterFailsIsTyped(t *testing.T) {
 		typed   bool
 	}{
 		{"send-keys refused", backend.CodeTimeout, true},
+		{"unknown command: send-keys", backend.CodeUnsupported, true},
 		{"target client disconnected", backend.CodeUnexpected, false},
 		{"unknown session: unsubmitted", backend.CodeSessionNotFound, false},
 	} {
@@ -373,11 +375,11 @@ func TestAnAtomicSubmitWhoseEnterFailsIsTyped(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		scr, err := b.Screen(ctx, name, backend.ScreenOpts{})
-		if err == nil && strings.Count(scr.Text, "left-behind") == 3 {
+		if err == nil && strings.Count(scr.Text, "left-behind") == 4 {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the three texts never arrived. Screen was:\n%s", scr.Text)
+			t.Fatalf("the four texts never arrived. Screen was:\n%s", scr.Text)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
