@@ -372,6 +372,26 @@ func TestAnInjectedRunRetriesADroppedTerminatorOnce(t *testing.T) {
 	}
 }
 
+// §4.4: a run whose context ends in the settle between its line and its Enter
+// leaves the line typed and unsubmitted, as a failed Enter does, so it is a
+// timeout marked typed. The context ends as the line is typed.
+func TestARunCancelledBeforeItsEnterIsTyped(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := &fakeBackend{onType: func(*fakeBackend, string) { cancel() }}
+
+	_, err := runner(f, nil).Start(ctx, "build", "make build")
+	if !errors.Is(err, backend.ErrTimeout) {
+		t.Fatalf("error is %v, want a timeout", err)
+	}
+	if !backend.TypedOf(err) {
+		t.Errorf("error %v is not marked typed, though the line is in the input line", err)
+	}
+	if typed, submits := f.counts(); typed != 1 || submits != 0 {
+		t.Errorf("the line was typed %d times and submitted %d times, want 1 and 0", typed, submits)
+	}
+}
+
 // §6.4: a run that times out with no start marker on its deepest capture has
 // hit something a plain timeout cannot express, and the caller has no way to
 // tell it from a slow command. The message reports what was OBSERVED and names

@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two more ways to leave a text unsubmitted are marked `typed`.** A run whose
+  context ended in the pause between its command line and its Enter, and an
+  atomic send on meja whose Enter failed after the paste landed, returned an
+  error without `typed`, though the text was in the input line and a second
+  attempt would type it again. Both are now a `TIMEOUT` marked `typed`. On
+  meja, as for a retried Enter, a failure of unknown delivery or with a code of
+  its own keeps what it has.
+- **`send --help` says exactly when a failure is typed.** It said every Enter
+  that could not be delivered was marked `typed`, where only one that failed
+  with no code of its own is, and called `--atomic` retry-safe without saying a
+  failure marked `typed` has left its text behind.
+
 ## [0.40.3]
 
 ### Fixed

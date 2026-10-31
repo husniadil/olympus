@@ -437,14 +437,37 @@ func (m *Meja) Submit(ctx context.Context, target string) error {
 // client across both is what stops another caller's injection landing between
 // them. The text goes through a buffer as Type's does, off the argv (§4.3).
 func (m *Meja) SendAtomic(ctx context.Context, target, text string) error {
+	// The Enter runs only once the paste has landed, so a failure after it was
+	// tried has left the text in the input line.
+	entered := false
 	enter := func() error {
+		entered = true
 		_, err := m.run(ctx, nil, "send-keys", "-t", target, "Enter")
 		return named(target, err)
 	}
 	if text == "" {
 		return m.withClient(ctx, target, enter)
 	}
-	return m.injectBuffer(ctx, target, text, []string{"-S", "-r"}, enter)
+	err := m.injectBuffer(ctx, target, text, []string{"-S", "-r"}, enter)
+	if err != nil && entered {
+		return unsubmitted(target, err)
+	}
+	return err
+}
+
+// unsubmitted is an atomic submit whose text landed and whose Enter failed. It
+// is classified once withClient is done with it, which reads the Enter's own
+// error to decide whether to retry or give up. As SubmitOnce does (§4.4), an
+// Enter of unknown delivery and a failure with a code of its own keep what
+// they have, and any other becomes a timeout marked typed, since the text is
+// in the input line and a second attempt would type it again (§4.7).
+func unsubmitted(target string, err error) error {
+	if backend.UncertainOf(err) || backend.CodeOf(err) != backend.CodeUnexpected {
+		return err
+	}
+	typed := backend.Wrapf(backend.CodeTimeout, err, "text delivered to %s but not submitted", target)
+	typed.Typed = true
+	return typed
 }
 
 // Interrupt asks the foreground program to stop.

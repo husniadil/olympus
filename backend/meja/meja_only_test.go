@@ -333,6 +333,56 @@ func TestTypedBytesArriveUnchanged(t *testing.T) {
 	wait("78 1b 79 0a")
 }
 
+// §4.7: an atomic submit whose Enter fails after its paste landed has left the
+// text in the input line, unsubmitted. A failure with no code of its own is a
+// timeout marked typed (api §2). As SubmitOnce does (§4.4), an Enter whose
+// client went away keeps its uncertain delivery, since it may have submitted,
+// and a failure with a code of its own keeps it.
+func TestAnAtomicSubmitWhoseEnterFailsIsTyped(t *testing.T) {
+	requireMeja(t)
+	b, _ := newBackend(t)
+	ctx := context.Background()
+	const name = "unsubmitted"
+	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Dir: t.TempDir(), Cols: 80, Rows: 24, Command: []string{"cat"}}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	for _, c := range []struct {
+		refusal string
+		code    backend.Code
+		typed   bool
+	}{
+		{"send-keys refused", backend.CodeTimeout, true},
+		{"target client disconnected", backend.CodeUnexpected, false},
+		{"unknown session: unsubmitted", backend.CodeSessionNotFound, false},
+	} {
+		t.Run(c.refusal, func(t *testing.T) {
+			refuseEnter(t, c.refusal)
+			err := b.SendAtomic(ctx, name, "left-behind ")
+			if backend.CodeOf(err) != c.code {
+				t.Errorf("an atomic submit whose Enter failed is %v, want %s", err, c.code)
+			}
+			if backend.TypedOf(err) != c.typed {
+				t.Errorf("an atomic submit whose Enter failed is %v, typed %v, want %v", err, backend.TypedOf(err), c.typed)
+			}
+		})
+	}
+
+	// The text did arrive, so the errors are telling the truth: cat's
+	// terminal echoes it, and nothing submitted it.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		scr, err := b.Screen(ctx, name, backend.ScreenOpts{})
+		if err == nil && strings.Count(scr.Text, "left-behind") == 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the three texts never arrived. Screen was:\n%s", scr.Text)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // §4.3: meja holds at most 8 MiB in a paste buffer, and says so. A text past it
 // is the caller's input to fix, so it is usage, naming the limit, and leaves no
 // buffer behind.
@@ -373,4 +423,21 @@ func recordArgv(t *testing.T, bin string) string {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return log
+}
+
+// refuseEnter puts a meja ahead of the real one on PATH that fails a send-keys
+// of Enter with refusal, as the real one fails, and passes every other call
+// through.
+func refuseEnter(t *testing.T, refusal string) {
+	t.Helper()
+	real, err := exec.LookPath("meja")
+	if err != nil {
+		t.Skip("meja is not installed")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\nlast=\nfor a; do last=$a; done\ncase \" $* \" in\n*\" send-keys \"*) [ \"$last\" = Enter ] && { echo '" + refusal + "' >&2; exit 1; } ;;\nesac\nexec '" + real + "' \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "meja"), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing the refusing meja: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
