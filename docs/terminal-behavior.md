@@ -1692,7 +1692,8 @@ a failure MUST be surfaced unchanged and MUST NOT be retried. A backend marks it
 
 When the retry fails too, a failure that already carries a code other than
 `UNEXPECTED` keeps that code. Only an unclassified one becomes `TIMEOUT`, so the
-error answers to exactly one code.
+error answers to exactly one code. That `TIMEOUT` is marked typed (api §2): the
+text is in the input line, unsubmitted, and a second send would type it again.
 
 #### Why
 
@@ -1816,7 +1817,7 @@ since tmux cannot paste an empty buffer (§4.1).
 
 On zmx, caller-visible atomicity comes from holding the per-session write lock
 across both writes. A failed submit write MUST return a timeout-class error
-("text delivered but not submitted"), never silent success.
+("text delivered but not submitted") marked typed, never silent success.
 
 #### Why
 
