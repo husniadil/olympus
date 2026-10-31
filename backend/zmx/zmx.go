@@ -520,20 +520,42 @@ func fitsInput(n int) error {
 // A text longer than sendChunk goes as several sends, in order, each one a
 // message the daemon reads whole. Each send finishes before the next starts,
 // and the daemon handles a closed client's message before it answers the next
-// client's probe, so the pieces reach the pty in the order sent.
+// client's probe, so the pieces reach the pty in the order sent. A piece that
+// fails after an earlier one landed leaves that part of the text in the input
+// line, and the failure says so (partlySent).
 //
 // Empty text is not sent: zmx refuses an empty send. Every caller has checked
 // the target's presence first, which is all that is left of the operation
 // (§4.1).
 func (z *Zmx) send(ctx context.Context, target, text string) error {
-	for len(text) > 0 {
-		n := min(len(text), sendChunk)
-		if err := z.sendOnce(ctx, target, text[:n]); err != nil {
-			return err
+	for sent := 0; sent < len(text); {
+		n := min(len(text)-sent, sendChunk)
+		if err := z.sendOnce(ctx, target, text[sent:sent+n]); err != nil {
+			if sent == 0 {
+				return err
+			}
+			return partlySent(target, sent, len(text), err)
 		}
-		text = text[n:]
+		sent += n
 	}
 	return nil
+}
+
+// partlySent is a send that failed after part of its text landed. It is marked
+// typed, since a second send would type that part again (§4.3). A failure that
+// carries its own code keeps it, as SubmitOnce's does in the engine, and an
+// unexpected one becomes a timeout: the text is half delivered, and the caller
+// has to look before acting.
+func partlySent(target string, sent, total int, err error) error {
+	code := backend.CodeOf(err)
+	if code == backend.CodeUnexpected {
+		code = backend.CodeTimeout
+	}
+	partial := backend.Wrapf(code, err,
+		"%d of %d bytes reached %s before the write failed, and are still in its input line; read the screen before sending again",
+		sent, total, target)
+	partial.Typed = true
+	return partial
 }
 
 // sendOnce is one `zmx send` of a piece of text. zmx drops one trailing newline

@@ -480,13 +480,14 @@ func TestInjectedTextIsOnNoArgv(t *testing.T) {
 // §4.3: zmx send drops one trailing newline from what it reads on stdin, so a
 // text that ends in one must still arrive with it. The reader takes exactly the
 // bytes typed and prints them: a newline dropped leaves it waiting for a byte
-// that never comes.
+// that never comes. Its spacing is squeezed, since od pads its columns
+// differently on macOS and Linux.
 func TestATypedTrailingNewlineArrives(t *testing.T) {
 	b := newBackend(t)
 	ctx := context.Background()
 	const name = "oly-trailing-nl"
 	if _, err := b.Create(ctx, backend.CreateSpec{Name: name, Cols: 80, Rows: 24,
-		Command: []string{"sh", "-c", `printf 'reading-%d\n' 4; head -c 4 | od -An -tx1; exec cat`}}); err != nil {
+		Command: []string{"sh", "-c", `printf 'reading-%d\n' 4; head -c 4 | od -An -tx1 | tr -s ' '; exec cat`}}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	t.Cleanup(func() { _ = b.Kill(context.Background(), name) })
@@ -528,6 +529,46 @@ func TestALongTextArrivesWholeAcrossSends(t *testing.T) {
 	waitFor(t, b, name, "newlines-2")
 }
 
+// §4.3: a long text goes as several sends, so one that fails after another
+// landed leaves part of the text in the input line. The failure says how much,
+// marked typed (api §2), and since nothing the caller controls is at fault it
+// is a timeout rather than unexpected. A failure on the first send delivered
+// nothing and keeps its own classification.
+func TestASendThatFailsPartWayIsTyped(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	name := startShell(t, b, "oly-part-way")
+	refuseSendsHolding(t, "FAIL")
+
+	head := strings.Repeat("x", 4088)
+	for _, c := range []struct {
+		op  string
+		err error
+	}{
+		{"type", b.Type(ctx, name, head+"FAIL")},
+		{"paste", b.Paste(ctx, name, head+"FAIL")},
+		{"atomic submit", b.SendAtomic(ctx, name, head+"FAIL")},
+	} {
+		if !backend.TypedOf(c.err) {
+			t.Errorf("%s that failed after one send landed is %v, not marked typed", c.op, c.err)
+		}
+		if backend.CodeOf(c.err) != backend.CodeTimeout {
+			t.Errorf("%s that failed after one send landed is %s, want %s", c.op, backend.CodeOf(c.err), backend.CodeTimeout)
+		}
+		if c.err != nil && !strings.Contains(c.err.Error(), "4088 of ") {
+			t.Errorf("%s: %q does not say how much of the text arrived", c.op, c.err)
+		}
+	}
+
+	err := b.Type(ctx, name, "FAIL"+head)
+	if err == nil || backend.TypedOf(err) {
+		t.Errorf("a type whose first send failed is %v, want an error not marked typed", err)
+	}
+	if backend.CodeOf(err) != backend.CodeUnexpected {
+		t.Errorf("a type whose first send failed is %s, want %s", backend.CodeOf(err), backend.CodeUnexpected)
+	}
+}
+
 // §4.1: empty text is not injected at all. Only the target's presence is
 // checked, so a missing session is still not-found.
 func TestInjectingNothingIsAPresenceCheck(t *testing.T) {
@@ -562,4 +603,30 @@ func recordArgv(t *testing.T, bin string) string {
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return log
+}
+
+// refuseSendsHolding puts a zmx ahead of the real one on PATH that fails every
+// send whose text contains marker, as the real one fails, and passes every
+// other call through.
+func refuseSendsHolding(t *testing.T, marker string) {
+	t.Helper()
+	real, err := exec.LookPath("zmx")
+	if err != nil {
+		t.Skip("zmx is not installed")
+	}
+	dir := t.TempDir()
+	script := fmt.Sprintf(`#!/bin/sh
+[ "$1" = send ] || exec '%[1]s' "$@"
+piece='%[2]s/piece'.$$
+cat > "$piece"
+if grep -q '%[3]s' "$piece"; then rm -f "$piece"; echo 'send refused' >&2; exit 1; fi
+'%[1]s' "$@" < "$piece"
+code=$?
+rm -f "$piece"
+exit $code
+`, real, dir, marker)
+	if err := os.WriteFile(filepath.Join(dir, "zmx"), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing the refusing zmx: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **A zmx write that fails part way says the text is partly there.** zmx takes
+  a long text as several sends. One that failed after an earlier send landed
+  returned the bare failure, usually `UNEXPECTED`, though part of the text was
+  already in the input line and a second attempt would type it again. It is
+  now a `TIMEOUT` marked `typed` that names how many bytes arrived, or keeps
+  its own code where it has one.
 - **meja on macOS takes a text larger than a pipe holds.** Type, paste and both
   sends on meja failed as `UNEXPECTED` ("resource temporarily unavailable")
   once the text filled the pipe it reaches meja through, since Go does not wait

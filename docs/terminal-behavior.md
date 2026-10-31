@@ -1630,7 +1630,11 @@ more. Two limits in zmx's daemon drop input with nothing said and exit status 0
   whose message, an 8-byte header and the text, fits in one read always
   arrives. Past that it is lost more often than not, with the text on an argv
   as much as on stdin. So a text longer than 4088 bytes goes as several sends,
-  in order, each finished before the next starts.
+  in order, each finished before the next starts. A send that fails after an
+  earlier one landed has left that part of the text in the input line, where a
+  second attempt would type it again. The failure names how many bytes
+  arrived and is marked typed. An `UNEXPECTED` failure becomes `TIMEOUT`, and
+  any other keeps its code.
 - It queues at most 256 KiB of input for the pty, and drops a write that would
   take the queue past that. A Type, Paste or atomic submit that would queue
   more MUST be refused as `USAGE` before anything runs, and the message names

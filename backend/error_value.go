@@ -46,8 +46,9 @@ type Error struct {
 	Cause error
 	// Typed marks a send whose text was typed and may still be in the input
 	// box: an AGENT_BLOCKED whose agent started waiting after the typing
-	// (behavior §7.5), or a TIMEOUT whose box held only part of the text
-	// (§7.6). A second send would type it again.
+	// (behavior §7.5), a TIMEOUT whose box held only part of the text (§7.6),
+	// or a write a backend made in pieces that failed after one landed
+	// (§4.3). A second send would type it again.
 	Typed bool
 	// Reason says which of a code's causes this is, where a caller acts on
 	// them differently and the code alone does not tell (api §2's
