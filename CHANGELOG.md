@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`send --help` and the behavior spec name a lost meja paste.** Both said
+  only an Enter of unknown delivery leaves an atomic send unmarked. A paste
+  lost with its client on meja is left unmarked the same way, with its text
+  possibly in the input line, and both now say so.
+
 ## [0.40.5]
 
 ### Fixed

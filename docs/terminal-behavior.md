@@ -1805,7 +1805,10 @@ zmx and meja they are two writes, so an invocation can fail after its text
 arrived. That failure leaves the text unsubmitted, where a retry would type it
 again. It is classified as §4.4 classifies a retried Enter's failure: marked
 typed (api §2) so the caller reads the screen first, except where the session
-is gone or the Enter's delivery is unknown.
+is gone or a write's delivery is unknown. That is an Enter that may have
+submitted, or, on meja, a paste lost with its client, whose text may or may not
+have arrived. Neither is marked, and the caller reads the screen before
+retrying either.
 
 Atomic submit MUST NOT verify. Callers needing both properties do not get them
 from one call, and the doors MUST reject the combination.
