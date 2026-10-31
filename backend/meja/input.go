@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -291,8 +290,8 @@ func (m *Meja) loadBuffer(ctx context.Context, name, text string) error {
 	if err != nil {
 		return backend.Wrapf(backend.CodeUnexpected, err, "making a directory for the text")
 	}
-	defer os.RemoveAll(dir)
 	fifo := filepath.Join(dir, "text")
+	defer release(dir, fifo)
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		return backend.Wrapf(backend.CodeUnexpected, err, "making a pipe for the text")
 	}
@@ -308,6 +307,19 @@ func (m *Meja) loadBuffer(ctx context.Context, name, text string) error {
 	return err
 }
 
+// release removes the pipe's directory.
+//
+// A server whose open of the pipe landed after feed gave up is waiting for a
+// writer, and removing the path does not end that wait. So a write end is held
+// across the removal: it lets any such open return, and closing it after gives
+// the read an empty pipe. Opened read-write, it never waits itself.
+func release(dir, fifo string) {
+	if f, err := os.OpenFile(fifo, os.O_RDWR|syscall.O_NONBLOCK, 0); err == nil {
+		defer f.Close()
+	}
+	_ = os.RemoveAll(dir)
+}
+
 // feed writes text into the FIFO once the server opens it for reading, and
 // gives up when done closes first.
 //
@@ -316,6 +328,11 @@ func (m *Meja) loadBuffer(ctx context.Context, name, text string) error {
 // outlives the call: a failed open is retried until the reader arrives or done
 // closes, and a write stalled on a reader that stopped reading is ended by
 // closing the file once done closes.
+//
+// On Linux the runtime polls the pipe, so a write waits while it is full. On
+// macOS it does not poll a FIFO (os/file_unix.go), so a full pipe is EAGAIN,
+// and the rest is written once the server has read some, or abandoned when
+// done closes.
 func feed(fifo, text string, done <-chan struct{}) error {
 	var f *os.File
 	for {
@@ -329,11 +346,7 @@ func feed(fifo, text string, done <-chan struct{}) error {
 		}
 		select {
 		case <-done:
-			// A server that opened the pipe just now would wait on its open
-			// for good. Once more, and an empty pipe ends its read.
-			if f, err := os.OpenFile(fifo, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
-				_ = f.Close()
-			}
+			// A server that opens the pipe from here on is let go by release.
 			return nil
 		case <-time.After(feedRetry):
 		}
@@ -347,10 +360,22 @@ func feed(fifo, text string, done <-chan struct{}) error {
 		case <-finished:
 		}
 	}()
-	if _, err := io.WriteString(f, text); err != nil {
-		return err
+	for {
+		n, err := f.WriteString(text)
+		text = text[n:]
+		if !errors.Is(err, syscall.EAGAIN) {
+			if err != nil {
+				return err
+			}
+			return f.Close()
+		}
+		select {
+		case <-done:
+			_ = f.Close()
+			return errors.New("the server stopped reading the text")
+		case <-time.After(feedRetry):
+		}
 	}
-	return f.Close()
 }
 
 // feedRetry is how often the write end is tried while the server has not yet

@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **meja on macOS takes a text larger than a pipe holds.** Type, paste and both
+  sends on meja failed as `UNEXPECTED` ("resource temporarily unavailable")
+  once the text filled the pipe it reaches meja through, since Go does not wait
+  on a full pipe on macOS. The rest of the text is now written as meja reads.
+- **A cancelled meja input no longer leaves meja waiting on its pipe.** A call
+  cancelled before meja opened the pipe could leave meja's open waiting for a
+  writer for good, holding a thread of its server.
+
 ## [0.40.1]
 
 ### Fixed

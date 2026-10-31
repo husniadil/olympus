@@ -1648,7 +1648,11 @@ meja's `set-buffer` and `send-keys -l` take the text as an argument, and its
 and reads to its end. So the path is a FIFO, in a directory of mode 0700 made
 for the one call and removed when it ends, and Olympus writes the text into it
 as the server reads. The text never reaches a disk, and a crash leaves an empty
-pipe behind rather than the text.
+pipe behind rather than the text. A call cancelled before the server reached
+its `load-buffer` leaves the server to open the pipe after Olympus stopped
+writing, and that open waits for a writer even once the path is gone. So the
+directory is removed with a write end held open across the removal, and the
+server's read finds the pipe empty.
 
 Type and the atomic submit then paste the buffer with `-S -r` and no `-p`:
 unsanitized, with no newline translated and no bracket, the bytes
