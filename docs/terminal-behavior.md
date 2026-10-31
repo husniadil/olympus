@@ -1573,6 +1573,20 @@ reports "no buffer", which would turn a no-op into `UNEXPECTED` on tmux alone.
 Only the target's presence is checked, so a missing session is still
 `SESSION_NOT_FOUND`.
 
+#### Type and the atomic submit paste the buffer's bytes as they are
+
+`paste-buffer` rewrites what it pastes in two ways. It replaces each newline
+with a carriage return, the byte a terminal sends for Enter, unless given `-r`.
+From 3.7 it also passes the buffer through vis(3), writing an ESC as the two
+characters `^[` and a DEL as `^?`, unless given `-S`, which earlier versions
+refuse as an unknown flag. Type and the atomic submit write the bytes
+`send-keys -l` wrote, as every other backend does, so they paste with `-r`, and
+add `-S` on 3.7 onwards. The version is asked only for a text vis would
+rewrite: a control character other than a tab or a newline, a DEL, or a byte
+that is not UTF-8. Ordinary text costs no lookup.
+
+Paste keeps both rewrites, as meja's paste does (§4.6).
+
 #### Why
 
 Two concurrent injections sharing a name race. One call's `load-buffer`
@@ -1790,7 +1804,8 @@ submit point. The door layer validates and rejects `\n`/`\r`. The backend does
 not re-check.
 
 On tmux it is one client invocation: `load-buffer` reading the text from
-stdin, then `paste-buffer` with no `-p`, then `send-keys Enter`, chained.
+stdin, then `paste-buffer` with the flags of §4.1 that keep its bytes and no
+`-p`, then `send-keys Enter`, chained.
 `load-buffer` holds the client's command queue until stdin is read
 (`CMD_RETURN_WAIT`, resumed by `cmdq_continue`), and the two after it never
 wait, so they run back to back in one pass of the single-threaded server. No
