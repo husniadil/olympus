@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.40.6]
+
 ### Fixed
 
 - **`send --help` and the behavior spec name a lost meja paste.** Both said
@@ -1660,7 +1662,8 @@ changed what the code does, not just how it is written.
   parsed as one field and was discarded, on a version well inside the supported
   range.
 
-[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.5...HEAD
+[Unreleased]: https://github.com/husniadil/olympus/compare/v0.40.6...HEAD
+[0.40.6]: https://github.com/husniadil/olympus/compare/v0.40.5...v0.40.6
 [0.40.5]: https://github.com/husniadil/olympus/compare/v0.40.4...v0.40.5
 [0.40.4]: https://github.com/husniadil/olympus/compare/v0.40.3...v0.40.4
 [0.40.3]: https://github.com/husniadil/olympus/compare/v0.40.2...v0.40.3
