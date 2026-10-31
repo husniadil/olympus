@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -590,6 +592,49 @@ func TestAnAtomicSubmitWhoseEnterFailsIsTyped(t *testing.T) {
 	waitFor(t, b, name, "echo left-behind")
 }
 
+// §4.7: an atomic submit whose context ends in the settle between its text and
+// its Enter has left the text in the input line, unsubmitted, as a failed Enter
+// does, and is a timeout marked typed the same way.
+//
+// The context is cancelled once the zmx that wrote the text has exited and
+// been reaped. The text has landed by then, and the call is waiting out the
+// settle or about to, so the cancel cannot land inside the write.
+func TestAnAtomicSubmitCancelledBeforeItsEnterIsTyped(t *testing.T) {
+	b := newBackend(t)
+	name := startShell(t, b, "oly-settle")
+	warm(t, b, name)
+	pids := reportSendsHolding(t, "left-behind")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		defer cancel()
+		deadline := time.Now().Add(10 * time.Second)
+		pid := 0
+		for pid == 0 && time.Now().Before(deadline) {
+			if out, err := os.ReadFile(pids); err == nil {
+				pid, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+			}
+			time.Sleep(time.Millisecond)
+		}
+		for pid != 0 && syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	err := b.SendAtomic(ctx, name, "echo left-behind")
+	if backend.CodeOf(err) != backend.CodeTimeout {
+		t.Errorf("an atomic submit cancelled before its Enter is %v, want %s", err, backend.CodeTimeout)
+	}
+	if !backend.TypedOf(err) {
+		t.Errorf("an atomic submit cancelled before its Enter is %v, not marked typed", err)
+	}
+	if err != nil && !strings.Contains(err.Error(), "not submitted") {
+		t.Errorf("%q does not say the text was left unsubmitted", err)
+	}
+	waitFor(t, b, name, "echo left-behind")
+}
+
 // §4.1: empty text is not injected at all. Only the target's presence is
 // checked, so a missing session is still not-found.
 func TestInjectingNothingIsAPresenceCheck(t *testing.T) {
@@ -650,4 +695,32 @@ exit $code
 		t.Fatalf("writing the refusing zmx: %v", err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// reportSendsHolding puts a zmx ahead of the real one on PATH that passes every
+// call through, and once a send whose text contains marker has finished,
+// writes its own process id to the file it returns, just before it exits.
+func reportSendsHolding(t *testing.T, marker string) string {
+	t.Helper()
+	real, err := exec.LookPath("zmx")
+	if err != nil {
+		t.Skip("zmx is not installed")
+	}
+	dir := t.TempDir()
+	pids := filepath.Join(dir, "pid")
+	script := fmt.Sprintf(`#!/bin/sh
+[ "$1" = send ] || exec '%[1]s' "$@"
+piece='%[2]s/piece'.$$
+cat > "$piece"
+'%[1]s' "$@" < "$piece"
+code=$?
+if grep -q '%[3]s' "$piece"; then echo $$ > '%[4]s.tmp' && mv '%[4]s.tmp' '%[4]s'; fi
+rm -f "$piece"
+exit $code
+`, real, dir, marker, pids)
+	if err := os.WriteFile(filepath.Join(dir, "zmx"), []byte(script), 0o755); err != nil {
+		t.Fatalf("writing the reporting zmx: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return pids
 }
