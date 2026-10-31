@@ -569,6 +569,27 @@ func TestASendThatFailsPartWayIsTyped(t *testing.T) {
 	}
 }
 
+// §4.7: an atomic submit whose terminator fails has left its text in the input
+// line, unsubmitted. The failure is a timeout marked typed (api §2), since a
+// second attempt would type the text again.
+func TestAnAtomicSubmitWhoseEnterFailsIsTyped(t *testing.T) {
+	b := newBackend(t)
+	ctx := context.Background()
+	name := startShell(t, b, "oly-unsubmitted")
+	warm(t, b, name)
+	refuseSendsHolding(t, "\r")
+
+	err := b.SendAtomic(ctx, name, "echo left-behind")
+	if backend.CodeOf(err) != backend.CodeTimeout {
+		t.Errorf("an atomic submit whose Enter failed is %v, want %s", err, backend.CodeTimeout)
+	}
+	if !backend.TypedOf(err) {
+		t.Errorf("an atomic submit whose Enter failed is %v, not marked typed", err)
+	}
+	// The text did arrive, so the error is telling the truth.
+	waitFor(t, b, name, "echo left-behind")
+}
+
 // §4.1: empty text is not injected at all. Only the target's presence is
 // checked, so a missing session is still not-found.
 func TestInjectingNothingIsAPresenceCheck(t *testing.T) {

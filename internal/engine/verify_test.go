@@ -335,7 +335,8 @@ func TestAVerifiedSendRetriesADroppedTerminatorOnce(t *testing.T) {
 
 // Exactly once, not until it works. A terminator that keeps failing surfaces an
 // error naming the text left behind, because a caller that does not learn about
-// it will corrupt its next injection.
+// it will corrupt its next injection. It is marked typed (api §2), as every
+// failure that leaves the text in the input line is.
 func TestATerminatorThatKeepsFailingIsSurfaced(t *testing.T) {
 	f := &fakeBackend{
 		submitFailures: 2,
@@ -348,6 +349,9 @@ func TestATerminatorThatKeepsFailingIsSurfaced(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "still sitting in the input line") {
 		t.Errorf("error is %q, want it to say the text is still in the input line", err)
+	}
+	if !backend.TypedOf(err) {
+		t.Errorf("error %v is not marked typed, though the text is still in the input line", err)
 	}
 	if f.submitFailures != 0 {
 		t.Errorf("%d scripted failures were never reached, so the terminator was tried fewer than twice", f.submitFailures)

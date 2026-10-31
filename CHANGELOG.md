@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A text left unsubmitted by a failed Enter is marked `typed`.** A send, a
+  run, or a type or paste with its submit, whose Enter failed again on its one
+  retry, and an atomic send on zmx whose Enter failed, return `TIMEOUT` with the
+  whole text still in the input line. The error now carries `typed: true`, as
+  the other failures that leave text behind already did, so a caller reading
+  it knows a second send would type the text again.
+
 ## [0.40.2]
 
 ### Fixed
